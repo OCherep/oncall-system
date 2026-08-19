@@ -71,6 +71,7 @@ textarea{min-height:70px;resize:vertical}
 
 <div class="modal" id="m-task"><div class="mc" style="max-width:480px"><h3>Задача з дейлі</h3>
 <div class="fg" id="task-assignee-wrap" style="display:none"><label>Виконавець</label><select id="tuser"></select></div>
+<div class="fg" id="task-resp-wrap" style="display:none"><label>Відповідальна особа</label><select id="tresp"></select></div>
 <div class="fg"><label>Дата</label><input type="date" id="td"></div>
 <div class="fg"><label>Опис</label><textarea id="tdesc"></textarea></div>
 <div class="fg"><label>Пріоритет</label><select id="tprio"><option>Базова</option><option>Надкритична</option><option>Термінова</option><option>Техборг</option><option>У шухляду</option></select></div>
@@ -88,7 +89,7 @@ textarea{min-height:70px;resize:vertical}
 <button class="btn" style="margin-top:12px" onclick="cl('m-day')">Закрити</button></div></div>
 
 <script>
-const STATUSES=['Нова','У роботі','До перевірки','Виконана','Перевідкрита','Архів'];
+const STATUSES=['Нова','У роботі','На паузі','До перевірки','Виконана','Перевідкрита','Архів'];
 const PRIOS=['Надкритична','Термінова','Базова','Техборг','У шухляду'];
 let U=null,Y=new Date().getFullYear(),M=new Date().getMonth()+1,AT=[],D={},_day='';
 
@@ -153,15 +154,21 @@ function day(ds){
 
   const tasks=(D.daily_tasks||{})[ds]||[];
   if(tasks.length){
-    let html='<table><thead><tr><th>Хто</th><th>Задача</th><th>Статус</th><th>Пріоритет</th><th>Час</th><th></th></tr></thead><tbody>';
+    let html='<table><thead><tr><th>Виконавець</th><th>Відповідальний</th><th>Задача</th><th>Статус</th><th>Пріоритет</th><th>Час</th><th></th></tr></thead><tbody>';
     tasks.forEach(t=>{
-      const stOpts=STATUSES.map(x=>`<option ${x===t.status?'selected':''}>${x}</option>`).join('');
+      const exec=t.user_name?esc(t.user_name):'<em style="color:#94a3b8">на розгляді</em>';
+      const resp=esc(t.responsible||'—');
+      const unassigned=!t.user_name;
+      const isAdm=U&&U.role==='admin';
+      const canStatus=U && (isAdm || !unassigned) && (isAdm || t.status!=='Виконана');
+      const allowed=typeof nextStatuses==='function'?nextStatuses(t.status):(isAdm?STATUSES:['У роботі','На паузі','До перевірки','Виконана']);
+      const stOpts=(allowed.length?allowed:[t.status]).map(x=>`<option ${x===t.status?'selected':''}>${x}</option>`).join('');
       const prOpts=PRIOS.map(x=>`<option ${x===t.priority?'selected':''}>${x}</option>`).join('');
-      html+=`<tr><td>${esc(t.user_name)}</td><td>${esc(t.task_description)}</td>
-        <td>${U?`<select onchange="updTask(${t.id},'status',this.value)">${stOpts}</select>`:`<span class="st">${esc(t.status)}</span>`}</td>
-        <td>${U&&U.role==='admin'?`<select onchange="updTask(${t.id},'priority',this.value)">${prOpts}</select>`:`<span class="prio">${esc(t.priority)}</span>`}</td>
+      html+=`<tr><td>${exec}</td><td>${resp}</td><td>${esc(t.task_description)}</td>
+        <td>${canStatus?`<select onchange="updTask(${t.id},'status',this.value)">${stOpts}</select>`:`<span class="st">${esc(t.status)}</span>`}</td>
+        <td>${isAdm?`<select onchange="updTask(${t.id},'priority',this.value)">${prOpts}</select>`:`<span class="prio">${esc(t.priority)}</span>`}</td>
         <td>${t.total_minutes||0} хв</td>
-        <td>${U?`<button class="btn btn-d" style="padding:2px 6px" onclick="delTask(${t.id})">✕</button>`:''}</td></tr>`;
+        <td>${isAdm?`<button class="btn btn-d" style="padding:2px 6px" onclick="delTask(${t.id})">✕</button>`:''}</td></tr>`;
     });
     html+='</tbody></table>';
     document.getElementById('dtasks').innerHTML=html;
@@ -227,23 +234,46 @@ async function subInc(){
 
 function openTask(){
   document.getElementById('td').value=today();document.getElementById('tdesc').value='';document.getElementById('tprio').value='Базова';
+  const isAdm=U&&U.role==='admin';
   const wrap=document.getElementById('task-assignee-wrap');
-  if(U&&U.role==='admin'){
-    wrap.style.display='';
+  const rw=document.getElementById('task-resp-wrap');
+  if(wrap) wrap.style.display=isAdm?'':'none';
+  if(rw) rw.style.display=isAdm?'':'none';
+  if(isAdm){
     fillMemberSelect('tuser', true);
-  } else {
-    wrap.style.display='none';
+    const tu=document.getElementById('tuser');
+    if(tu) tu.innerHTML='<option value="">— на розгляді —</option>'+tu.innerHTML;
+    fillMemberSelect('tresp', true);
   }
   document.getElementById('m-task').style.display='flex'}
 async function subTask(){
-  const who=(U&&U.role==='admin'&&document.getElementById('tuser').value)||U.name;
-  const r=await fetch('/api/daily-tasks',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({user_name:who,date:document.getElementById('td').value,
-      task_description:document.getElementById('tdesc').value.trim(),priority:document.getElementById('tprio').value,status:'Нова'})});
+  const isAdm=U&&U.role==='admin';
+  const who=isAdm?(document.getElementById('tuser').value||''):U.name;
+  const body={user_name:who,date:document.getElementById('td').value,
+    task_description:document.getElementById('tdesc').value.trim(),priority:document.getElementById('tprio').value,status:'Нова',
+    created_by:U.name};
+  if(isAdm){
+    body.responsible=document.getElementById('tresp')?document.getElementById('tresp').value||'':'';
+  }
+  const r=await fetch('/api/daily-tasks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   if(r.ok){alert('Збережено');cl('m-task');load()}else alert('Помилка')}
+function nextStatuses(cur){
+  const admin=U&&U.role==='admin';
+  const map={
+    'Нова': admin?['Нова','У роботі','Архів']:['У роботі'],
+    'У роботі': admin?['У роботі','На паузі','До перевірки','Виконана','Архів']:['На паузі','До перевірки'],
+    'На паузі': admin?['На паузі','У роботі','До перевірки','Архів']:['У роботі'],
+    'До перевірки': admin?['До перевірки','У роботі','Виконана','Архів']:['Виконана'],
+    'Виконана': admin?['Виконана','Перевідкрита','Архів']:[],
+    'Перевідкрита': admin?['Перевідкрита','Нова','У роботі','Архів']:[],
+    'Архів': admin?['Архів','Перевідкрита','Нова']:[]
+  };
+  return map[cur]||(admin?STATUSES:[]);
+}
 async function updTask(id,field,val){
-  const body={id};body[field]=val;
-  await fetch('/api/daily-tasks',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const body={id,role:U&&U.role||'user'};body[field]=val;
+  const r=await fetch('/api/daily-tasks',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  if(!r.ok){alert(await r.text()||'Помилка');}
   load();day(_day)}
 async function delTask(id){if(!confirm('Видалити?'))return;await fetch('/api/daily-tasks?id='+id,{method:'DELETE'});cl('m-day');load()}
 
