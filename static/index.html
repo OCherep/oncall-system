@@ -60,6 +60,7 @@ textarea{min-height:70px;resize:vertical}
 <button class="btn btn-s" onclick="cl('m-abs')">Скасувати</button></div></div>
 
 <div class="modal" id="m-inc"><div class="mc" style="max-width:440px"><h3>Звернення</h3>
+<div class="fg" id="inc-who-wrap" style="display:none"><label>Чиє звернення</label><select id="iuser"></select></div>
 <div class="fg"><label>Дата</label><input type="date" id="id"></div>
 <div class="fg"><label>Тип</label><select id="it"><option>Звернення</option><option>Інцидент</option><option>Консультація</option></select></div>
 <div class="fg"><label>Тривалість (хв)</label><input type="number" id="im" min="1" value="15"></div>
@@ -69,6 +70,7 @@ textarea{min-height:70px;resize:vertical}
 <button class="btn btn-s" onclick="cl('m-inc')">Скасувати</button></div></div>
 
 <div class="modal" id="m-task"><div class="mc" style="max-width:480px"><h3>Задача з дейлі</h3>
+<div class="fg" id="task-assignee-wrap" style="display:none"><label>Виконавець</label><select id="tuser"></select></div>
 <div class="fg"><label>Дата</label><input type="date" id="td"></div>
 <div class="fg"><label>Опис</label><textarea id="tdesc"></textarea></div>
 <div class="fg"><label>Пріоритет</label><select id="tprio"><option>Базова</option><option>Надкритична</option><option>Термінова</option><option>Техборг</option><option>У шухляду</option></select></div>
@@ -157,7 +159,7 @@ function day(ds){
       const prOpts=PRIOS.map(x=>`<option ${x===t.priority?'selected':''}>${x}</option>`).join('');
       html+=`<tr><td>${esc(t.user_name)}</td><td>${esc(t.task_description)}</td>
         <td>${U?`<select onchange="updTask(${t.id},'status',this.value)">${stOpts}</select>`:`<span class="st">${esc(t.status)}</span>`}</td>
-        <td>${U?`<select onchange="updTask(${t.id},'priority',this.value)">${prOpts}</select>`:`<span class="prio">${esc(t.priority)}</span>`}</td>
+        <td>${U&&U.role==='admin'?`<select onchange="updTask(${t.id},'priority',this.value)">${prOpts}</select>`:`<span class="prio">${esc(t.priority)}</span>`}</td>
         <td>${t.total_minutes||0} хв</td>
         <td>${U?`<button class="btn btn-d" style="padding:2px 6px" onclick="delTask(${t.id})">✕</button>`:''}</td></tr>`;
     });
@@ -194,26 +196,49 @@ async function subAbs(){
       start_date:document.getElementById('as').value,end_date:document.getElementById('ae').value})});
   if(r.ok){alert('Надіслано');cl('m-abs');load()}else alert('Помилка')}
 
+function fillMemberSelect(selId, includeSelf){
+  const sel=document.getElementById(selId);
+  const ms=(D.team_members||[]).filter(m=>m.role!=='admin'||m.is_oncall);
+  let opts='';
+  if(includeSelf&&U) opts+=`<option value="${esc(U.name)}">${esc(U.name)} (я)</option>`;
+  ms.forEach(m=>{if(!includeSelf||m.name!==U.name)opts+=`<option value="${esc(m.name)}">${esc(m.name)}</option>`});
+  sel.innerHTML=opts||`<option value="${esc(U&&U.name||'')}">${esc(U&&U.name||'')}</option>`;
+}
 function openInc(){
   document.getElementById('id').value=today();
   document.getElementById('im').value=15;document.getElementById('idesc').value='';
+  const wrap=document.getElementById('inc-who-wrap');
   const hint=document.getElementById('inc-hint');
-  hint.innerText=U&&U.role==='admin'
-    ?'Admin може фіксувати на будь-яку дату.'
-    :'Можна фіксувати лише на сьогодні. Якщо вказати майбутню дату — звернення піде в задачу «для розгляду на дейлі».';
+  if(U&&U.role==='admin'){
+    wrap.style.display='';
+    fillMemberSelect('iuser', true);
+    hint.innerText='Admin може фіксувати на будь-яку дату і від імені будь-якого члена команди.';
+  } else {
+    wrap.style.display='none';
+    hint.innerText='Можна фіксувати лише на сьогодні від свого імені. Майбутня дата → задача «для розгляду на дейлі».';
+  }
   document.getElementById('m-inc').style.display='flex'}
 async function subInc(){
-  const body={user_name:U.name,date:document.getElementById('id').value,type:document.getElementById('it').value,
+  const who=(U&&U.role==='admin'&&document.getElementById('iuser').value)||U.name;
+  const body={user_name:who,date:document.getElementById('id').value,type:document.getElementById('it').value,
     duration_minutes:+document.getElementById('im').value,description:document.getElementById('idesc').value.trim(),role:U.role};
   const r=await fetch('/api/incidents',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   if(r.ok){const j=await r.json();alert(j.message||'Зафіксовано');cl('m-inc');load()}else{const t=await r.text();alert(t||'Помилка')}}
 
 function openTask(){
   document.getElementById('td').value=today();document.getElementById('tdesc').value='';document.getElementById('tprio').value='Базова';
+  const wrap=document.getElementById('task-assignee-wrap');
+  if(U&&U.role==='admin'){
+    wrap.style.display='';
+    fillMemberSelect('tuser', true);
+  } else {
+    wrap.style.display='none';
+  }
   document.getElementById('m-task').style.display='flex'}
 async function subTask(){
+  const who=(U&&U.role==='admin'&&document.getElementById('tuser').value)||U.name;
   const r=await fetch('/api/daily-tasks',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({user_name:U.name,date:document.getElementById('td').value,
+    body:JSON.stringify({user_name:who,date:document.getElementById('td').value,
       task_description:document.getElementById('tdesc').value.trim(),priority:document.getElementById('tprio').value,status:'Нова'})});
   if(r.ok){alert('Збережено');cl('m-task');load()}else alert('Помилка')}
 async function updTask(id,field,val){
