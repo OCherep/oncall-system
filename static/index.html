@@ -1,5 +1,147 @@
 <!DOCTYPE html>
-<html lang="uk">
-<head><meta charset="UTF-8"><title>On-Call Schedule - placeholder</title></head>
-<body><p>Replace with full index.html from good branch. Frontend already has full incidents UI.</p></body>
-</html>
+<html lang="uk"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>On-Call Schedule</title>
+<style>
+:root{--p:#2563eb;--bg:#f8fafc;--t:#0f172a;--b:#e2e8f0}
+body{margin:0;font-family:system-ui,sans-serif;background:var(--bg);color:var(--t)}
+.navbar{position:fixed;top:0;left:0;right:0;height:56px;background:#fff;border-bottom:1px solid var(--b);display:flex;align-items:center;justify-content:space-between;padding:0 16px;z-index:1000}
+.logo{font-weight:700;color:var(--p);text-decoration:none}
+.nav-right{display:flex;gap:8px;align-items:center}
+.btn{padding:6px 12px;border-radius:6px;border:1px solid var(--b);background:#fff;cursor:pointer;font-size:13px}
+.btn-p{background:var(--p);color:#fff;border:none}
+.content{margin:70px auto 20px;padding:12px 16px;max-width:1100px}
+.cal-h{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+.grid{display:grid;grid-template-columns:repeat(7,1fr);gap:1px;background:var(--b);border:1px solid var(--b);border-radius:8px;overflow:hidden}
+.dh{background:#f1f5f9;padding:8px;text-align:center;font-weight:600;font-size:13px}
+.dc{background:#fff;min-height:100px;padding:6px;font-size:12px;cursor:pointer;display:flex;flex-direction:column;gap:3px}
+.dc:hover{background:#f8fafc}.dn{font-weight:700}
+.sc{border:1px solid var(--b);border-radius:4px;padding:4px;background:#eff6ff;font-size:11px}
+.ba{background:#fee2e2;color:#991b1b;font-size:10px;padding:2px 4px;border-radius:3px}
+.bi{background:#fef3c7;color:#92400e;font-size:10px;padding:2px 4px;border-radius:3px}
+.roster{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+.chip{font-size:12px;padding:3px 10px;border-radius:999px;border:1px solid var(--b);background:#fff}
+.chip.on{border-color:#93c5fd;background:#eff6ff;color:#1d4ed8}
+.chip.off{opacity:.5;text-decoration:line-through}
+.al{font-size:10px;color:#64748b}
+table{width:100%;border-collapse:collapse;background:#fff;border:1px solid var(--b);border-radius:8px;margin-top:8px}
+th,td{padding:10px;text-align:left;border-bottom:1px solid var(--b);font-size:13px}
+th{background:#f8fafc}
+.modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:2000;align-items:center;justify-content:center}
+.mc{background:#fff;padding:20px;border-radius:10px;max-width:440px;width:92%;max-height:90vh;overflow:auto}
+.fg{margin-bottom:10px}.fg label{display:block;font-size:12px;margin-bottom:3px}
+.fg input,.fg select,.fg textarea{width:100%;padding:7px;border:1px solid var(--b);border-radius:6px;box-sizing:border-box}
+</style></head><body>
+<div class="navbar">
+<a class="logo" href="/">On-Call Schedule</a>
+<div class="nav-right">
+<span id="user-info"></span>
+<button class="btn" id="btn-abs" style="display:none" onclick="openAbs()">Відсутність</button>
+<button class="btn" id="btn-inc" style="display:none" onclick="openInc()">Звернення</button>
+<a class="btn" id="btn-adm" style="display:none" href="/admin">Адмін</a>
+<button class="btn btn-p" id="btn-auth" onclick="toggleAuth()">Увійти</button>
+</div></div>
+<div class="content">
+<div class="cal-h"><button class="btn" onclick="chg(-1)">←</button><h2 id="mt">Календар</h2><button class="btn" onclick="chg(1)">→</button></div>
+<div id="roster" class="roster"></div>
+<div class="grid" id="cal">
+<div class="dh">Пн</div><div class="dh">Вт</div><div class="dh">Ср</div><div class="dh">Чт</div><div class="dh">Пт</div><div class="dh">Сб</div><div class="dh">Нд</div>
+</div>
+<h3 style="margin-top:24px">Статистика</h3>
+<table><thead><tr><th>Ім'я</th><th>Primary</th><th>Backup</th><th>Інциденти (год)</th></tr></thead><tbody id="stats"></tbody></table>
+<h3 style="margin-top:24px">Відсутності</h3>
+<table><thead><tr><th>Хто</th><th>Тип</th><th>З</th><th>По</th></tr></thead><tbody id="abst"></tbody></table>
+</div>
+<div class="modal" id="m-login"><div class="mc"><h3>Вхід</h3>
+<div class="fg"><label>Логін</label><input id="lu"></div>
+<div class="fg"><label>Пароль</label><input type="password" id="lp"></div>
+<button class="btn" onclick="cl('m-login')">Скасувати</button>
+<button class="btn btn-p" onclick="doLogin()">Увійти</button></div></div>
+<div class="modal" id="m-abs"><div class="mc"><h3>Відсутність</h3>
+<div class="fg"><label>Тип</label><select id="at"></select></div>
+<div class="fg"><label>З</label><input type="date" id="as"></div>
+<div class="fg"><label>По</label><input type="date" id="ae"></div>
+<button class="btn" onclick="cl('m-abs')">Скасувати</button>
+<button class="btn btn-p" onclick="subAbs()">Надіслати</button></div></div>
+<div class="modal" id="m-inc"><div class="mc"><h3>Звернення</h3>
+<div class="fg"><label>Дата</label><input type="date" id="id"></div>
+<div class="fg"><label>Тип</label><select id="it"><option>Звернення</option><option>Інцидент</option><option>Консультація</option></select></div>
+<div class="fg"><label>Хв</label><input type="number" id="idu" value="30" min="5" step="5"></div>
+<div class="fg"><label>Опис</label><textarea id="idesc" rows="3"></textarea></div>
+<button class="btn" onclick="cl('m-inc')">Скасувати</button>
+<button class="btn btn-p" onclick="subInc()">Зберегти</button></div></div>
+<div class="modal" id="m-day"><div class="mc"><h3 id="dt">День</h3>
+<div id="ds"></div><h4>Відсутності</h4><div id="da"></div><h4>Звернення</h4><div id="di"></div>
+<button class="btn" onclick="cl('m-day')">Закрити</button></div></div>
+<script>
+let U=null,Y=new Date().getFullYear(),M=new Date().getMonth()+1,AT=[],D={shifts:{},absences:[],incidents:{},team_members:[]};
+function sess(){try{U=JSON.parse(localStorage.getItem('u'))}catch(e){U=null}
+const i=document.getElementById('user-info'),a=document.getElementById('btn-auth');
+if(U){i.innerText=U.name+(U.role==='admin'?' (admin)':'');a.innerText='Вийти';
+document.getElementById('btn-abs').style.display='';document.getElementById('btn-inc').style.display='';
+document.getElementById('btn-adm').style.display=U.role==='admin'?'':'none'}
+else{i.innerText='';a.innerText='Увійти';document.getElementById('btn-abs').style.display='none';
+document.getElementById('btn-inc').style.display='none';document.getElementById('btn-adm').style.display='none'}}
+function toggleAuth(){if(U){U=null;localStorage.removeItem('u');sess()}else document.getElementById('m-login').style.display='flex'}
+function cl(id){document.getElementById(id).style.display='none'}
+async function doLogin(){const r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:document.getElementById('lu').value,password:document.getElementById('lp').value})});
+if(r.ok){U=await r.json();localStorage.setItem('u',JSON.stringify(U));cl('m-login');sess()}else alert('Помилка входу')}
+async function load(){const r=await fetch(`/api/data?year=${Y}&month=${M}`);const d=await r.json();AT=d.absence_types||[];D=d;
+roster(d.team_members||[],d.absences||[]);cal(d.year,d.month,d.shifts||{},d.absences||[],d.incidents||{},d.team_members||[]);
+stats(d.stats||[]);absT(d.absences||[])}
+function chg(n){M+=n;if(M<1){M=12;Y--}if(M>12){M=1;Y++}load()}
+function inact(n,ds,abs){for(const a of abs||[])if(a.user_name===n&&ds>=a.start_date&&ds<=a.end_date)return true;return false}
+function roster(ms,abs){const el=document.getElementById('roster'),t=new Date().toISOString().slice(0,10);
+if(!ms.length){el.innerHTML='<span style="color:#94a3b8">Команда порожня</span>';return}
+el.innerHTML=ms.map(m=>{const off=inact(m.name,t,abs);const c=['chip',m.is_oncall?'on':'',off?'off':''].filter(Boolean).join(' ');
+const r=m.team_role?' · '+m.team_role:'';const mk=off?' (відсутній)':(m.is_oncall?'':' (не в пулі)');
+return `<span class="${c}">${m.name}${r}${mk}</span>`}).join('')}
+function cal(y,m,sh,abs,inc,tm){const mn=['Січень','Лютий','Березень','Квітень','Травень','Червень','Липень','Серпень','Вересень','Жовтень','Листопад','Грудень'];
+document.getElementById('mt').innerText=mn[m-1]+' '+y;const g=document.getElementById('cal');
+while(g.children.length>7)g.removeChild(g.lastChild);
+const fd=new Date(y,m-1,1).getDay(),dim=new Date(y,m,0).getDate(),off=fd===0?6:fd-1;
+for(let i=0;i<off;i++){const e=document.createElement('div');e.className='dc';e.style.background='#fafafa';e.style.cursor='default';g.appendChild(e)}
+for(let d=1;d<=dim;d++){const ds=`${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+const c=document.createElement('div');c.className='dc';c.onclick=()=>day(ds);
+const n=document.createElement('div');n.className='dn';n.innerText=d;c.appendChild(n);
+const da=(abs||[]).filter(a=>ds>=a.start_date&&ds<=a.end_date);
+if(da.length){const b=document.createElement('div');b.className='ba';b.innerText='🏖️ '+da.map(a=>a.user_name.split(' ')[0]).join(', ');
+b.title=da.map(a=>a.user_name+' ('+a.type+')').join('\n');c.appendChild(b)}
+const card=document.createElement('div');card.className='sc';
+if(sh[ds]){const s=sh[ds];let h=`<div><b>Осн:</b> ${s.primary_user}</div><div><b>Дубл:</b> ${s.backup_user}</div>`;
+const av=(tm||[]).filter(m=>m.is_oncall&&!inact(m.name,ds,abs));
+if(av.length)h+=`<div class="al">В пулі: ${av.map(m=>m.name.split(' ')[0]).join(', ')}</div>`;
+card.innerHTML=h}else card.innerHTML='<div style="color:#94a3b8">Немає доступних</div>';
+c.appendChild(card);
+if(inc[ds]&&inc[ds].length){const b=document.createElement('div');b.className='bi';
+const t=inc[ds].reduce((s,i)=>s+i.duration_minutes,0);b.innerText=`⏱️ ${inc[ds].length} (${t}хв)`;c.appendChild(b)}
+g.appendChild(c)}}
+function day(ds){document.getElementById('dt').innerText='День: '+ds;
+const s=D.shifts&&D.shifts[ds],ms=D.team_members||[],abs=D.absences||[];
+const av=ms.filter(m=>m.is_oncall&&!inact(m.name,ds,abs)),un=ms.filter(m=>m.is_oncall&&inact(m.name,ds,abs));
+let h=s?`<b>Основний:</b> ${s.primary_user}<br><b>Дублюючий:</b> ${s.backup_user}<br>`:'Чергування не призначено<br>';
+if(av.length)h+=`<br><b>Доступні:</b> ${av.map(m=>m.name).join(', ')}`;
+if(un.length)h+=`<br><b>Не можуть чергувати:</b> ${un.map(m=>m.name).join(', ')}`;
+document.getElementById('ds').innerHTML=h;
+const al=abs.filter(a=>ds>=a.start_date&&ds<=a.end_date);
+document.getElementById('da').innerHTML=al.length?al.map(a=>`• <b>${a.user_name}</b> (${a.type})`).join('<br>'):'Немає';
+const ic=(D.incidents||{})[ds]||[];
+document.getElementById('di').innerHTML=ic.length?ic.map(i=>`• <b>${i.user_name}</b> [${i.type} ${i.duration_minutes}хв]: ${i.description}`).join('<br>'):'Немає';
+document.getElementById('m-day').style.display='flex'}
+function stats(st){const t=document.getElementById('stats');t.innerHTML='';(st||[]).forEach(s=>{const tr=document.createElement('tr');
+tr.innerHTML=`<td>${s.name}</td><td>${s.primary_count||0}</td><td>${s.backup_count||0}</td><td>${((s.incident_minutes||0)/60).toFixed(1)}</td>`;t.appendChild(tr)})}
+function absT(a){const t=document.getElementById('abst');t.innerHTML='';(a||[]).forEach(x=>{const tr=document.createElement('tr');
+tr.innerHTML=`<td>${x.user_name}</td><td>${x.type}</td><td>${x.start_date}</td><td>${x.end_date}</td>`;t.appendChild(tr)})}
+function openAbs(){const s=document.getElementById('at');s.innerHTML='';AT.forEach(t=>{const o=document.createElement('option');o.value=t.name;o.textContent=t.name;s.appendChild(o)});
+const t=new Date().toISOString().slice(0,10);document.getElementById('as').value=t;document.getElementById('ae').value=t;
+document.getElementById('m-abs').style.display='flex'}
+async function subAbs(){if(!U)return alert('Увійдіть');
+const r=await fetch('/api/request-absence',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_name:U.name,type:document.getElementById('at').value,start_date:document.getElementById('as').value,end_date:document.getElementById('ae').value})});
+if(r.ok){alert('Надіслано');cl('m-abs');load()}else alert('Помилка')}
+function openInc(){document.getElementById('id').value=new Date().toISOString().slice(0,10);document.getElementById('m-inc').style.display='flex'}
+async function subInc(){if(!U)return alert('Увійдіть');const dur=+document.getElementById('idu').value,desc=document.getElementById('idesc').value;
+if(!dur||!desc)return alert('Заповніть поля');
+const r=await fetch('/api/incidents',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_name:U.name,date:document.getElementById('id').value,type:document.getElementById('it').value,duration_minutes:dur,description:desc})});
+if(r.ok){alert('Збережено');cl('m-inc');load()}else alert('Помилка')}
+sess();load();
+</script></body></html>
