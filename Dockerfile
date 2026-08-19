@@ -30,6 +30,6 @@ WORKDIR /app
 COPY --from=builder /app/main .
 COPY --from=builder /app/static ./static
 
-EXPOSE 8083
+EXPOSE 8084
 
 CMD ["./main"]

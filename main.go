@@ -2,13 +2,11 @@ package main
 
 import (
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"html/template"
 	"log"
 	"net/http"
 	"strings"
-	"time"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -122,9 +120,9 @@ func main() {
 	http.HandleFunc("/api/admin/project/audit-logs", handleAuditLogs)
 	http.HandleFunc("/api/admin/project/app-logs", handleAppLogs)
 
-	logAppEvent("OnCall Core", "INFO", "Сервер системного адміністрування успішно запущено на порту 8083")
-	fmt.Println("Server running at http://localhost:8083")
-	log.Fatal(http.ListenAndServe(":8083", nil))
+	logAppEvent("OnCall Core", "INFO", "Сервер системного адміністрування успішно запущено на порту 8084")
+	fmt.Println("Server running at http://localhost:8084")
+	log.Fatal(http.ListenAndServe(":8084", nil))
 }
 
 func initDB() {

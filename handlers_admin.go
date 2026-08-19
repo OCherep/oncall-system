@@ -4,10 +4,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"strings"
-	"time"
 )
 
 func handleAdminUsers(w http.ResponseWriter, r *http.Request) {
