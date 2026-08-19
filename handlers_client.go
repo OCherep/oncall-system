@@ -82,8 +82,8 @@ func generateShifts(year, month int, oncallUsers []string, absences []AbsenceReq
 
 func scanDailyTask(scanner interface{ Scan(...interface{}) error }) (DailyTask, error) {
 	var t DailyTask
-	var workStarted, created, vis, due, cby sql.NullString
-	err := scanner.Scan(&t.ID, &t.UserName, &t.Date, &t.TaskDescription, &t.Status, &t.Priority, &workStarted, &t.TotalMinutes, &created, &vis, &due, &cby)
+	var workStarted, created, vis, due, cby, resp sql.NullString
+	err := scanner.Scan(&t.ID, &t.UserName, &t.Date, &t.TaskDescription, &t.Status, &t.Priority, &workStarted, &t.TotalMinutes, &created, &vis, &due, &cby, &resp)
 	if workStarted.Valid {
 		t.WorkStartedAt = workStarted.String
 	}
@@ -98,6 +98,9 @@ func scanDailyTask(scanner interface{ Scan(...interface{}) error }) (DailyTask, 
 	}
 	if cby.Valid {
 		t.CreatedBy = cby.String
+	}
+	if resp.Valid {
+		t.Responsible = resp.String
 	}
 	if t.Status == "" {
 		t.Status = "Нова"
@@ -277,7 +280,7 @@ func handleGetData(w http.ResponseWriter, r *http.Request) {
 	taskRows, _ := db.Query(`SELECT id, user_name, date, task_description,
 		COALESCE(status,'Нова'), COALESCE(priority,'Базова'), work_started_at,
 		COALESCE(total_minutes,0), COALESCE(datetime(created_at,'localtime'),''),
-		COALESCE(visible_from,''), COALESCE(due_date,''), COALESCE(created_by,'')
+		COALESCE(visible_from,''), COALESCE(due_date,''), COALESCE(created_by,''), COALESCE(responsible,'')
 		FROM daily_tasks WHERE date LIKE ? ORDER BY id`, monthPattern)
 	dailyTasks := make(map[string][]DailyTask)
 	if taskRows != nil {
@@ -414,10 +417,11 @@ func handleDailyTasks(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		if t.UserName == "" || t.Date == "" || t.TaskDescription == "" {
-			http.Error(w, "Потрібні user_name, date, task_description", http.StatusBadRequest)
+		if t.Date == "" || t.TaskDescription == "" {
+			http.Error(w, "Потрібні date, task_description", http.StatusBadRequest)
 			return
 		}
+		// user_name may be empty → «на розгляді»
 		if t.Status == "" {
 			t.Status = "Нова"
 		}
@@ -427,9 +431,9 @@ func handleDailyTasks(w http.ResponseWriter, r *http.Request) {
 		if t.VisibleFrom == "" {
 			t.VisibleFrom = t.Date
 		}
-		res, err := db.Exec(`INSERT INTO daily_tasks (user_name, date, task_description, status, priority, total_minutes, created_at, visible_from, due_date, created_by)
-			VALUES (?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP, ?, ?, ?)`,
-			t.UserName, t.Date, t.TaskDescription, t.Status, t.Priority, t.VisibleFrom, t.DueDate, t.CreatedBy)
+		res, err := db.Exec(`INSERT INTO daily_tasks (user_name, date, task_description, status, priority, total_minutes, created_at, visible_from, due_date, created_by, responsible)
+			VALUES (?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP, ?, ?, ?, ?)`,
+			t.UserName, t.Date, t.TaskDescription, t.Status, t.Priority, t.VisibleFrom, t.DueDate, t.CreatedBy, t.Responsible)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -458,12 +462,12 @@ func handleDailyTasks(w http.ResponseWriter, r *http.Request) {
 			roleHint = v
 		}
 		var cur DailyTask
-		var ws, ca, visN, dueN sql.NullString
+		var ws, ca, visN, dueN, respN sql.NullString
 		err := db.QueryRow(`SELECT id, user_name, date, task_description, COALESCE(status,'Нова'), COALESCE(priority,'Базова'),
 			work_started_at, COALESCE(total_minutes,0), COALESCE(datetime(created_at,'localtime'),''),
-			COALESCE(visible_from,''), COALESCE(due_date,'')
+			COALESCE(visible_from,''), COALESCE(due_date,''), COALESCE(responsible,'')
 			FROM daily_tasks WHERE id=?`, t.ID).
-			Scan(&cur.ID, &cur.UserName, &cur.Date, &cur.TaskDescription, &cur.Status, &cur.Priority, &ws, &cur.TotalMinutes, &ca, &visN, &dueN)
+			Scan(&cur.ID, &cur.UserName, &cur.Date, &cur.TaskDescription, &cur.Status, &cur.Priority, &ws, &cur.TotalMinutes, &ca, &visN, &dueN, &respN)
 		if err != nil {
 			http.Error(w, "not found", http.StatusNotFound)
 			return
@@ -476,6 +480,9 @@ func handleDailyTasks(w http.ResponseWriter, r *http.Request) {
 		}
 		if dueN.Valid {
 			cur.DueDate = dueN.String
+		}
+		if respN.Valid {
+			cur.Responsible = respN.String
 		}
 		newStatus := t.Status
 		if newStatus == "" {
@@ -507,6 +514,11 @@ func handleDailyTasks(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			newStatus = "Нова"
+		}
+		// unassigned executor («на розгляді») — only admin can change status / assign
+		if cur.UserName == "" && roleHint != "admin" {
+			http.Error(w, "Задача «на розгляді»: виконавця ще не призначено. Змінювати статус може лише admin", http.StatusForbidden)
+			return
 		}
 		if !isStatusAllowed(cur.Status, newStatus, roleHint) {
 			http.Error(w, "Недозволений перехід статусу: "+cur.Status+" → "+newStatus, http.StatusBadRequest)
@@ -545,9 +557,16 @@ func handleDailyTasks(w http.ResponseWriter, r *http.Request) {
 		if due == "" {
 			due = cur.DueDate
 		}
+		resp := t.Responsible
+		if resp == "" {
+			resp = cur.Responsible
+		}
+		if roleHint != "admin" && t.UserName == "" {
+			userName = cur.UserName
+		}
 		db.Exec(`UPDATE daily_tasks SET user_name=?, date=?, task_description=?, status=?, priority=?,
-			work_started_at=?, total_minutes=?, visible_from=?, due_date=? WHERE id=?`,
-			userName, date, desc, newStatus, newPriority, workArg, total, vis, due, t.ID)
+			work_started_at=?, total_minutes=?, visible_from=?, due_date=?, responsible=? WHERE id=?`,
+			userName, date, desc, newStatus, newPriority, workArg, total, vis, due, resp, t.ID)
 		t.UserName, t.Date, t.TaskDescription = userName, date, desc
 		t.Status, t.Priority, t.TotalMinutes, t.WorkStartedAt = newStatus, newPriority, total, workStarted
 		logAudit(userName, "UPDATE_DAILY_TASK", r.RemoteAddr, fmt.Sprintf("id=%d status=%s priority=%s", t.ID, newStatus, newPriority))
