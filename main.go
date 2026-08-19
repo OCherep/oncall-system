@@ -188,7 +188,6 @@ func initDB() {
 		}
 	}
 
-	// migrations for existing DBs
 	db.Exec("ALTER TABLE incidents ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP")
 	db.Exec("ALTER TABLE daily_tasks ADD COLUMN status TEXT DEFAULT 'Нова'")
 	db.Exec("ALTER TABLE daily_tasks ADD COLUMN priority TEXT DEFAULT 'Базова'")
@@ -197,7 +196,18 @@ func initDB() {
 	db.Exec("ALTER TABLE daily_tasks ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP")
 	db.Exec("ALTER TABLE users ADD COLUMN is_oncall INTEGER DEFAULT 1")
 
-	// seed admin if empty
+	tables := []string{"users", "team_roles", "absence_types", "shifts", "absences", "incidents", "daily_tasks", "audit_logs", "app_logs"}
+	for _, t := range tables {
+		db.Exec("INSERT OR IGNORE INTO table_tracker (table_name, last_action, last_update) VALUES (?, 'INIT', CURRENT_TIMESTAMP)", t)
+		for _, act := range []string{"INSERT", "UPDATE", "DELETE"} {
+			trig := "trig_" + t + "_" + act
+			q := "CREATE TRIGGER IF NOT EXISTS " + trig + " AFTER " + act + " ON " + t +
+				" BEGIN INSERT INTO table_tracker (table_name, last_action, last_update) VALUES ('" + t + "', '" + act +
+				"', CURRENT_TIMESTAMP) ON CONFLICT(table_name) DO UPDATE SET last_action='" + act + "', last_update=CURRENT_TIMESTAMP; END;"
+			db.Exec(q)
+		}
+	}
+
 	var cnt int
 	db.QueryRow("SELECT COUNT(*) FROM users").Scan(&cnt)
 	if cnt == 0 {
@@ -223,6 +233,9 @@ func main() {
 	http.HandleFunc("/api/admin/requests", handleAdminRequests)
 	http.HandleFunc("/api/admin/logs", handleAdminLogs)
 	http.HandleFunc("/api/admin/tasks", handleAdminTasks)
+	http.HandleFunc("/api/admin/project/db-stats", handleDBStats)
+	http.HandleFunc("/api/admin/project/query", handleReadOnlyQuery)
+	http.HandleFunc("/api/admin/regenerate-shifts", handleRegenerateShifts)
 
 	fs := http.FileServer(http.Dir("./static"))
 	http.Handle("/", fs)
