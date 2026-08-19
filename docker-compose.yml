@@ -7,6 +7,8 @@ services:
     restart: always
     environment:
       - PORT=8084
+      - DB_PATH=/app/data/oncall.db
+      - DB_ADMIN_PASSWORD=db-admin-change-me
     volumes:
       - ./data:/app/data
       - /var/log/oncall-app:/var/log/oncall-app
