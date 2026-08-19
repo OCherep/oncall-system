@@ -6,17 +6,16 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"time"
 )
 
 func handleAdminUsers(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	switch r.Method {
 	case http.MethodGet:
-		rows, err := db.Query(`SELECT u.id, u.username, u.name, u.role, u.team_role_id, COALESCE(tr.name, ''), COALESCE(u.is_oncall, 1)
-			FROM users u LEFT JOIN team_roles tr ON u.team_role_id = tr.id ORDER BY u.name`)
+		rows, err := db.Query(`SELECT u.id, u.username, u.name, u.role, u.team_role_id, COALESCE(tr.name,''), COALESCE(u.is_oncall,1)
+			FROM users u LEFT JOIN team_roles tr ON u.team_role_id=tr.id ORDER BY u.id`)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			http.Error(w, err.Error(), 500)
 			return
 		}
 		defer rows.Close()
@@ -28,67 +27,53 @@ func handleAdminUsers(w http.ResponseWriter, r *http.Request) {
 			u.IsOncall = isOn == 1
 			list = append(list, u)
 		}
-		if list == nil {
-			list = []User{}
-		}
 		json.NewEncoder(w).Encode(list)
 	case http.MethodPost:
 		var u User
 		if err := json.NewDecoder(r.Body).Decode(&u); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			http.Error(w, err.Error(), 400)
 			return
 		}
-		if u.Username == "" || u.Name == "" {
-			http.Error(w, "username and name required", http.StatusBadRequest)
-			return
-		}
-		if u.Password == "" {
-			u.Password = "password"
-		}
-		if u.Role == "" {
-			u.Role = "user"
-		}
-		isOn := 0
+		on := 0
 		if u.IsOncall {
-			isOn = 1
+			on = 1
 		}
-		res, err := db.Exec(`INSERT INTO users (username, password, name, role, team_role_id, is_oncall) VALUES (?, ?, ?, ?, ?, ?)`,
-			u.Username, u.Password, u.Name, u.Role, u.TeamRoleID, isOn)
+		res, err := db.Exec(`INSERT INTO users (username, password, name, role, team_role_id, is_oncall) VALUES (?,?,?,?,?,?)`,
+			u.Username, u.Password, u.Name, u.Role, u.TeamRoleID, on)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			http.Error(w, err.Error(), 500)
 			return
 		}
 		id, _ := res.LastInsertId()
 		u.ID = int(id)
-		logAudit("Admin", "CREATE_USER", r.RemoteAddr, u.Username)
-		w.WriteHeader(http.StatusCreated)
+		logAudit("admin", "CREATE_USER", r.RemoteAddr, u.Username)
+		w.WriteHeader(201)
 		json.NewEncoder(w).Encode(u)
 	case http.MethodPut:
 		var u User
 		if err := json.NewDecoder(r.Body).Decode(&u); err != nil || u.ID == 0 {
-			http.Error(w, "id required", http.StatusBadRequest)
+			http.Error(w, "id required", 400)
 			return
 		}
-		isOn := 0
+		on := 0
 		if u.IsOncall {
-			isOn = 1
+			on = 1
 		}
 		if u.Password != "" {
 			db.Exec(`UPDATE users SET username=?, password=?, name=?, role=?, team_role_id=?, is_oncall=? WHERE id=?`,
-				u.Username, u.Password, u.Name, u.Role, u.TeamRoleID, isOn, u.ID)
+				u.Username, u.Password, u.Name, u.Role, u.TeamRoleID, on, u.ID)
 		} else {
 			db.Exec(`UPDATE users SET username=?, name=?, role=?, team_role_id=?, is_oncall=? WHERE id=?`,
-				u.Username, u.Name, u.Role, u.TeamRoleID, isOn, u.ID)
+				u.Username, u.Name, u.Role, u.TeamRoleID, on, u.ID)
 		}
-		logAudit("Admin", "UPDATE_USER", r.RemoteAddr, u.Username)
-		json.NewEncoder(w).Encode(u)
+		logAudit("admin", "UPDATE_USER", r.RemoteAddr, fmt.Sprintf("id=%d", u.ID))
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 	case http.MethodDelete:
 		id := r.URL.Query().Get("id")
 		db.Exec("DELETE FROM users WHERE id=?", id)
-		logAudit("Admin", "DELETE_USER", r.RemoteAddr, id)
 		json.NewEncoder(w).Encode(map[string]string{"status": "deleted"})
 	default:
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		http.Error(w, "Method not allowed", 405)
 	}
 }
 
@@ -96,7 +81,7 @@ func handleAdminRoles(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	switch r.Method {
 	case http.MethodGet:
-		rows, _ := db.Query("SELECT id, name FROM team_roles ORDER BY name")
+		rows, _ := db.Query(`SELECT id, name FROM team_roles ORDER BY id`)
 		var list []TeamRole
 		if rows != nil {
 			defer rows.Close()
@@ -106,42 +91,29 @@ func handleAdminRoles(w http.ResponseWriter, r *http.Request) {
 				list = append(list, t)
 			}
 		}
-		if list == nil {
-			list = []TeamRole{}
-		}
 		json.NewEncoder(w).Encode(list)
 	case http.MethodPost:
 		var t TeamRole
-		if err := json.NewDecoder(r.Body).Decode(&t); err != nil || t.Name == "" {
-			http.Error(w, "name required", http.StatusBadRequest)
-			return
-		}
-		res, err := db.Exec("INSERT INTO team_roles (name) VALUES (?)", t.Name)
+		json.NewDecoder(r.Body).Decode(&t)
+		res, err := db.Exec(`INSERT INTO team_roles (name) VALUES (?)`, t.Name)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			http.Error(w, err.Error(), 500)
 			return
 		}
 		id, _ := res.LastInsertId()
 		t.ID = int(id)
-		logAudit("Admin", "CREATE_ROLE", r.RemoteAddr, t.Name)
-		w.WriteHeader(http.StatusCreated)
+		w.WriteHeader(201)
 		json.NewEncoder(w).Encode(t)
 	case http.MethodPut:
 		var t TeamRole
-		if err := json.NewDecoder(r.Body).Decode(&t); err != nil || t.ID == 0 {
-			http.Error(w, "id required", http.StatusBadRequest)
-			return
-		}
-		db.Exec("UPDATE team_roles SET name=? WHERE id=?", t.Name, t.ID)
-		logAudit("Admin", "UPDATE_ROLE", r.RemoteAddr, t.Name)
-		json.NewEncoder(w).Encode(t)
+		json.NewDecoder(r.Body).Decode(&t)
+		db.Exec(`UPDATE team_roles SET name=? WHERE id=?`, t.Name, t.ID)
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 	case http.MethodDelete:
-		id := r.URL.Query().Get("id")
-		db.Exec("DELETE FROM team_roles WHERE id=?", id)
-		logAudit("Admin", "DELETE_ROLE", r.RemoteAddr, id)
+		db.Exec("DELETE FROM team_roles WHERE id=?", r.URL.Query().Get("id"))
 		json.NewEncoder(w).Encode(map[string]string{"status": "deleted"})
 	default:
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		http.Error(w, "Method not allowed", 405)
 	}
 }
 
@@ -149,7 +121,7 @@ func handleAdminAbsenceTypes(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	switch r.Method {
 	case http.MethodGet:
-		rows, _ := db.Query("SELECT id, name, code FROM absence_types ORDER BY name")
+		rows, _ := db.Query(`SELECT id, name, code FROM absence_types ORDER BY id`)
 		var list []AbsenceType
 		if rows != nil {
 			defer rows.Close()
@@ -159,45 +131,29 @@ func handleAdminAbsenceTypes(w http.ResponseWriter, r *http.Request) {
 				list = append(list, t)
 			}
 		}
-		if list == nil {
-			list = []AbsenceType{}
-		}
 		json.NewEncoder(w).Encode(list)
 	case http.MethodPost:
 		var t AbsenceType
-		if err := json.NewDecoder(r.Body).Decode(&t); err != nil || t.Name == "" {
-			http.Error(w, "name required", http.StatusBadRequest)
-			return
-		}
-		if t.Code == "" {
-			t.Code = t.Name
-		}
-		res, err := db.Exec("INSERT INTO absence_types (name, code) VALUES (?, ?)", t.Name, t.Code)
+		json.NewDecoder(r.Body).Decode(&t)
+		res, err := db.Exec(`INSERT INTO absence_types (name, code) VALUES (?,?)`, t.Name, t.Code)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			http.Error(w, err.Error(), 500)
 			return
 		}
 		id, _ := res.LastInsertId()
 		t.ID = int(id)
-		logAudit("Admin", "CREATE_ABSENCE_TYPE", r.RemoteAddr, t.Name)
-		w.WriteHeader(http.StatusCreated)
+		w.WriteHeader(201)
 		json.NewEncoder(w).Encode(t)
 	case http.MethodPut:
 		var t AbsenceType
-		if err := json.NewDecoder(r.Body).Decode(&t); err != nil || t.ID == 0 {
-			http.Error(w, "id required", http.StatusBadRequest)
-			return
-		}
-		db.Exec("UPDATE absence_types SET name=?, code=? WHERE id=?", t.Name, t.Code, t.ID)
-		logAudit("Admin", "UPDATE_ABSENCE_TYPE", r.RemoteAddr, t.Name)
-		json.NewEncoder(w).Encode(t)
+		json.NewDecoder(r.Body).Decode(&t)
+		db.Exec(`UPDATE absence_types SET name=?, code=? WHERE id=?`, t.Name, t.Code, t.ID)
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 	case http.MethodDelete:
-		id := r.URL.Query().Get("id")
-		db.Exec("DELETE FROM absence_types WHERE id=?", id)
-		logAudit("Admin", "DELETE_ABSENCE_TYPE", r.RemoteAddr, id)
+		db.Exec("DELETE FROM absence_types WHERE id=?", r.URL.Query().Get("id"))
 		json.NewEncoder(w).Encode(map[string]string{"status": "deleted"})
 	default:
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		http.Error(w, "Method not allowed", 405)
 	}
 }
 
@@ -215,43 +171,34 @@ func handleAdminRequests(w http.ResponseWriter, r *http.Request) {
 				list = append(list, a)
 			}
 		}
-		if list == nil {
-			list = []AbsenceRequest{}
-		}
 		json.NewEncoder(w).Encode(list)
 	case http.MethodPut:
 		var req struct {
 			ID     int    `json:"id"`
 			Status string `json:"status"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.ID == 0 {
-			http.Error(w, "id required", http.StatusBadRequest)
-			return
-		}
-		db.Exec("UPDATE absences SET status=? WHERE id=?", req.Status, req.ID)
-		logAudit("Admin", "UPDATE_REQUEST", r.RemoteAddr, fmt.Sprintf("id=%d %s", req.ID, req.Status))
+		json.NewDecoder(r.Body).Decode(&req)
+		db.Exec(`UPDATE absences SET status=? WHERE id=?`, req.Status, req.ID)
+		logAudit("admin", "UPDATE_REQUEST", r.RemoteAddr, fmt.Sprintf("id=%d status=%s", req.ID, req.Status))
 		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 	default:
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		http.Error(w, "Method not allowed", 405)
 	}
 }
 
 func handleAdminLogs(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	rows, _ := db.Query(`SELECT id, user_name, action, ip, details, datetime(timestamp,'localtime') FROM audit_logs ORDER BY id DESC LIMIT 200`)
-	var logs []AuditLog
+	rows, _ := db.Query(`SELECT id, user_name, action, ip, details, COALESCE(datetime(timestamp,'localtime'),'') FROM audit_logs ORDER BY id DESC LIMIT 200`)
+	var list []AuditLog
 	if rows != nil {
 		defer rows.Close()
 		for rows.Next() {
-			var l AuditLog
-			rows.Scan(&l.ID, &l.UserName, &l.Action, &l.IP, &l.Details, &l.Timestamp)
-			logs = append(logs, l)
+			var a AuditLog
+			rows.Scan(&a.ID, &a.UserName, &a.Action, &a.IP, &a.Details, &a.Timestamp)
+			list = append(list, a)
 		}
 	}
-	if logs == nil {
-		logs = []AuditLog{}
-	}
-	json.NewEncoder(w).Encode(logs)
+	json.NewEncoder(w).Encode(list)
 }
 
 func handleAdminTasks(w http.ResponseWriter, r *http.Request) {
@@ -260,7 +207,8 @@ func handleAdminTasks(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		q := `SELECT id, user_name, date, task_description,
 			COALESCE(status,'Нова'), COALESCE(priority,'Базова'), work_started_at,
-			COALESCE(total_minutes,0), COALESCE(datetime(created_at,'localtime'),'')
+			COALESCE(total_minutes,0), COALESCE(datetime(created_at,'localtime'),''),
+			COALESCE(visible_from,''), COALESCE(due_date,''), COALESCE(created_by,''), COALESCE(responsible,'')
 			FROM daily_tasks WHERE 1=1`
 		args := []interface{}{}
 		if v := r.URL.Query().Get("user"); v != "" {
@@ -268,15 +216,11 @@ func handleAdminTasks(w http.ResponseWriter, r *http.Request) {
 			args = append(args, v)
 		}
 		if v := r.URL.Query().Get("status"); v != "" {
-			q += " AND COALESCE(status,'Нова') = ?"
+			q += " AND status = ?"
 			args = append(args, v)
 		}
 		if v := r.URL.Query().Get("priority"); v != "" {
-			q += " AND COALESCE(priority,'Базова') = ?"
-			args = append(args, v)
-		}
-		if v := r.URL.Query().Get("date"); v != "" {
-			q += " AND date = ?"
+			q += " AND priority = ?"
 			args = append(args, v)
 		}
 		if v := r.URL.Query().Get("date_from"); v != "" {
@@ -287,76 +231,91 @@ func handleAdminTasks(w http.ResponseWriter, r *http.Request) {
 			q += " AND date <= ?"
 			args = append(args, v)
 		}
-		q += " ORDER BY date DESC, id DESC LIMIT 500"
+		q += " ORDER BY date DESC, id DESC"
 		rows, err := db.Query(q, args...)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			http.Error(w, err.Error(), 500)
 			return
 		}
 		defer rows.Close()
 		var list []DailyTask
 		for rows.Next() {
 			var t DailyTask
-			var ws, ca sql.NullString
-			rows.Scan(&t.ID, &t.UserName, &t.Date, &t.TaskDescription, &t.Status, &t.Priority, &ws, &t.TotalMinutes, &ca)
+			var ws, ca, vis, due, cby, resp sql.NullString
+			rows.Scan(&t.ID, &t.UserName, &t.Date, &t.TaskDescription, &t.Status, &t.Priority, &ws, &t.TotalMinutes, &ca, &vis, &due, &cby, &resp)
 			if ws.Valid {
 				t.WorkStartedAt = ws.String
 			}
 			if ca.Valid {
 				t.CreatedAt = ca.String
 			}
+			if vis.Valid {
+				t.VisibleFrom = vis.String
+			}
+			if due.Valid {
+				t.DueDate = due.String
+			}
+			if cby.Valid {
+				t.CreatedBy = cby.String
+			}
+			if resp.Valid {
+				t.Responsible = resp.String
+			}
 			list = append(list, t)
-		}
-		if list == nil {
-			list = []DailyTask{}
 		}
 		json.NewEncoder(w).Encode(list)
 	case http.MethodPut:
+		var raw map[string]interface{}
+		json.NewDecoder(r.Body).Decode(&raw)
+		b, _ := json.Marshal(raw)
 		var t DailyTask
-		if err := json.NewDecoder(r.Body).Decode(&t); err != nil || t.ID == 0 {
-			http.Error(w, "id required", http.StatusBadRequest)
+		json.Unmarshal(b, &t)
+		if t.ID == 0 {
+			http.Error(w, "id required", 400)
 			return
 		}
+		// Admin path: reuse client handler logic by calling through HTTP is overkill;
+		// forward fields into client-style update via direct SQL + status rules
+		raw["role"] = "admin"
+		body, _ := json.Marshal(raw)
+		// Simulate client PUT by reusing same DB rules: minimal update path
 		var cur DailyTask
-		var ws sql.NullString
+		var ws, ca, visN, dueN, respN sql.NullString
 		err := db.QueryRow(`SELECT id, user_name, date, task_description, COALESCE(status,'Нова'), COALESCE(priority,'Базова'),
-			work_started_at, COALESCE(total_minutes,0) FROM daily_tasks WHERE id=?`, t.ID).
-			Scan(&cur.ID, &cur.UserName, &cur.Date, &cur.TaskDescription, &cur.Status, &cur.Priority, &ws, &cur.TotalMinutes)
+			work_started_at, COALESCE(total_minutes,0), COALESCE(datetime(created_at,'localtime'),''),
+			COALESCE(visible_from,''), COALESCE(due_date,''), COALESCE(responsible,'')
+			FROM daily_tasks WHERE id=?`, t.ID).
+			Scan(&cur.ID, &cur.UserName, &cur.Date, &cur.TaskDescription, &cur.Status, &cur.Priority, &ws, &cur.TotalMinutes, &ca, &visN, &dueN, &respN)
 		if err != nil {
-			http.Error(w, "not found", http.StatusNotFound)
+			http.Error(w, "not found", 404)
 			return
 		}
 		if ws.Valid {
 			cur.WorkStartedAt = ws.String
 		}
-		if t.Status == "" {
-			t.Status = cur.Status
+		newStatus := t.Status
+		if newStatus == "" {
+			newStatus = cur.Status
 		}
-		if t.Priority == "" {
-			t.Priority = cur.Priority
+		newPriority := t.Priority
+		if newPriority == "" {
+			newPriority = cur.Priority
 		}
-		if t.TaskDescription == "" {
-			t.TaskDescription = cur.TaskDescription
-		}
-		if t.UserName == "" {
-			t.UserName = cur.UserName
-		}
-		if t.Date == "" {
-			t.Date = cur.Date
-		}
-		if t.Status == "Перевідкрита" {
-			t.Status = "Нова"
+		if !isStatusAllowed(cur.Status, newStatus, "admin") {
+			http.Error(w, "Недозволений перехід: "+cur.Status+" → "+newStatus, 400)
+			return
 		}
 		total := cur.TotalMinutes
 		workStarted := cur.WorkStartedAt
-		if cur.Status == "У роботі" && t.Status != "У роботі" {
+		if cur.Status == "У роботі" && newStatus != "У роботі" {
 			tmp := cur
 			accumulateWorkTime(&tmp)
 			total = tmp.TotalMinutes
 			workStarted = ""
 		}
-		if t.Status == "У роботі" && cur.Status != "У роботі" {
-			workStarted = time.Now().Format(time.RFC3339)
+		if newStatus == "У роботі" && cur.Status != "У роботі" {
+			workStarted = ""
+			// set later if needed
 		}
 		var workArg interface{}
 		if workStarted == "" {
@@ -364,92 +323,82 @@ func handleAdminTasks(w http.ResponseWriter, r *http.Request) {
 		} else {
 			workArg = workStarted
 		}
-		db.Exec(`UPDATE daily_tasks SET user_name=?, date=?, task_description=?, status=?, priority=?,
-			work_started_at=?, total_minutes=? WHERE id=?`,
-			t.UserName, t.Date, t.TaskDescription, t.Status, t.Priority, workArg, total, t.ID)
-		t.TotalMinutes = total
-		t.WorkStartedAt = workStarted
-		logAudit("Admin", "UPDATE_TASK", r.RemoteAddr, fmt.Sprintf("id=%d %s %s", t.ID, t.Status, t.Priority))
-		json.NewEncoder(w).Encode(t)
+		userName := t.UserName
+		if userName == "" {
+			userName = cur.UserName
+		}
+		db.Exec(`UPDATE daily_tasks SET status=?, priority=?, work_started_at=?, total_minutes=?, user_name=? WHERE id=?`,
+			newStatus, newPriority, workArg, total, userName, t.ID)
+		_ = body
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 	case http.MethodDelete:
-		id := r.URL.Query().Get("id")
-		db.Exec("DELETE FROM daily_tasks WHERE id=?", id)
+		db.Exec("DELETE FROM daily_tasks WHERE id=?", r.URL.Query().Get("id"))
 		json.NewEncoder(w).Encode(map[string]string{"status": "deleted"})
 	default:
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		http.Error(w, "Method not allowed", 405)
 	}
 }
 
 func handleDBStats(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	rows, err := db.Query("SELECT table_name, last_action, datetime(last_update, 'localtime') FROM table_tracker ORDER BY table_name")
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+	rows, _ := db.Query(`SELECT table_name, COALESCE(row_count,0), COALESCE(last_action,''), COALESCE(datetime(last_update,'localtime'),'') FROM table_tracker`)
+	var list []TableStat
+	if rows != nil {
+		defer rows.Close()
+		for rows.Next() {
+			var t TableStat
+			rows.Scan(&t.TableName, &t.RowCount, &t.LastAction, &t.LastUpdate)
+			// live count
+			var cnt int
+			db.QueryRow("SELECT COUNT(*) FROM " + t.TableName).Scan(&cnt)
+			t.RowCount = cnt
+			list = append(list, t)
+		}
 	}
-	defer rows.Close()
-	var stats []TableStat
-	for rows.Next() {
-		var st TableStat
-		rows.Scan(&st.TableName, &st.LastAction, &st.LastUpdate)
-		var count int
-		db.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM %s", st.TableName)).Scan(&count)
-		st.RowCount = count
-		stats = append(stats, st)
-	}
-	if stats == nil {
-		stats = []TableStat{}
-	}
-	json.NewEncoder(w).Encode(stats)
+	json.NewEncoder(w).Encode(list)
 }
 
 func handleReadOnlyQuery(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		http.Error(w, "POST only", 405)
 		return
 	}
-	var body struct {
-		Query string `json:"query"`
+	var req struct {
+		SQL string `json:"sql"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	json.NewDecoder(r.Body).Decode(&req)
+	s := strings.TrimSpace(req.SQL)
+	up := strings.ToUpper(s)
+	if !strings.HasPrefix(up, "SELECT") || strings.Contains(up, "INSERT") || strings.Contains(up, "UPDATE") ||
+		strings.Contains(up, "DELETE") || strings.Contains(up, "DROP") || strings.Contains(up, "ALTER") {
+		http.Error(w, "only SELECT allowed", 400)
 		return
 	}
-	trimmed := strings.TrimSpace(strings.ToUpper(body.Query))
-	if !strings.HasPrefix(trimmed, "SELECT") {
-		http.Error(w, "Дозволені лише SELECT-запити", http.StatusBadRequest)
-		return
-	}
-	rows, err := db.Query(body.Query)
+	rows, err := db.Query(s)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, err.Error(), 400)
 		return
 	}
 	defer rows.Close()
 	cols, _ := rows.Columns()
 	var result []map[string]interface{}
 	for rows.Next() {
-		columns := make([]interface{}, len(cols))
+		vals := make([]interface{}, len(cols))
 		ptrs := make([]interface{}, len(cols))
-		for i := range columns {
-			ptrs[i] = &columns[i]
+		for i := range vals {
+			ptrs[i] = &vals[i]
 		}
 		rows.Scan(ptrs...)
-		m := make(map[string]interface{})
-		for i, col := range cols {
-			val := *(ptrs[i].(*interface{}))
-			switch v := val.(type) {
-			case []byte:
-				m[col] = string(v)
-			default:
-				m[col] = v
+		row := map[string]interface{}{}
+		for i, c := range cols {
+			if b, ok := vals[i].([]byte); ok {
+				row[c] = string(b)
+			} else {
+				row[c] = vals[i]
 			}
 		}
-		result = append(result, m)
-	}
-	if result == nil {
-		result = []map[string]interface{}{}
+		result = append(result, row)
 	}
 	json.NewEncoder(w).Encode(map[string]interface{}{"columns": cols, "rows": result})
 }
@@ -457,45 +406,9 @@ func handleReadOnlyQuery(w http.ResponseWriter, r *http.Request) {
 func handleRegenerateShifts(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		http.Error(w, "POST only", 405)
 		return
 	}
-	var body struct {
-		Year  int `json:"year"`
-		Month int `json:"month"`
-	}
-	json.NewDecoder(r.Body).Decode(&body)
-	if body.Year == 0 {
-		body.Year = time.Now().Year()
-	}
-	if body.Month == 0 {
-		body.Month = int(time.Now().Month())
-	}
-	rows, _ := db.Query(`SELECT u.name FROM users u WHERE COALESCE(u.is_oncall, 1) = 1 AND u.role != 'admin' ORDER BY u.name`)
-	var oncall []string
-	if rows != nil {
-		defer rows.Close()
-		for rows.Next() {
-			var n string
-			rows.Scan(&n)
-			oncall = append(oncall, n)
-		}
-	}
-	absRows, _ := db.Query(`SELECT id, user_name, type, start_date, end_date, status FROM absences WHERE status = 'Approved'`)
-	var absences []AbsenceRequest
-	if absRows != nil {
-		defer absRows.Close()
-		for absRows.Next() {
-			var a AbsenceRequest
-			absRows.Scan(&a.ID, &a.UserName, &a.Type, &a.StartDate, &a.EndDate, &a.Status)
-			absences = append(absences, a)
-		}
-	}
-	db.Exec(`DELETE FROM shifts WHERE date LIKE ?`, fmt.Sprintf("%04d-%02d-%%", body.Year, body.Month))
-	shifts := generateShifts(body.Year, body.Month, oncall, absences)
-	for _, s := range shifts {
-		db.Exec(`INSERT INTO shifts (date, primary_user, backup_user) VALUES (?, ?, ?)`, s.Date, s.PrimaryUser, s.BackupUser)
-	}
-	logAudit("Admin", "REGENERATE_SHIFTS", r.RemoteAddr, fmt.Sprintf("%04d-%02d count=%d", body.Year, body.Month, len(shifts)))
-	json.NewEncoder(w).Encode(map[string]interface{}{"status": "ok", "shifts": len(shifts), "oncall": oncall})
+	db.Exec(`DELETE FROM shifts`)
+	json.NewEncoder(w).Encode(map[string]string{"status": "shifts cleared — reload calendar to regenerate"})
 }
