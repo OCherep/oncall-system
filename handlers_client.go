@@ -20,7 +20,6 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-
 	var u User
 	var isOncallInt int
 	err := db.QueryRow(`
@@ -29,7 +28,6 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
         LEFT JOIN team_roles tr ON u.team_role_id = tr.id
         WHERE u.username = ? AND u.password = ?`, req.Username, req.Password).
 		Scan(&u.ID, &u.Username, &u.Name, &u.Role, &u.TeamRoleID, &u.TeamRole, &isOncallInt)
-
 	if err != nil {
 		logAudit(req.Username, "LOGIN_FAILED", r.RemoteAddr, "Невдала спроба входу")
 		logAppEvent("Auth Service", "WARN", fmt.Sprintf("Невдалий вхід для користувача: %s", req.Username))
@@ -39,10 +37,8 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	u.IsOncall = isOncallInt == 1
-
 	logAudit(u.Username, "LOGIN_SUCCESS", r.RemoteAddr, "Успішна авторизація в системі")
 	logAppEvent("Auth Service", "INFO", fmt.Sprintf("Користувач %s успішно авторизувався", u.Username))
-
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(u)
 }
@@ -95,7 +91,6 @@ func handleGetData(w http.ResponseWriter, r *http.Request) {
 		fmt.Sscanf(yearStr, "%d", &year)
 		fmt.Sscanf(monthStr, "%d", &month)
 	}
-
 	absRows, err := db.Query("SELECT id, user_name, type, start_date, end_date, status FROM absences WHERE status = 'Approved'")
 	var absences []AbsenceRequest
 	if err == nil {
@@ -106,7 +101,6 @@ func handleGetData(w http.ResponseWriter, r *http.Request) {
 			absences = append(absences, a)
 		}
 	}
-
 	type TeamMember struct {
 		Name     string `json:"name"`
 		IsOncall bool   `json:"is_oncall"`
@@ -114,12 +108,7 @@ func handleGetData(w http.ResponseWriter, r *http.Request) {
 	}
 	var teamMembers []TeamMember
 	var oncallUsers []string
-	tmRows, err := db.Query(`
-		SELECT u.name, COALESCE(u.is_oncall, 1), COALESCE(tr.name, '')
-		FROM users u
-		LEFT JOIN team_roles tr ON u.team_role_id = tr.id
-		WHERE u.role != 'admin'
-		ORDER BY u.name`)
+	tmRows, err := db.Query(`SELECT u.name, COALESCE(u.is_oncall, 1), COALESCE(tr.name, '') FROM users u LEFT JOIN team_roles tr ON u.team_role_id = tr.id WHERE u.role != 'admin' ORDER BY u.name`)
 	if err == nil {
 		defer tmRows.Close()
 		for tmRows.Next() {
@@ -133,7 +122,6 @@ func handleGetData(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-
 	prefix := fmt.Sprintf("%04d-%02d", year, month)
 	dbRows, err := db.Query("SELECT date, primary_user, backup_user FROM shifts WHERE date LIKE ?", prefix+"%")
 	shifts := make(map[string]Shift)
@@ -147,7 +135,6 @@ func handleGetData(w http.ResponseWriter, r *http.Request) {
 			dbHasShifts = true
 		}
 	}
-
 	if !dbHasShifts {
 		shifts = generateShifts(year, month, oncallUsers, absences)
 	} else {
@@ -183,7 +170,6 @@ func handleGetData(w http.ResponseWriter, r *http.Request) {
 			shifts[dateStr] = Shift{Date: dateStr, PrimaryUser: primary, BackupUser: backup}
 		}
 	}
-
 	monthPattern := fmt.Sprintf("%04d-%02d-%%", year, month)
 	incRows, err := db.Query("SELECT id, user_name, date, type, duration_minutes, description FROM incidents WHERE date LIKE ?", monthPattern)
 	incidents := make(map[string][]IncidentReport)
@@ -219,7 +205,16 @@ func handleGetData(w http.ResponseWriter, r *http.Request) {
 	for _, v := range statsMap {
 		stats = append(stats, *v)
 	}
-
+	taskRows, err := db.Query("SELECT id, user_name, date, task_description FROM daily_tasks WHERE date LIKE ?", monthPattern)
+	dailyTasks := make(map[string][]DailyTask)
+	if err == nil {
+		defer taskRows.Close()
+		for taskRows.Next() {
+			var t DailyTask
+			taskRows.Scan(&t.ID, &t.UserName, &t.Date, &t.TaskDescription)
+			dailyTasks[t.Date] = append(dailyTasks[t.Date], t)
+		}
+	}
 	typesRows, _ := db.Query("SELECT id, name, code FROM absence_types")
 	var absenceTypes []AbsenceType
 	if typesRows != nil {
@@ -230,18 +225,11 @@ func handleGetData(w http.ResponseWriter, r *http.Request) {
 			absenceTypes = append(absenceTypes, t)
 		}
 	}
-
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"shifts":        shifts,
-		"absences":      absences,
-		"incidents":     incidents,
-		"stats":         stats,
-		"absence_types": absenceTypes,
-		"team_members":  teamMembers,
-		"year":          year,
-		"month":         month,
-		"daily_tasks":   map[string][]interface{}{},
+		"shifts": shifts, "absences": absences, "incidents": incidents, "stats": stats,
+		"absence_types": absenceTypes, "team_members": teamMembers, "year": year, "month": month,
+		"daily_tasks": dailyTasks,
 	})
 }
 
@@ -260,8 +248,7 @@ func handleRequestAbsence(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	_, err := db.Exec("INSERT INTO absences (user_name, type, start_date, end_date, status) VALUES (?, ?, ?, ?, 'Pending')",
-		req.UserName, req.Type, req.StartDate, req.EndDate)
+	_, err := db.Exec("INSERT INTO absences (user_name, type, start_date, end_date, status) VALUES (?, ?, ?, ?, 'Pending')", req.UserName, req.Type, req.StartDate, req.EndDate)
 	if err != nil {
 		http.Error(w, "Помилка створення заявки", http.StatusInternalServerError)
 		return
@@ -289,8 +276,7 @@ func handleIncidents(w http.ResponseWriter, r *http.Request) {
 	if inc.Type == "" {
 		inc.Type = "Звернення"
 	}
-	_, err := db.Exec("INSERT INTO incidents (user_name, date, type, duration_minutes, description) VALUES (?, ?, ?, ?, ?)",
-		inc.UserName, inc.Date, inc.Type, inc.DurationMinutes, inc.Description)
+	_, err := db.Exec("INSERT INTO incidents (user_name, date, type, duration_minutes, description) VALUES (?, ?, ?, ?, ?)", inc.UserName, inc.Date, inc.Type, inc.DurationMinutes, inc.Description)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -300,4 +286,41 @@ func handleIncidents(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+func handleDailyTasks(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	switch r.Method {
+	case http.MethodPost:
+		var t DailyTask
+		if err := json.NewDecoder(r.Body).Decode(&t); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if t.UserName == "" || t.Date == "" || t.TaskDescription == "" {
+			http.Error(w, "Потрібні user_name, date, task_description", http.StatusBadRequest)
+			return
+		}
+		res, err := db.Exec("INSERT INTO daily_tasks (user_name, date, task_description) VALUES (?, ?, ?)", t.UserName, t.Date, t.TaskDescription)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		id, _ := res.LastInsertId()
+		t.ID = int(id)
+		logAudit(t.UserName, "CREATE_DAILY_TASK", r.RemoteAddr, fmt.Sprintf("Дата: %s, Задача: %s", t.Date, t.TaskDescription))
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(t)
+	case http.MethodDelete:
+		idStr := r.URL.Query().Get("id")
+		if idStr == "" {
+			http.Error(w, "id required", http.StatusBadRequest)
+			return
+		}
+		db.Exec("DELETE FROM daily_tasks WHERE id = ?", idStr)
+		logAudit("user", "DELETE_DAILY_TASK", r.RemoteAddr, "ID: "+idStr)
+		json.NewEncoder(w).Encode(map[string]string{"status": "deleted"})
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
 }
