@@ -1,77 +1,298 @@
 <!DOCTYPE html>
-<html lang="uk"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<html lang="uk"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Адмін — OnCall</title>
 <style>
 :root{--p:#2563eb;--b:#e2e8f0;--bg:#f8fafc}
 body{margin:0;font-family:system-ui,sans-serif;background:var(--bg);display:flex;height:100vh}
-.side{width:220px;background:#fff;border-right:1px solid var(--b);padding:16px}
-.side a{display:block;padding:10px 12px;color:#64748b;text-decoration:none;border-radius:6px;margin-bottom:4px}
+.side{width:220px;background:#fff;border-right:1px solid var(--b);padding:16px;flex-shrink:0}
+.side a{display:block;padding:10px 12px;color:#64748b;text-decoration:none;border-radius:6px;margin-bottom:4px;cursor:pointer}
 .side a:hover,.side a.on{background:#eff6ff;color:var(--p)}
 .main{flex:1;overflow:auto;padding:24px}
-table{width:100%;border-collapse:collapse;background:#fff;border:1px solid var(--b)}
+table{width:100%;border-collapse:collapse;background:#fff;border:1px solid var(--b);margin-top:12px}
 th,td{padding:10px;border-bottom:1px solid var(--b);text-align:left;font-size:13px}
-th{background:#f8fafc}.btn{padding:6px 12px;border-radius:6px;border:1px solid var(--b);background:#fff;cursor:pointer}
+th{background:#f8fafc}
+.btn{padding:6px 12px;border-radius:6px;border:1px solid var(--b);background:#fff;cursor:pointer;font-size:13px}
 .btn-p{background:var(--p);color:#fff;border:none}.btn-d{background:#ef4444;color:#fff;border:none}
 .sec{display:none}.sec.on{display:block}
-input,select{padding:6px;border:1px solid var(--b);border-radius:4px;margin:2px}
+.form-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:12px 0;padding:12px;background:#fff;border:1px solid var(--b);border-radius:8px}
+input,select{padding:6px 8px;border:1px solid var(--b);border-radius:4px;font-size:13px}
+label{font-size:12px;color:#64748b}
+h2{margin:0 0 8px}
 </style></head><body>
 <div class="side">
 <div style="font-weight:700;color:var(--p);margin-bottom:16px">OnCall Admin</div>
-<a href="#" class="on" data-s="users">Користувачі</a>
-<a href="#" data-s="roles">Ролі</a>
-<a href="#" data-s="atypes">Типи відсутностей</a>
-<a href="#" data-s="reqs">Заявки</a>
-<a href="#" data-s="logs">Логи</a>
-<a href="#" data-s="db">DB Stats</a>
+<a class="on" data-s="users">Користувачі</a>
+<a data-s="roles">Ролі команди</a>
+<a data-s="atypes">Типи відсутностей</a>
+<a data-s="reqs">Заявки</a>
+<a data-s="logs">Логи</a>
+<a data-s="db">DB Stats</a>
 <a href="/" style="margin-top:20px">← Календар</a>
 </div>
 <div class="main">
-<div class="sec on" id="users"><h2>Користувачі</h2>
-<div id="uf"></div><table><thead><tr><th>ID</th><th>Username</th><th>Ім'я</th><th>Role</th><th>On-call</th><th></th></tr></thead><tbody id="ut"></tbody></table></div>
-<div class="sec" id="roles"><h2>Ролі</h2><table><thead><tr><th>ID</th><th>Назва</th><th></th></tr></thead><tbody id="rt"></tbody></table>
-<input id="rn" placeholder="Нова роль"><button class="btn btn-p" onclick="addRole()">Додати</button></div>
-<div class="sec" id="atypes"><h2>Типи відсутностей</h2><table><thead><tr><th>ID</th><th>Назва</th><th>Code</th><th></th></tr></thead><tbody id="att"></tbody></table>
-<input id="an" placeholder="Назва"> <input id="ac" placeholder="code">
-<button class="btn btn-p" onclick="addAT()">Додати</button></div>
-<div class="sec" id="reqs"><h2>Заявки на відсутність</h2><table><thead><tr><th>ID</th><th>Хто</th><th>Тип</th><th>З</th><th>По</th><th>Статус</th><th></th></tr></thead><tbody id="reqt"></tbody></table></div>
-<div class="sec" id="logs"><h2>Audit / App logs</h2>
+<div class="sec on" id="users">
+<h2>Користувачі</h2>
+<div class="form-row" id="user-form">
+  <input id="u-user" placeholder="username" style="width:110px">
+  <input id="u-pass" placeholder="пароль" style="width:100px">
+  <input id="u-name" placeholder="Ім'я" style="width:140px">
+  <select id="u-role"><option value="user">user</option><option value="admin">admin</option></select>
+  <select id="u-team"></select>
+  <label><input type="checkbox" id="u-oncall" checked> on-call</label>
+  <button class="btn btn-p" id="u-save" onclick="saveUser()">Додати</button>
+  <button class="btn" id="u-cancel" style="display:none" onclick="resetUserForm()">Скасувати</button>
+  <input type="hidden" id="u-id" value="">
+</div>
+<table><thead><tr><th>ID</th><th>Username</th><th>Ім'я</th><th>Role</th><th>Команда</th><th>On-call</th><th></th></tr></thead>
+<tbody id="ut"></tbody></table>
+</div>
+<div class="sec" id="roles">
+<h2>Ролі команди</h2>
+<div class="form-row">
+  <input id="rn" placeholder="Назва ролі">
+  <input type="hidden" id="rid" value="">
+  <button class="btn btn-p" id="r-save" onclick="saveRole()">Додати</button>
+  <button class="btn" id="r-cancel" style="display:none" onclick="resetRoleForm()">Скасувати</button>
+</div>
+<table><thead><tr><th>ID</th><th>Назва</th><th></th></tr></thead><tbody id="rt"></tbody></table>
+</div>
+<div class="sec" id="atypes">
+<h2>Типи відсутностей</h2>
+<div class="form-row">
+  <input id="an" placeholder="Назва">
+  <input id="ac" placeholder="code">
+  <input type="hidden" id="aid" value="">
+  <button class="btn btn-p" id="a-save" onclick="saveAT()">Додати</button>
+  <button class="btn" id="a-cancel" style="display:none" onclick="resetATForm()">Скасувати</button>
+</div>
+<table><thead><tr><th>ID</th><th>Назва</th><th>Code</th><th></th></tr></thead><tbody id="att"></tbody></table>
+</div>
+<div class="sec" id="reqs">
+<h2>Заявки на відсутність</h2>
+<table><thead><tr><th>ID</th><th>Хто</th><th>Тип</th><th>З</th><th>По</th><th>Статус</th><th></th></tr></thead>
+<tbody id="reqt"></tbody></table>
+</div>
+<div class="sec" id="logs">
+<h2>Audit / App logs</h2>
 <button class="btn" onclick="loadLogs()">Оновити</button>
-<pre id="logpre" style="background:#fff;padding:12px;border:1px solid var(--b);overflow:auto;max-height:400px"></pre></div>
-<div class="sec" id="db"><h2>DB Stats</h2><table><thead><tr><th>Таблиця</th><th>Рядків</th><th>Остання дія</th><th>Оновлено</th></tr></thead><tbody id="dbt"></tbody></table></div>
+<pre id="logpre" style="background:#fff;padding:12px;border:1px solid var(--b);overflow:auto;max-height:500px;font-size:12px"></pre>
+</div>
+<div class="sec" id="db">
+<h2>DB Stats</h2>
+<table><thead><tr><th>Таблиця</th><th>Рядків</th><th>Остання дія</th><th>Оновлено</th></tr></thead>
+<tbody id="dbt"></tbody></table>
+</div>
 </div>
 <script>
-document.querySelectorAll('.side a[data-s]').forEach(a=>a.onclick=e=>{e.preventDefault();
-document.querySelectorAll('.side a[data-s]').forEach(x=>x.classList.remove('on'));a.classList.add('on');
-document.querySelectorAll('.sec').forEach(s=>s.classList.remove('on'));
-document.getElementById(a.dataset.s).classList.add('on');
-if(a.dataset.s==='logs')loadLogs();if(a.dataset.s==='db')loadDB()});
-async function loadUsers(){const r=await fetch('/api/admin/users');const u=await r.json();const t=document.getElementById('ut');t.innerHTML='';
-(u||[]).forEach(x=>{const tr=document.createElement('tr');
-tr.innerHTML=`<td>${x.id}</td><td>${x.username}</td><td>${x.name}</td><td>${x.role}</td><td>${x.is_oncall?'✓':'-'}</td>
-<td><button class="btn btn-d" onclick="delU(${x.id})">✕</button></td>`;t.appendChild(tr)})}
-async function delU(id){if(!confirm('Видалити?'))return;await fetch('/api/admin/users?id='+id,{method:'DELETE'});loadUsers()}
-async function loadRoles(){const r=await fetch('/api/admin/team-roles');const d=await r.json();const t=document.getElementById('rt');t.innerHTML='';
-(d||[]).forEach(x=>{const tr=document.createElement('tr');
-tr.innerHTML=`<td>${x.id}</td><td>${x.name}</td><td><button class="btn btn-d" onclick="delR(${x.id})">✕</button></td>`;t.appendChild(tr)})}
-async function addRole(){const n=document.getElementById('rn').value;if(!n)return;
-await fetch('/api/admin/team-roles',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:n})});document.getElementById('rn').value='';loadRoles()}
-async function delR(id){await fetch('/api/admin/team-roles?id='+id,{method:'DELETE'});loadRoles()}
-async function loadAT(){const r=await fetch('/api/admin/absence-types');const d=await r.json();const t=document.getElementById('att');t.innerHTML='';
-(d||[]).forEach(x=>{const tr=document.createElement('tr');
-tr.innerHTML=`<td>${x.id}</td><td>${x.name}</td><td>${x.code}</td><td><button class="btn btn-d" onclick="delAT(${x.id})">✕</button></td>`;t.appendChild(tr)})}
-async function addAT(){const name=document.getElementById('an').value,code=document.getElementById('ac').value;if(!name||!code)return;
-await fetch('/api/admin/absence-types',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,code})});loadAT()}
-async function delAT(id){await fetch('/api/admin/absence-types?id='+id,{method:'DELETE'});loadAT()}
-async function loadReqs(){const r=await fetch('/api/admin/requests');const d=await r.json();const t=document.getElementById('reqt');t.innerHTML='';
-(d||[]).forEach(x=>{const tr=document.createElement('tr');
-tr.innerHTML=`<td>${x.id}</td><td>${x.user_name}</td><td>${x.type}</td><td>${x.start_date}</td><td>${x.end_date}</td><td>${x.status}</td>
-<td>${x.status==='Pending'?`<button class="btn btn-p" onclick="setSt(${x.id},'Approved')">OK</button> <button class="btn" onclick="setSt(${x.id},'Rejected')">✕</button>`:''}</td>`;t.appendChild(tr)})}
-async function setSt(id,status){await fetch('/api/admin/requests',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,status})});loadReqs()}
-async function loadLogs(){const a=await fetch('/api/admin/project/audit-logs').then(r=>r.json());
-const p=await fetch('/api/admin/project/app-logs').then(r=>r.json());
-document.getElementById('logpre').textContent='=== AUDIT ===\n'+JSON.stringify(a,null,2)+'\n\n=== APP ===\n'+JSON.stringify(p,null,2)}
-async function loadDB(){const d=await fetch('/api/admin/project/db-stats').then(r=>r.json());const t=document.getElementById('dbt');t.innerHTML='';
-(d||[]).forEach(x=>{const tr=document.createElement('tr');
-tr.innerHTML=`<td>${x.table_name}</td><td>${x.row_count}</td><td>${x.last_action}</td><td>${x.last_update}</td>`;t.appendChild(tr)})}
-loadUsers();loadRoles();loadAT();loadReqs();
-</script></body></html>
+let teamRoles = [];
+document.querySelectorAll('.side a[data-s]').forEach(a => a.onclick = e => {
+  e.preventDefault();
+  document.querySelectorAll('.side a[data-s]').forEach(x => x.classList.remove('on'));
+  a.classList.add('on');
+  document.querySelectorAll('.sec').forEach(s => s.classList.remove('on'));
+  document.getElementById(a.dataset.s).classList.add('on');
+  if (a.dataset.s === 'logs') loadLogs();
+  if (a.dataset.s === 'db') loadDB();
+});
+async function loadRolesSelect() {
+  const r = await fetch('/api/admin/team-roles');
+  teamRoles = await r.json() || [];
+  const sel = document.getElementById('u-team');
+  sel.innerHTML = '<option value="">— роль —</option>' +
+    teamRoles.map(t => `<option value="${t.id}">${t.name}</option>`).join('');
+}
+async function loadUsers() {
+  await loadRolesSelect();
+  const r = await fetch('/api/admin/users');
+  const u = await r.json();
+  const t = document.getElementById('ut');
+  t.innerHTML = '';
+  (u || []).forEach(x => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${x.id}</td><td>${x.username}</td><td>${x.name}</td><td>${x.role}</td>
+      <td>${x.team_role || '—'}</td><td>${x.is_oncall ? '✓' : '—'}</td>
+      <td>
+        <button class="btn" onclick='editUser(${JSON.stringify(x)})'>✎</button>
+        <button class="btn btn-d" onclick="delU(${x.id})">✕</button>
+      </td>`;
+    t.appendChild(tr);
+  });
+}
+function editUser(x) {
+  document.getElementById('u-id').value = x.id;
+  document.getElementById('u-user').value = x.username;
+  document.getElementById('u-pass').value = '';
+  document.getElementById('u-pass').placeholder = 'залишити порожнім = без змін';
+  document.getElementById('u-name').value = x.name;
+  document.getElementById('u-role').value = x.role;
+  document.getElementById('u-team').value = x.team_role_id || '';
+  document.getElementById('u-oncall').checked = !!x.is_oncall;
+  document.getElementById('u-save').textContent = 'Зберегти';
+  document.getElementById('u-cancel').style.display = '';
+}
+function resetUserForm() {
+  document.getElementById('u-id').value = '';
+  document.getElementById('u-user').value = '';
+  document.getElementById('u-pass').value = '';
+  document.getElementById('u-pass').placeholder = 'пароль';
+  document.getElementById('u-name').value = '';
+  document.getElementById('u-role').value = 'user';
+  document.getElementById('u-team').value = '';
+  document.getElementById('u-oncall').checked = true;
+  document.getElementById('u-save').textContent = 'Додати';
+  document.getElementById('u-cancel').style.display = 'none';
+}
+async function saveUser() {
+  const id = document.getElementById('u-id').value;
+  const teamVal = document.getElementById('u-team').value;
+  const body = {
+    username: document.getElementById('u-user').value.trim(),
+    password: document.getElementById('u-pass').value,
+    name: document.getElementById('u-name').value.trim(),
+    role: document.getElementById('u-role').value,
+    team_role_id: teamVal ? parseInt(teamVal, 10) : null,
+    is_oncall: document.getElementById('u-oncall').checked
+  };
+  if (!body.username || !body.name) return alert('Заповніть username та ім\'я');
+  if (id) {
+    body.id = parseInt(id, 10);
+    const r = await fetch('/api/admin/users', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    if (!r.ok) return alert('Помилка оновлення');
+  } else {
+    if (!body.password) body.password = '1234';
+    const r = await fetch('/api/admin/users', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    if (!r.ok) return alert('Помилка створення');
+  }
+  resetUserForm();
+  loadUsers();
+}
+async function delU(id) {
+  if (!confirm('Видалити користувача?')) return;
+  await fetch('/api/admin/users?id=' + id, { method: 'DELETE' });
+  loadUsers();
+}
+async function loadRoles() {
+  const r = await fetch('/api/admin/team-roles');
+  const d = await r.json();
+  const t = document.getElementById('rt');
+  t.innerHTML = '';
+  (d || []).forEach(x => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${x.id}</td><td>${x.name}</td>
+      <td><button class="btn" onclick="editRole(${x.id},'${x.name.replace(/'/g, "\\'")}')">✎</button>
+      <button class="btn btn-d" onclick="delR(${x.id})">✕</button></td>`;
+    t.appendChild(tr);
+  });
+  teamRoles = d || [];
+}
+function editRole(id, name) {
+  document.getElementById('rid').value = id;
+  document.getElementById('rn').value = name;
+  document.getElementById('r-save').textContent = 'Зберегти';
+  document.getElementById('r-cancel').style.display = '';
+}
+function resetRoleForm() {
+  document.getElementById('rid').value = '';
+  document.getElementById('rn').value = '';
+  document.getElementById('r-save').textContent = 'Додати';
+  document.getElementById('r-cancel').style.display = 'none';
+}
+async function saveRole() {
+  const id = document.getElementById('rid').value;
+  const name = document.getElementById('rn').value.trim();
+  if (!name) return;
+  if (id) {
+    await fetch('/api/admin/team-roles', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: +id, name }) });
+  } else {
+    await fetch('/api/admin/team-roles', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
+  }
+  resetRoleForm();
+  loadRoles();
+  loadRolesSelect();
+}
+async function delR(id) {
+  if (!confirm('Видалити роль?')) return;
+  await fetch('/api/admin/team-roles?id=' + id, { method: 'DELETE' });
+  loadRoles();
+  loadRolesSelect();
+}
+async function loadAT() {
+  const r = await fetch('/api/admin/absence-types');
+  const d = await r.json();
+  const t = document.getElementById('att');
+  t.innerHTML = '';
+  (d || []).forEach(x => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${x.id}</td><td>${x.name}</td><td>${x.code}</td>
+      <td><button class="btn" onclick="editAT(${x.id},'${String(x.name).replace(/'/g,"\\'")}','${String(x.code).replace(/'/g,"\\'")}')">✎</button>
+      <button class="btn btn-d" onclick="delAT(${x.id})">✕</button></td>`;
+    t.appendChild(tr);
+  });
+}
+function editAT(id, name, code) {
+  document.getElementById('aid').value = id;
+  document.getElementById('an').value = name;
+  document.getElementById('ac').value = code;
+  document.getElementById('a-save').textContent = 'Зберегти';
+  document.getElementById('a-cancel').style.display = '';
+}
+function resetATForm() {
+  document.getElementById('aid').value = '';
+  document.getElementById('an').value = '';
+  document.getElementById('ac').value = '';
+  document.getElementById('a-save').textContent = 'Додати';
+  document.getElementById('a-cancel').style.display = 'none';
+}
+async function saveAT() {
+  const id = document.getElementById('aid').value;
+  const name = document.getElementById('an').value.trim();
+  const code = document.getElementById('ac').value.trim();
+  if (!name || !code) return alert('Назва і code обов\'язкові');
+  if (id) {
+    await fetch('/api/admin/absence-types', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: +id, name, code }) });
+  } else {
+    await fetch('/api/admin/absence-types', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, code }) });
+  }
+  resetATForm();
+  loadAT();
+}
+async function delAT(id) {
+  if (!confirm('Видалити тип?')) return;
+  await fetch('/api/admin/absence-types?id=' + id, { method: 'DELETE' });
+  loadAT();
+}
+async function loadReqs() {
+  const r = await fetch('/api/admin/requests');
+  const d = await r.json();
+  const t = document.getElementById('reqt');
+  t.innerHTML = '';
+  (d || []).forEach(x => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${x.id}</td><td>${x.user_name}</td><td>${x.type}</td><td>${x.start_date}</td><td>${x.end_date}</td><td>${x.status}</td>
+      <td>${x.status === 'Pending' ? `<button class="btn btn-p" onclick="setSt(${x.id},'Approved')">OK</button> <button class="btn" onclick="setSt(${x.id},'Rejected')">✕</button>` : ''}</td>`;
+    t.appendChild(tr);
+  });
+}
+async function setSt(id, status) {
+  await fetch('/api/admin/requests', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, status }) });
+  loadReqs();
+}
+async function loadLogs() {
+  const a = await fetch('/api/admin/project/audit-logs').then(r => r.json());
+  const p = await fetch('/api/admin/project/app-logs').then(r => r.json());
+  document.getElementById('logpre').textContent = '=== AUDIT ===\n' + JSON.stringify(a, null, 2) + '\n\n=== APP ===\n' + JSON.stringify(p, null, 2);
+}
+async function loadDB() {
+  const d = await fetch('/api/admin/project/db-stats').then(r => r.json());
+  const t = document.getElementById('dbt');
+  t.innerHTML = '';
+  (d || []).forEach(x => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${x.table_name}</td><td>${x.row_count}</td><td>${x.last_action}</td><td>${x.last_update}</td>`;
+    t.appendChild(tr);
+  });
+}
+loadUsers(); loadRoles(); loadAT(); loadReqs();
+</script>
+</body></html>
