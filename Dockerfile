@@ -27,6 +27,8 @@ RUN apk add --no-cache ca-certificates sqlite-libs
 
 WORKDIR /app
 
+RUN mkdir -p /app/data
+
 COPY --from=builder /app/main .
 COPY --from=builder /app/static ./static
 
