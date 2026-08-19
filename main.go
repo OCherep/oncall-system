@@ -66,6 +66,13 @@ type IncidentReport struct {
 	Description     string `json:"description"`
 }
 
+type DailyTask struct {
+	ID              int    `json:"id,omitempty"`
+	UserName        string `json:"user_name"`
+	Date            string `json:"date"`
+	TaskDescription string `json:"task_description"`
+}
+
 type TableStat struct {
 	TableName  string `json:"table_name"`
 	RowCount   int    `json:"row_count"`
@@ -109,6 +116,7 @@ func main() {
 	http.HandleFunc("/api/login", handleLogin)
 	http.HandleFunc("/api/request-absence", handleRequestAbsence)
 	http.HandleFunc("/api/incidents", handleIncidents)
+	http.HandleFunc("/api/daily-tasks", handleDailyTasks)
 
 	http.HandleFunc("/api/admin/users", handleAdminUsers)
 	http.HandleFunc("/api/admin/team-roles", handleAdminTeamRoles)
@@ -120,7 +128,7 @@ func main() {
 	http.HandleFunc("/api/admin/project/audit-logs", handleAuditLogs)
 	http.HandleFunc("/api/admin/project/app-logs", handleAppLogs)
 
-	logAppEvent("OnCall Core", "INFO", "Сервер системного адміністрування успішно запущено на порту 8084")
+	logAppEvent("OnCall Core", "INFO", "Сервер запущено на порту 8084")
 	fmt.Println("Server running at http://localhost:8084")
 	log.Fatal(http.ListenAndServe(":8084", nil))
 }
@@ -167,6 +175,12 @@ func initDB() {
             duration_minutes INTEGER NOT NULL,
             description TEXT NOT NULL
         );`,
+		`CREATE TABLE IF NOT EXISTS daily_tasks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_name TEXT NOT NULL,
+            date TEXT NOT NULL,
+            task_description TEXT NOT NULL
+        );`,
 		`CREATE TABLE IF NOT EXISTS audit_logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -197,7 +211,7 @@ func initDB() {
 
 	db.Exec("ALTER TABLE absences ADD COLUMN status TEXT DEFAULT 'Approved';")
 
-	tables := []string{"users", "team_roles", "absence_types", "shifts", "absences", "incidents", "audit_logs", "app_logs"}
+	tables := []string{"users", "team_roles", "absence_types", "shifts", "absences", "incidents", "daily_tasks", "audit_logs", "app_logs"}
 	for _, t := range tables {
 		db.Exec("INSERT OR IGNORE INTO table_tracker (table_name, last_action, last_update) VALUES (?, 'INIT', CURRENT_TIMESTAMP)", t)
 		createTriggersForTable(t)
