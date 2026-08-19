@@ -4,26 +4,26 @@ import (
     "database/sql"
     "encoding/json"
     "fmt"
+    "html/template"
     "log"
     "net/http"
-    "strconv"
     "strings"
     "time"
 
     _ "github.com/mattn/go-sqlite3"
 )
 
-// --- СТРУКТУРИ ДАНИХ ---
+var db *sql.DB
 
 type User struct {
     ID         int    `json:"id"`
-    Name       string `json:"name"`
     Username   string `json:"username"`
     Password   string `json:"password,omitempty"`
+    Name       string `json:"name"`
     Role       string `json:"role"`
     TeamRoleID *int   `json:"team_role_id"`
-    TeamRole   string `json:"team_role,omitempty"`
-    IsOnCall   bool   `json:"is_oncall"`
+    TeamRole   string `json:"team_role"`
+    IsOncall   bool   `json:"is_oncall"`
 }
 
 type TeamRole struct {
@@ -39,7 +39,6 @@ type AbsenceType struct {
 
 type AbsenceRequest struct {
     ID        int    `json:"id"`
-    UserID    int    `json:"user_id,omitempty"`
     UserName  string `json:"user_name"`
     Type      string `json:"type"`
     StartDate string `json:"start_date"`
@@ -47,40 +46,19 @@ type AbsenceRequest struct {
     Status    string `json:"status"`
 }
 
-type IncidentReport struct {
-    ID              int    `json:"id,omitempty"`
-    UserName        string `json:"user_name"`
-    Date            string `json:"date"`
-    Type            string `json:"type"`
-    DurationMinutes int    `json:"duration_minutes"`
-    Description     string `json:"description"`
-}
-
 type Shift struct {
+    Date        string `json:"date"`
     PrimaryUser string `json:"primary_user"`
     BackupUser  string `json:"backup_user"`
 }
 
 type UserStat struct {
-    Name            string `json:"name"`
-    PrimaryCount    int    `json:"primary_count"`
-    BackupCount     int    `json:"backup_count"`
-    IncidentMinutes int    `json:"incident_minutes"`
+    Name         string `json:"name"`
+    PrimaryCount int    `json:"primary_count"`
+    BackupCount  int    `json:"backup_count"`
 }
 
-type DailyTask struct {
-    UserName        string `json:"user_name"`
-    TaskDescription string `json:"task_description"`
-}
-
-type AppLog struct {
-    Timestamp string `json:"timestamp"`
-    App       string `json:"app"`
-    Level     string `json:"level"`
-    Message   string `json:"message"`
-}
-
-type DBStat struct {
+type TableStat struct {
     TableName  string `json:"table_name"`
     RowCount   int    `json:"row_count"`
     LastAction string `json:"last_action"`
@@ -88,6 +66,7 @@ type DBStat struct {
 }
 
 type AuditLog struct {
+    ID        int    `json:"id"`
     Timestamp string `json:"timestamp"`
     UserName  string `json:"user_name"`
     Action    string `json:"action"`
@@ -95,101 +74,84 @@ type AuditLog struct {
     Details   string `json:"details"`
 }
 
-type QueryRequest struct {
-    Query string `json:"query"`
+type AppLog struct {
+    ID        int    `json:"id"`
+    Timestamp string `json:"timestamp"`
+    App       string `json:"app"`
+    Level     string `json:"level"`
+    Message   string `json:"message"`
 }
-
-var db *sql.DB
 
 func main() {
     var err error
-    db, err = sql.Open("sqlite3", "./oncall.db")
+    db, err = sql.Open("sqlite3", "./oncall.db?_journal_mode=WAL")
     if err != nil {
-        log.Fatalf("Помилка відкриття БД: %v", err)
+        log.Fatal(err)
     }
     defer db.Close()
 
     initDB()
 
-    // Статичні файли
-    fs := http.FileServer(http.Dir("./static"))
-    http.Handle("/static/", http.StripPrefix("/static/", fs))
+    http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("./static"))))
 
-    http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-        if r.URL.Path == "/" {
-            http.ServeFile(w, r, "./static/index.html")
-            return
-        }
-        if r.URL.Path == "/admin" {
-            http.ServeFile(w, r, "./static/admin.html")
-            return
-        }
-        fs.ServeHTTP(w, r)
-    })
+    http.HandleFunc("/", handleIndex)
+    http.HandleFunc("/admin", handleAdminPage)
 
-    // Публічні та Користувацькі API
+    http.HandleFunc("/api/data", handleGetData)
     http.HandleFunc("/api/login", handleLogin)
-    http.HandleFunc("/api/data", handleClientData)
-    http.HandleFunc("/api/incidents", handleIncidents)
     http.HandleFunc("/api/request-absence", handleRequestAbsence)
 
-    // Адмінські API (CRUD)
-    http.HandleFunc("/api/admin/users", handleUsers)
-    http.HandleFunc("/api/admin/team-roles", handleTeamRoles)
-    http.HandleFunc("/api/admin/absence-types", handleAbsenceTypes)
+    // Admin APIs (Dictionaries with full CRUD)
+    // TODO: Ensure full CRUD operations (GET, POST, PUT, DELETE) are always preserved for dictionary management
+    http.HandleFunc("/api/admin/users", handleAdminUsers)
+    http.HandleFunc("/api/admin/team-roles", handleAdminTeamRoles)
+    http.HandleFunc("/api/admin/absence-types", handleAdminAbsenceTypes)
     http.HandleFunc("/api/admin/requests", handleAdminRequests)
 
-    // Системні API Моніторингу
-    http.HandleFunc("/api/admin/project/app-logs", handleAppLogs)
+    // System & Monitoring APIs
     http.HandleFunc("/api/admin/project/db-stats", handleDBStats)
-    http.HandleFunc("/api/admin/project/query", handleSqlQuery)
+    http.HandleFunc("/api/admin/project/query", handleReadOnlyQuery)
     http.HandleFunc("/api/admin/project/audit-logs", handleAuditLogs)
+    http.HandleFunc("/api/admin/project/app-logs", handleAppLogs)
 
-    log.Println("Сервер успішно запущено на http://localhost:8083")
-    if err := http.ListenAndServe(":8083", nil); err != nil {
-        log.Fatalf("Помилка запуска сервера: %v", err)
-    }
+    logAppEvent("OnCall Core", "INFO", "Сервер системного адміністрування успішно запущено на порту 8083")
+    fmt.Println("Server running at http://localhost:8083")
+    log.Fatal(http.ListenAndServe(":8083", nil))
 }
-
-// --- ІНІЦІАЛІЗАЦІЯ БД ---
 
 func initDB() {
     queries := []string{
+        `CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE,
+            password TEXT,
+            name TEXT,
+            role TEXT,
+            team_role_id INTEGER,
+            is_oncall INTEGER DEFAULT 1
+        );`,
         `CREATE TABLE IF NOT EXISTS team_roles (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT UNIQUE NOT NULL
+            name TEXT UNIQUE
         );`,
         `CREATE TABLE IF NOT EXISTS absence_types (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            code TEXT UNIQUE NOT NULL
+            name TEXT UNIQUE,
+            code TEXT UNIQUE
         );`,
-        `CREATE TABLE IF NOT EXISTS users (
+        `CREATE TABLE IF NOT EXISTS shifts (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            username TEXT UNIQUE NOT NULL,
-            password TEXT NOT NULL,
-            role TEXT NOT NULL DEFAULT 'user',
-            team_role_id INTEGER,
-            is_oncall BOOLEAN NOT NULL DEFAULT 1,
-            FOREIGN KEY(team_role_id) REFERENCES team_roles(id)
+            date TEXT UNIQUE,
+            primary_user TEXT,
+            backup_user TEXT
         );`,
-        `CREATE TABLE IF NOT EXISTS absence_requests (
+        `CREATE TABLE IF NOT EXISTS absences (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
-            user_name TEXT NOT NULL,
-            type TEXT NOT NULL,
-            start_date TEXT NOT NULL,
-            end_date TEXT NOT NULL,
-            status TEXT NOT NULL DEFAULT 'Approved'
-        );`,
-        `CREATE TABLE IF NOT EXISTS incidents (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_name TEXT NOT NULL,
-            date TEXT NOT NULL,
-            type TEXT NOT NULL,
-            duration_minutes INTEGER NOT NULL,
-            description TEXT NOT NULL
+            user_name TEXT,
+            type TEXT,
+            start_date TEXT,
+            end_date TEXT,
+            status TEXT DEFAULT 'Approved'
         );`,
         `CREATE TABLE IF NOT EXISTS audit_logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -199,238 +161,262 @@ func initDB() {
             ip TEXT,
             details TEXT
         );`,
+        `CREATE TABLE IF NOT EXISTS app_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+            app TEXT,
+            level TEXT,
+            message TEXT
+        );`,
+        `CREATE TABLE IF NOT EXISTS table_tracker (
+            table_name TEXT PRIMARY KEY,
+            last_action TEXT,
+            last_update DATETIME DEFAULT CURRENT_TIMESTAMP
+        );`,
     }
 
     for _, q := range queries {
         if _, err := db.Exec(q); err != nil {
-            log.Fatalf("Помилка ініціалізації БД: %v", err)
+            log.Fatalf("Failed to init db: %v", err)
         }
     }
 
-    // Дефолтні дані для старту
-    var count int
-    db.QueryRow("SELECT COUNT(*) FROM team_roles").Scan(&count)
-    if count == 0 {
-        db.Exec("INSERT INTO team_roles (name) VALUES ('Team Lead'), ('Project Manager'), ('DevOps'), ('Backend Engineer'), ('QA')")
+    db.Exec("ALTER TABLE absences ADD COLUMN status TEXT DEFAULT 'Approved';")
+
+    tables := []string{"users", "team_roles", "absence_types", "shifts", "absences", "audit_logs", "app_logs"}
+    for _, t := range tables {
+        db.Exec("INSERT OR IGNORE INTO table_tracker (table_name, last_action, last_update) VALUES (?, 'INIT', CURRENT_TIMESTAMP)", t)
+        createTriggersForTable(t)
     }
 
-    db.QueryRow("SELECT COUNT(*) FROM absence_types").Scan(&count)
-    if count == 0 {
-        db.Exec("INSERT INTO absence_types (name, code) VALUES ('Відпустка', 'vacation'), ('DayOff', 'dayoff'), ('SickDay', 'sickday')")
+    var absTypeCount int
+    db.QueryRow("SELECT COUNT(*) FROM absence_types").Scan(&absTypeCount)
+    if absTypeCount == 0 {
+        db.Exec("INSERT INTO absence_types (name, code) VALUES ('Відпустка', 'Vacation')")
+        db.Exec("INSERT INTO absence_types (name, code) VALUES ('Day Off', 'DayOff')")
+        db.Exec("INSERT INTO absence_types (name, code) VALUES ('Sick Day', 'SickDay')")
     }
 
-    db.QueryRow("SELECT COUNT(*) FROM users").Scan(&count)
-    if count == 0 {
-        db.Exec("INSERT INTO users (name, username, password, role, is_oncall) VALUES ('Administrator', 'admin', '1234', 'admin', 1)")
-        db.Exec("INSERT INTO users (name, username, password, role, is_oncall) VALUES ('Dev User 1', 'dev1', '1234', 'user', 1)")
-        db.Exec("INSERT INTO users (name, username, password, role, is_oncall) VALUES ('Project Manager', 'pm', '1234', 'user', 0)")
+    var rolesCount int
+    db.QueryRow("SELECT COUNT(*) FROM team_roles").Scan(&rolesCount)
+    if rolesCount == 0 {
+        db.Exec("INSERT INTO team_roles (name) VALUES ('DevOps Engineer')")
+        db.Exec("INSERT INTO team_roles (name) VALUES ('Backend Developer')")
+        db.Exec("INSERT INTO team_roles (name) VALUES ('Frontend Developer')")
+        db.Exec("INSERT INTO team_roles (name) VALUES ('QA Engineer')")
+        db.Exec("INSERT INTO team_roles (name) VALUES ('Team Lead')")
+        db.Exec("INSERT INTO team_roles (name) VALUES ('Project Manager')")
+    }
+
+    var userCount int
+    db.QueryRow("SELECT COUNT(*) FROM users").Scan(&userCount)
+    if userCount == 0 {
+        db.Exec("INSERT INTO users (username, password, name, role, team_role_id, is_oncall) VALUES ('admin', 'admin', 'Адміністратор', 'admin', 5, 0)")
+        db.Exec("INSERT INTO users (username, password, name, role, team_role_id, is_oncall) VALUES ('pm', '1234', 'Олена PM', 'user', 6, 0)")
+        db.Exec("INSERT INTO users (username, password, name, role, team_role_id, is_oncall) VALUES ('dev1', '1234', 'Олексій', 'user', 1, 1)")
     }
 }
 
-// --- КОРИСТУВАЦЬКІ ЕНДПОЇНТИ ---
+func createTriggersForTable(tableName string) {
+    actions := []string{"INSERT", "UPDATE", "DELETE"}
+    for _, act := range actions {
+        trigName := fmt.Sprintf("trig_%s_%s", tableName, strings.ToLower(act))
+        query := fmt.Sprintf(`
+            CREATE TRIGGER IF NOT EXISTS %s AFTER %s ON %s
+            BEGIN
+                INSERT INTO table_tracker (table_name, last_action, last_update) 
+                VALUES ('%s', '%s', CURRENT_TIMESTAMP)
+                ON CONFLICT(table_name) DO UPDATE SET last_action='%s', last_update=CURRENT_TIMESTAMP;
+            END;`, trigName, act, tableName, tableName, act, act)
+        db.Exec(query)
+    }
+}
+
+func logAudit(userName, action, ip, details string) {
+    db.Exec("INSERT INTO audit_logs (user_name, action, ip, details) VALUES (?, ?, ?, ?)", userName, action, ip, details)
+}
+
+func logAppEvent(app, level, message string) {
+    db.Exec("INSERT INTO app_logs (app, level, message) VALUES (?, ?, ?)", app, level, message)
+}
+
+func handleIndex(w http.ResponseWriter, r *http.Request) {
+    if r.URL.Path != "/" {
+        http.NotFound(w, r)
+        return
+    }
+    template.Must(template.ParseFiles("static/index.html")).Execute(w, nil)
+}
+
+func handleAdminPage(w http.ResponseWriter, r *http.Request) {
+    template.Must(template.ParseFiles("static/admin.html")).Execute(w, nil)
+}
 
 func handleLogin(w http.ResponseWriter, r *http.Request) {
     if r.Method != http.MethodPost {
-        http.Error(w, "Method not allowed", 405)
+        http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
         return
     }
     var req struct {
         Username string `json:"username"`
         Password string `json:"password"`
     }
-    json.NewDecoder(r.Body).Decode(&req)
-
-    var u User
-    var teamRole sql.NullString
-    err := db.QueryRow(`
-        SELECT u.id, u.name, u.username, u.role, u.team_role_id, tr.name, u.is_oncall 
-        FROM users u 
-        LEFT JOIN team_roles tr ON u.team_role_id = tr.id 
-        WHERE u.username = ? AND u.password = ?`, req.Username, req.Password).
-        Scan(&u.ID, &u.Name, &u.Username, &u.Role, &u.TeamRoleID, &teamRole, &u.IsOnCall)
-
-    if err != nil {
-        w.Header().Set("Content-Type", "application/json")
-        w.WriteHeader(http.StatusUnauthorized)
-        json.NewEncoder(w).Encode(map[string]string{"error": "Невірні облікові дані"})
+    if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+        http.Error(w, err.Error(), http.StatusBadRequest)
         return
     }
 
-    if teamRole.Valid {
-        u.TeamRole = teamRole.String
+    var u User
+    var isOncallInt int
+    err := db.QueryRow(`
+        SELECT u.id, u.username, u.name, u.role, u.team_role_id, COALESCE(tr.name, ''), COALESCE(u.is_oncall, 1)
+        FROM users u
+        LEFT JOIN team_roles tr ON u.team_role_id = tr.id
+        WHERE u.username = ? AND u.password = ?`, req.Username, req.Password).
+        Scan(&u.ID, &u.Username, &u.Name, &u.Role, &u.TeamRoleID, &u.TeamRole, &isOncallInt)
+
+    if err != nil {
+        logAudit(req.Username, "LOGIN_FAILED", r.RemoteAddr, "Невдала спроба входу")
+        logAppEvent("Auth Service", "WARN", fmt.Sprintf("Невдалий вхід для користувача: %s", req.Username))
+        w.Header().Set("Content-Type", "application/json")
+        w.WriteHeader(http.StatusUnauthorized)
+        json.NewEncoder(w).Encode(map[string]string{"error": "Невірне ім'я користувача або пароль"})
+        return
     }
+    u.IsOncall = isOncallInt == 1
+
+    logAudit(u.Username, "LOGIN_SUCCESS", r.RemoteAddr, "Успішна авторизація в системі")
+    logAppEvent("Auth Service", "INFO", fmt.Sprintf("Користувач %s успішно авторизувався", u.Username))
 
     w.Header().Set("Content-Type", "application/json")
     json.NewEncoder(w).Encode(u)
 }
 
-func handleClientData(w http.ResponseWriter, r *http.Request) {
-    w.Header().Set("Content-Type", "application/json")
+func handleGetData(w http.ResponseWriter, r *http.Request) {
     yearStr := r.URL.Query().Get("year")
     monthStr := r.URL.Query().Get("month")
 
-    year, _ := strconv.Atoi(yearStr)
-    month, _ := strconv.Atoi(monthStr)
+    now := time.Now()
+    year, month := now.Year(), int(now.Month())
 
-    if year == 0 {
-        year = time.Now().Year()
-    }
-    if month == 0 {
-        month = int(time.Now().Month())
+    if yearStr != "" && monthStr != "" {
+        fmt.Sscanf(yearStr, "%d", &year)
+        fmt.Sscanf(monthStr, "%d", &month)
     }
 
-    // Типи відсутностей
-    rowsType, _ := db.Query("SELECT id, name, code FROM absence_types")
-    var absenceTypes []AbsenceType
-    if rowsType != nil {
-        for rowsType.Next() {
-            var at AbsenceType
-            rowsType.Scan(&at.ID, &at.Name, &at.Code)
-            absenceTypes = append(absenceTypes, at)
+    prefix := fmt.Sprintf("%04d-%02d", year, month)
+
+    rows, err := db.Query("SELECT date, primary_user, backup_user FROM shifts WHERE date LIKE ?", prefix+"%")
+    shifts := make(map[string]Shift)
+    if err == nil {
+        defer rows.Close()
+        for rows.Next() {
+            var s Shift
+            rows.Scan(&s.Date, &s.PrimaryUser, &s.BackupUser)
+            shifts[s.Date] = s
         }
-        rowsType.Close()
     }
 
-    // Затверджені відсутності
-    rowsAbs, _ := db.Query("SELECT id, user_name, type, start_date, end_date, status FROM absence_requests WHERE status = 'Approved'")
+    absRows, err := db.Query("SELECT id, user_name, type, start_date, end_date, status FROM absences WHERE status = 'Approved'")
     var absences []AbsenceRequest
-    if rowsAbs != nil {
-        for rowsAbs.Next() {
+    if err == nil {
+        defer absRows.Close()
+        for absRows.Next() {
             var a AbsenceRequest
-            rowsAbs.Scan(&a.ID, &a.UserName, &a.Type, &a.StartDate, &a.EndDate, &a.Status)
+            absRows.Scan(&a.ID, &a.UserName, &a.Type, &a.StartDate, &a.EndDate, &a.Status)
             absences = append(absences, a)
         }
-        rowsAbs.Close()
     }
 
-    // Отримання інцидентів за місяць
-    monthPattern := fmt.Sprintf("%04d-%02d-%%", year, month)
-    rowsInc, _ := db.Query("SELECT user_name, date, type, duration_minutes, description FROM incidents WHERE date LIKE ?", monthPattern)
-    incidents := make(map[string][]IncidentReport)
+    userRows, err := db.Query("SELECT name FROM users WHERE role != 'admin' AND COALESCE(is_oncall, 1) = 1")
     statsMap := make(map[string]*UserStat)
-
-    if rowsInc != nil {
-        for rowsInc.Next() {
-            var inc IncidentReport
-            rowsInc.Scan(&inc.UserName, &inc.Date, &inc.Type, &inc.DurationMinutes, &inc.Description)
-            incidents[inc.Date] = append(incidents[inc.Date], inc)
-
-            if _, exists := statsMap[inc.UserName]; !exists {
-                statsMap[inc.UserName] = &UserStat{Name: inc.UserName}
-            }
-            statsMap[inc.UserName].IncidentMinutes += inc.DurationMinutes
-        }
-        rowsInc.Close()
-    }
-
-    // Генерація тестового розкладу чергувань
-    rowsUsers, _ := db.Query("SELECT name FROM users WHERE is_oncall = 1")
-    var oncallUsers []string
-    if rowsUsers != nil {
-        for rowsUsers.Next() {
+    if err == nil {
+        defer userRows.Close()
+        for userRows.Next() {
             var name string
-            rowsUsers.Scan(&name)
-            oncallUsers = append(oncallUsers, name)
+            userRows.Scan(&name)
+            statsMap[name] = &UserStat{Name: name, PrimaryCount: 0, BackupCount: 0}
         }
-        rowsUsers.Close()
     }
 
-    shifts := make(map[string]Shift)
-    daysInMonth := time.Date(year, time.Month(month)+1, 0, 0, 0, 0, 0, time.UTC).Day()
-
-    if len(oncallUsers) > 0 {
-        for d := 1; d <= daysInMonth; d++ {
-            dateStr := fmt.Sprintf("%04d-%02d-%02d", year, month, d)
-            pIdx := (d - 1) % len(oncallUsers)
-            bIdx := d % len(oncallUsers)
-
-            pUser := oncallUsers[pIdx]
-            bUser := oncallUsers[bIdx]
-            if pIdx == bIdx && len(oncallUsers) > 1 {
-                bUser = oncallUsers[(bIdx+1)%len(oncallUsers)]
-            }
-
-            shifts[dateStr] = Shift{PrimaryUser: pUser, BackupUser: bUser}
-
-            if _, exists := statsMap[pUser]; !exists {
-                statsMap[pUser] = &UserStat{Name: pUser}
-            }
-            statsMap[pUser].PrimaryCount++
-
-            if _, exists := statsMap[bUser]; !exists {
-                statsMap[bUser] = &UserStat{Name: bUser}
-            }
-            statsMap[bUser].BackupCount++
+    for _, s := range shifts {
+        if st, ok := statsMap[s.PrimaryUser]; ok {
+            st.PrimaryCount++
+        }
+        if st, ok := statsMap[s.BackupUser]; ok {
+            st.BackupCount++
         }
     }
 
     var stats []UserStat
-    for _, st := range statsMap {
-        stats = append(stats, *st)
+    for _, v := range statsMap {
+        stats = append(stats, *v)
     }
 
-    response := map[string]interface{}{
+    typesRows, _ := db.Query("SELECT id, name, code FROM absence_types")
+    var absenceTypes []AbsenceType
+    if typesRows != nil {
+        defer typesRows.Close()
+        for typesRows.Next() {
+            var t AbsenceType
+            typesRows.Scan(&t.ID, &t.Name, &t.Code)
+            absenceTypes = append(absenceTypes, t)
+        }
+    }
+
+    w.Header().Set("Content-Type", "application/json")
+    json.NewEncoder(w).Encode(map[string]interface{}{
+        "shifts":        shifts,
+        "absences":      absences,
+        "stats":         stats,
+        "absence_types": absenceTypes,
         "year":          year,
         "month":         month,
-        "absence_types": absenceTypes,
-        "absences":      absences,
-        "shifts":        shifts,
-        "incidents":     incidents,
-        "daily_tasks":   map[string][]DailyTask{},
-        "stats":         stats,
-    }
-
-    json.NewEncoder(w).Encode(response)
-}
-
-func handleIncidents(w http.ResponseWriter, r *http.Request) {
-    if r.Method != http.MethodPost {
-        http.Error(w, "Method not allowed", 405)
-        return
-    }
-    var inc IncidentReport
-    json.NewDecoder(r.Body).Decode(&inc)
-
-    _, err := db.Exec("INSERT INTO incidents (user_name, date, type, duration_minutes, description) VALUES (?, ?, ?, ?, ?)",
-        inc.UserName, inc.Date, inc.Type, inc.DurationMinutes, inc.Description)
-
-    if err != nil {
-        http.Error(w, err.Error(), 500)
-        return
-    }
-    w.WriteHeader(http.StatusCreated)
+    })
 }
 
 func handleRequestAbsence(w http.ResponseWriter, r *http.Request) {
     if r.Method != http.MethodPost {
-        http.Error(w, "Method not allowed", 405)
+        http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
         return
     }
-    var req AbsenceRequest
-    json.NewDecoder(r.Body).Decode(&req)
+    var req struct {
+        UserName  string `json:"user_name"`
+        Type      string `json:"type"`
+        StartDate string `json:"start_date"`
+        EndDate   string `json:"end_date"`
+    }
+    if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+        http.Error(w, err.Error(), http.StatusBadRequest)
+        return
+    }
 
-    _, err := db.Exec("INSERT INTO absence_requests (user_name, type, start_date, end_date, status) VALUES (?, ?, ?, ?, 'Pending')",
+    _, err := db.Exec("INSERT INTO absences (user_name, type, start_date, end_date, status) VALUES (?, ?, ?, ?, 'Pending')",
         req.UserName, req.Type, req.StartDate, req.EndDate)
-
     if err != nil {
-        http.Error(w, err.Error(), 500)
+        http.Error(w, "Помилка створення заявки", http.StatusInternalServerError)
         return
     }
-    w.WriteHeader(http.StatusCreated)
+
+    logAudit(req.UserName, "CREATE_ABSENCE_REQUEST", r.RemoteAddr, fmt.Sprintf("Тип: %s, Дати: %s - %s", req.Type, req.StartDate, req.EndDate))
+    logAppEvent("OnCall Core", "INFO", fmt.Sprintf("Користувач %s створив заявку на %s", req.UserName, req.Type))
+
+    w.Header().Set("Content-Type", "application/json")
+    json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
 
-// --- АДМІНІСТРАТИВНІ ЕНДПОЇНТИ (CRUD) ---
-
-func handleUsers(w http.ResponseWriter, r *http.Request) {
+// TODO: CRUD - User Management
+func handleAdminUsers(w http.ResponseWriter, r *http.Request) {
     w.Header().Set("Content-Type", "application/json")
     switch r.Method {
     case http.MethodGet:
         rows, err := db.Query(`
-            SELECT u.id, u.name, u.username, u.role, u.team_role_id, COALESCE(tr.name, ''), u.is_oncall 
-            FROM users u 
-            LEFT JOIN team_roles tr ON u.team_role_id = tr.id`)
+            SELECT u.id, u.username, u.name, u.role, u.team_role_id, COALESCE(tr.name, ''), COALESCE(u.is_oncall, 1)
+            FROM users u
+            LEFT JOIN team_roles tr ON u.team_role_id = tr.id
+            ORDER BY u.id ASC`)
         if err != nil {
-            http.Error(w, err.Error(), 500)
+            http.Error(w, err.Error(), http.StatusInternalServerError)
             return
         }
         defer rows.Close()
@@ -438,7 +424,9 @@ func handleUsers(w http.ResponseWriter, r *http.Request) {
         var users []User
         for rows.Next() {
             var u User
-            rows.Scan(&u.ID, &u.Name, &u.Username, &u.Role, &u.TeamRoleID, &u.TeamRole, &u.IsOnCall)
+            var isOncallInt int
+            rows.Scan(&u.ID, &u.Username, &u.Name, &u.Role, &u.TeamRoleID, &u.TeamRole, &isOncallInt)
+            u.IsOncall = isOncallInt == 1
             users = append(users, u)
         }
         json.NewEncoder(w).Encode(users)
@@ -446,38 +434,55 @@ func handleUsers(w http.ResponseWriter, r *http.Request) {
     case http.MethodPost:
         var u User
         json.NewDecoder(r.Body).Decode(&u)
-        _, err := db.Exec("INSERT INTO users (name, username, password, role, team_role_id, is_oncall) VALUES (?, ?, ?, ?, ?, ?)",
-            u.Name, u.Username, u.Password, u.Role, u.TeamRoleID, u.IsOnCall)
+        isOncallInt := 0
+        if u.IsOncall {
+            isOncallInt = 1
+        }
+        if u.Password == "" {
+            u.Password = "1234"
+        }
+        res, err := db.Exec(`INSERT INTO users (username, password, name, role, team_role_id, is_oncall) VALUES (?, ?, ?, ?, ?, ?)`,
+            u.Username, u.Password, u.Name, u.Role, u.TeamRoleID, isOncallInt)
         if err != nil {
-            http.Error(w, err.Error(), 400)
+            http.Error(w, "Помилка створення", http.StatusBadRequest)
             return
         }
-        w.WriteHeader(http.StatusCreated)
+        id, _ := res.LastInsertId()
+        u.ID = int(id)
+        logAudit("Admin", "CREATE_USER", r.RemoteAddr, fmt.Sprintf("Створено користувача: %s", u.Username))
+        json.NewEncoder(w).Encode(u)
 
     case http.MethodPut:
         var u User
         json.NewDecoder(r.Body).Decode(&u)
-        if u.Password != "" {
-            db.Exec("UPDATE users SET name=?, username=?, password=?, role=?, team_role_id=?, is_oncall=? WHERE id=?",
-                u.Name, u.Username, u.Password, u.Role, u.TeamRoleID, u.IsOnCall, u.ID)
-        } else {
-            db.Exec("UPDATE users SET name=?, username=?, role=?, team_role_id=?, is_oncall=? WHERE id=?",
-                u.Name, u.Username, u.Role, u.TeamRoleID, u.IsOnCall, u.ID)
+        isOncallInt := 0
+        if u.IsOncall {
+            isOncallInt = 1
         }
-        w.WriteHeader(http.StatusOK)
+        if u.Password != "" {
+            db.Exec(`UPDATE users SET username=?, password=?, name=?, role=?, team_role_id=?, is_oncall=? WHERE id=?`,
+                u.Username, u.Password, u.Name, u.Role, u.TeamRoleID, isOncallInt, u.ID)
+        } else {
+            db.Exec(`UPDATE users SET username=?, name=?, role=?, team_role_id=?, is_oncall=? WHERE id=?`,
+                u.Username, u.Name, u.Role, u.TeamRoleID, isOncallInt, u.ID)
+        }
+        logAudit("Admin", "UPDATE_USER", r.RemoteAddr, fmt.Sprintf("Оновлено користувача ID: %d", u.ID))
+        json.NewEncoder(w).Encode(u)
 
     case http.MethodDelete:
-        id := r.URL.Query().Get("id")
-        db.Exec("DELETE FROM users WHERE id = ?", id)
-        w.WriteHeader(http.StatusOK)
+        idStr := r.URL.Query().Get("id")
+        db.Exec("DELETE FROM users WHERE id = ?", idStr)
+        logAudit("Admin", "DELETE_USER", r.RemoteAddr, fmt.Sprintf("Видалено користувача ID: %s", idStr))
+        json.NewEncoder(w).Encode(map[string]string{"status": "deleted"})
     }
 }
 
-func handleTeamRoles(w http.ResponseWriter, r *http.Request) {
+// TODO: CRUD - Team Roles Dictionary
+func handleAdminTeamRoles(w http.ResponseWriter, r *http.Request) {
     w.Header().Set("Content-Type", "application/json")
     switch r.Method {
     case http.MethodGet:
-        rows, _ := db.Query("SELECT id, name FROM team_roles")
+        rows, _ := db.Query("SELECT id, name FROM team_roles ORDER BY id ASC")
         defer rows.Close()
         var roles []TeamRole
         for rows.Next() {
@@ -490,52 +495,71 @@ func handleTeamRoles(w http.ResponseWriter, r *http.Request) {
     case http.MethodPost:
         var tr TeamRole
         json.NewDecoder(r.Body).Decode(&tr)
-        db.Exec("INSERT INTO team_roles (name) VALUES (?)", tr.Name)
-        w.WriteHeader(http.StatusCreated)
+        res, err := db.Exec("INSERT INTO team_roles (name) VALUES (?)", tr.Name)
+        if err != nil {
+            http.Error(w, "Вже існує", http.StatusBadRequest)
+            return
+        }
+        id, _ := res.LastInsertId()
+        tr.ID = int(id)
+        logAudit("Admin", "CREATE_TEAM_ROLE", r.RemoteAddr, fmt.Sprintf("Додано роль: %s", tr.Name))
+        json.NewEncoder(w).Encode(tr)
 
     case http.MethodPut:
         var tr TeamRole
         json.NewDecoder(r.Body).Decode(&tr)
         db.Exec("UPDATE team_roles SET name = ? WHERE id = ?", tr.Name, tr.ID)
-        w.WriteHeader(http.StatusOK)
+        logAudit("Admin", "UPDATE_TEAM_ROLE", r.RemoteAddr, fmt.Sprintf("Оновлено роль ID: %d", tr.ID))
+        json.NewEncoder(w).Encode(tr)
 
     case http.MethodDelete:
-        id := r.URL.Query().Get("id")
-        db.Exec("DELETE FROM team_roles WHERE id = ?", id)
-        w.WriteHeader(http.StatusOK)
+        idStr := r.URL.Query().Get("id")
+        db.Exec("DELETE FROM team_roles WHERE id = ?", idStr)
+        logAudit("Admin", "DELETE_TEAM_ROLE", r.RemoteAddr, fmt.Sprintf("Видалено роль ID: %s", idStr))
+        json.NewEncoder(w).Encode(map[string]string{"status": "deleted"})
     }
 }
 
-func handleAbsenceTypes(w http.ResponseWriter, r *http.Request) {
+// TODO: CRUD - Absence Types Dictionary
+func handleAdminAbsenceTypes(w http.ResponseWriter, r *http.Request) {
     w.Header().Set("Content-Type", "application/json")
     switch r.Method {
     case http.MethodGet:
-        rows, _ := db.Query("SELECT id, name, code FROM absence_types")
+        rows, _ := db.Query("SELECT id, name, code FROM absence_types ORDER BY id ASC")
         defer rows.Close()
         var types []AbsenceType
         for rows.Next() {
-            var at AbsenceType
-            rows.Scan(&at.ID, &at.Name, &at.Code)
-            types = append(types, at)
+            var t AbsenceType
+            rows.Scan(&t.ID, &t.Name, &t.Code)
+            types = append(types, t)
         }
         json.NewEncoder(w).Encode(types)
 
     case http.MethodPost:
-        var at AbsenceType
-        json.NewDecoder(r.Body).Decode(&at)
-        db.Exec("INSERT INTO absence_types (name, code) VALUES (?, ?)", at.Name, at.Code)
-        w.WriteHeader(http.StatusCreated)
+        var t AbsenceType
+        json.NewDecoder(r.Body).Decode(&t)
+        res, err := db.Exec("INSERT INTO absence_types (name, code) VALUES (?, ?)", t.Name, t.Code)
+        if err != nil {
+            http.Error(w, "Помилка додання", http.StatusBadRequest)
+            return
+        }
+        id, _ := res.LastInsertId()
+        t.ID = int(id)
+        logAudit("Admin", "CREATE_ABSENCE_TYPE", r.RemoteAddr, fmt.Sprintf("Додано тип відсутності: %s", t.Name))
+        json.NewEncoder(w).Encode(t)
 
     case http.MethodPut:
-        var at AbsenceType
-        json.NewDecoder(r.Body).Decode(&at)
-        db.Exec("UPDATE absence_types SET name = ?, code = ? WHERE id = ?", at.Name, at.Code, at.ID)
-        w.WriteHeader(http.StatusOK)
+        var t AbsenceType
+        json.NewDecoder(r.Body).Decode(&t)
+        db.Exec("UPDATE absence_types SET name = ?, code = ? WHERE id = ?", t.Name, t.Code, t.ID)
+        logAudit("Admin", "UPDATE_ABSENCE_TYPE", r.RemoteAddr, fmt.Sprintf("Оновлено тип відсутності ID: %d", t.ID))
+        json.NewEncoder(w).Encode(t)
 
     case http.MethodDelete:
-        id := r.URL.Query().Get("id")
-        db.Exec("DELETE FROM absence_types WHERE id = ?", id)
-        w.WriteHeader(http.StatusOK)
+        idStr := r.URL.Query().Get("id")
+        db.Exec("DELETE FROM absence_types WHERE id = ?", idStr)
+        logAudit("Admin", "DELETE_ABSENCE_TYPE", r.RemoteAddr, fmt.Sprintf("Видалено тип відсутності ID: %s", idStr))
+        json.NewEncoder(w).Encode(map[string]string{"status": "deleted"})
     }
 }
 
@@ -543,106 +567,80 @@ func handleAdminRequests(w http.ResponseWriter, r *http.Request) {
     w.Header().Set("Content-Type", "application/json")
     switch r.Method {
     case http.MethodGet:
-        rows, err := db.Query("SELECT id, user_name, type, start_date, end_date, status FROM absence_requests")
-        if err != nil {
-            json.NewEncoder(w).Encode([]AbsenceRequest{})
-            return
-        }
+        rows, _ := db.Query("SELECT id, user_name, type, start_date, end_date, status FROM absences ORDER BY id DESC")
         defer rows.Close()
-
-        var reqs []AbsenceRequest
+        var list []AbsenceRequest
         for rows.Next() {
-            var req AbsenceRequest
-            rows.Scan(&req.ID, &req.UserName, &req.Type, &req.StartDate, &req.EndDate, &req.Status)
-            reqs = append(reqs, req)
+            var a AbsenceRequest
+            rows.Scan(&a.ID, &a.UserName, &a.Type, &a.StartDate, &a.EndDate, &a.Status)
+            list = append(list, a)
         }
-        json.NewEncoder(w).Encode(reqs)
+        json.NewEncoder(w).Encode(list)
 
     case http.MethodPut:
-        var payload struct {
+        var req struct {
             ID     int    `json:"id"`
             Status string `json:"status"`
         }
-        json.NewDecoder(r.Body).Decode(&payload)
-        db.Exec("UPDATE absence_requests SET status = ? WHERE id = ?", payload.Status, payload.ID)
-        w.WriteHeader(http.StatusOK)
+        json.NewDecoder(r.Body).Decode(&req)
+        db.Exec("UPDATE absences SET status = ? WHERE id = ?", req.Status, req.ID)
+        logAudit("Admin", "UPDATE_REQUEST_STATUS", r.RemoteAddr, fmt.Sprintf("Заявка ID %d змінила статус на: %s", req.ID, req.Status))
+        json.NewEncoder(w).Encode(map[string]string{"status": "updated"})
     }
 }
 
-// --- СИСТЕМНІ ЕНДПОЇНТИ ТА МОНІТОРИНГ ---
-
-func handleAppLogs(w http.ResponseWriter, r *http.Request) {
-    w.Header().Set("Content-Type", "application/json")
-    appFilter := r.URL.Query().Get("app")
-
-    logs := []AppLog{
-        {Timestamp: time.Now().Add(-10 * time.Minute).Format("2006-01-02 15:04:05"), App: "Auth Service", Level: "INFO", Message: "User 'admin' successfully logged in"},
-        {Timestamp: time.Now().Add(-5 * time.Minute).Format("2006-01-02 15:04:05"), App: "OnCall Core", Level: "INFO", Message: "Shift schedule generated for current week"},
-        {Timestamp: time.Now().Add(-2 * time.Minute).Format("2006-01-02 15:04:05"), App: "Admin Panel", Level: "WARN", Message: "Unauthorized access attempt to /admin route blocked"},
-        {Timestamp: time.Now().Format("2006-01-02 15:04:05"), App: "Nginx Proxy", Level: "INFO", Message: "GET /api/admin/users HTTP/1.1 200 OK"},
-    }
-
-    if appFilter != "" && appFilter != "All" {
-        var filtered []AppLog
-        for _, l := range logs {
-            if l.App == appFilter {
-                filtered = append(filtered, l)
-            }
-        }
-        logs = filtered
-    }
-
-    json.NewEncoder(w).Encode(logs)
-}
-
+// --- PROJECT MONITORING HANDLERS ---
 func handleDBStats(w http.ResponseWriter, r *http.Request) {
     w.Header().Set("Content-Type", "application/json")
-    tables := []string{"users", "team_roles", "absence_types", "absence_requests", "incidents", "audit_logs"}
-    var stats []DBStat
-
-    for _, t := range tables {
-        var count int
-        db.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM %s", t)).Scan(&count)
-        stats = append(stats, DBStat{
-            TableName:  t,
-            RowCount:   count,
-            LastAction: "UPDATE/INSERT",
-            LastUpdate: time.Now().Format("2006-01-02 15:04:05"),
-        })
+    rows, err := db.Query("SELECT table_name, last_action, datetime(last_update, 'localtime') FROM table_tracker")
+    if err != nil {
+        http.Error(w, err.Error(), http.StatusInternalServerError)
+        return
     }
+    defer rows.Close()
 
+    var stats []TableStat
+    for rows.Next() {
+        var st TableStat
+        rows.Scan(&st.TableName, &st.LastAction, &st.LastUpdate)
+
+        var count int
+        db.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM %s", st.TableName)).Scan(&count)
+        st.RowCount = count
+
+        stats = append(stats, st)
+    }
     json.NewEncoder(w).Encode(stats)
 }
 
-func handleSqlQuery(w http.ResponseWriter, r *http.Request) {
+func handleReadOnlyQuery(w http.ResponseWriter, r *http.Request) {
+    w.Header().Set("Content-Type", "application/json")
     if r.Method != http.MethodPost {
-        http.Error(w, "Method not allowed", 405)
+        http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
         return
     }
 
-    var req QueryRequest
-    json.NewDecoder(r.Body).Decode(&req)
+    var body struct {
+        Query string `json:"query"`
+    }
+    json.NewDecoder(r.Body).Decode(&body)
 
-    q := strings.TrimSpace(req.Query)
-    if !strings.HasPrefix(strings.ToUpper(q), "SELECT") {
-        http.Error(w, "Дозволені тільки SELECT-запити (Read-Only)", http.StatusBadRequest)
+    trimmed := strings.TrimSpace(strings.ToUpper(body.Query))
+    if !strings.HasPrefix(trimmed, "SELECT") {
+        http.Error(w, "Дозволені лише SELECT-запити", http.StatusBadRequest)
         return
     }
 
-    rows, err := db.Query(q)
+    rows, err := db.Query(body.Query)
     if err != nil {
         http.Error(w, err.Error(), http.StatusBadRequest)
         return
     }
     defer rows.Close()
 
-    cols, err := rows.Columns()
-    if err != nil {
-        http.Error(w, err.Error(), 500)
-        return
-    }
-
+    cols, _ := rows.Columns()
     var result []map[string]interface{}
+
     for rows.Next() {
         columns := make([]interface{}, len(cols))
         columnPointers := make([]interface{}, len(cols))
@@ -650,10 +648,7 @@ func handleSqlQuery(w http.ResponseWriter, r *http.Request) {
             columnPointers[i] = &columns[i]
         }
 
-        if err := rows.Scan(columnPointers...); err != nil {
-            http.Error(w, err.Error(), 500)
-            return
-        }
+        rows.Scan(columnPointers...)
 
         m := make(map[string]interface{})
         for i, colName := range cols {
@@ -663,7 +658,6 @@ func handleSqlQuery(w http.ResponseWriter, r *http.Request) {
         result = append(result, m)
     }
 
-    w.Header().Set("Content-Type", "application/json")
     json.NewEncoder(w).Encode(map[string]interface{}{
         "columns": cols,
         "rows":    result,
@@ -672,10 +666,35 @@ func handleSqlQuery(w http.ResponseWriter, r *http.Request) {
 
 func handleAuditLogs(w http.ResponseWriter, r *http.Request) {
     w.Header().Set("Content-Type", "application/json")
-    logs := []AuditLog{
-        {Timestamp: time.Now().Add(-15 * time.Minute).Format("2006-01-02 15:04:05"), UserName: "admin", Action: "LOGIN", IP: "127.0.0.1", Details: "Вхід у систему успішний"},
-        {Timestamp: time.Now().Add(-10 * time.Minute).Format("2006-01-02 15:04:05"), UserName: "admin", Action: "UPDATE_USER", IP: "127.0.0.1", Details: "Змінено роль користувача"},
-        {Timestamp: time.Now().Add(-5 * time.Minute).Format("2006-01-02 15:04:05"), UserName: "system", Action: "BACKUP", IP: "127.0.0.1", Details: "Автоматичне створення резервної копії БД"},
+    rows, _ := db.Query("SELECT id, datetime(timestamp, 'localtime'), user_name, action, ip, details FROM audit_logs ORDER BY id DESC LIMIT 100")
+    defer rows.Close()
+
+    var logs []AuditLog
+    for rows.Next() {
+        var l AuditLog
+        rows.Scan(&l.ID, &l.Timestamp, &l.UserName, &l.Action, &l.IP, &l.Details)
+        logs = append(logs, l)
+    }
+    json.NewEncoder(w).Encode(logs)
+}
+
+func handleAppLogs(w http.ResponseWriter, r *http.Request) {
+    w.Header().Set("Content-Type", "application/json")
+    appName := r.URL.Query().Get("app")
+
+    var rows *sql.Rows
+    if appName != "" && appName != "All" {
+        rows, _ = db.Query("SELECT id, datetime(timestamp, 'localtime'), app, level, message FROM app_logs WHERE app = ? ORDER BY id DESC LIMIT 100", appName)
+    } else {
+        rows, _ = db.Query("SELECT id, datetime(timestamp, 'localtime'), app, level, message FROM app_logs ORDER BY id DESC LIMIT 100")
+    }
+    defer rows.Close()
+
+    var logs []AppLog
+    for rows.Next() {
+        var l AppLog
+        rows.Scan(&l.ID, &l.Timestamp, &l.App, &l.Level, &l.Message)
+        logs = append(logs, l)
     }
     json.NewEncoder(w).Encode(logs)
 }
