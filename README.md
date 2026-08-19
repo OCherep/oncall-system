@@ -1,48 +1,28 @@
 # oncall-system (гілка `grok`)
 
-Об'єднана версія: **good** (база) + модуль інцидентів з **actualy-last**.
+Об'єднана версія: **good** + інциденти + **absence-aware** розклад.
 
-## Структура backend
+## Що нового в календарі
+- Показується **вся команда** (roster chips над сіткою)
+- Хто у **відпустці / Day Off / Sick Day** (approved) — **не ставиться** на primary/backup
+- У клітинці дня: бейдж відсутніх, Осн/Дубл лише з доступних, рядок «В пулі»
+- Деталі дня: доступні vs хто не може чергувати
 
+## Структура
 ```
-main.go              — types, initDB (incidents table), triggers, routing
-handlers_client.go   — login, /api/data, absences, incidents
-handlers_admin.go    — CRUD users/roles/types/requests + monitoring
+main.go, handlers_client.go, handlers_admin.go
+static/index.html   — календар (оновлений)
+static/admin.html   — адмінка (візьміть з good, якщо ще placeholder)
 ```
 
-## Швидкий старт
-
+## Старт
 ```bash
-git clone https://github.com/OCherep/oncall-system.git
-cd oncall-system
 git checkout grok
+# Повна адмінка з good (якщо потрібно):
+git checkout good -- static/admin.html
 
-# Підтягнути повний frontend з good (UI вже підтримує incidents)
-git checkout good -- static/
-
-go mod tidy
-go run .
-# → http://localhost:8083
-
-# Docker
-docker compose up -d --build
-# → http://localhost:83
+go mod tidy && go run .
+# http://localhost:8083
 ```
 
-## Облікові записи
-- `admin` / `admin`
-- `dev1` / `1234`
-- `pm` / `1234`
-
-## API
-- `POST /api/login`
-- `GET  /api/data?year=&month=` (shifts, absences, **incidents**, stats)
-- `POST /api/request-absence`
-- `POST /api/incidents`
-- Admin CRUD: `/api/admin/users`, `/team-roles`, `/absence-types`, `/requests`
-- Monitoring: `/api/admin/project/{db-stats,query,audit-logs,app-logs}`
-
-## Що включено
-- Персистентні shifts, реальні audit/app logs, table triggers (з good)
-- Таблиця incidents + API + stats.incident_minutes (з actualy-last)
-- Frontend з good уже має повний UI інцидентів
+Логіни: `admin`/`admin`, `dev1`/`1234`, `pm`/`1234`
