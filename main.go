@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -108,10 +109,19 @@ func logAudit(user, action, ip, details string) {
 
 func initDB() {
 	var err error
-	db, err = sql.Open("sqlite3", "./oncall.db?_journal_mode=WAL&_busy_timeout=5000")
+	dbPath := os.Getenv("DB_PATH")
+	if dbPath == "" {
+		dbPath = "./data/oncall.db"
+	}
+	// ensure directory exists so volume mount works across rebuilds
+	if i := strings.LastIndex(dbPath, "/"); i > 0 {
+		_ = os.MkdirAll(dbPath[:i], 0755)
+	}
+	db, err = sql.Open("sqlite3", dbPath+"?_journal_mode=WAL&_busy_timeout=5000")
 	if err != nil {
 		log.Fatal(err)
 	}
+	log.Printf("sqlite: %s", dbPath)
 	db.SetMaxOpenConns(1)
 
 	stmts := []string{
@@ -246,6 +256,7 @@ func main() {
 	http.HandleFunc("/api/admin/requests", handleAdminRequests)
 	http.HandleFunc("/api/admin/logs", handleAdminLogs)
 	http.HandleFunc("/api/admin/tasks", handleAdminTasks)
+	http.HandleFunc("/api/admin/project/unlock", handleDBUnlock)
 	http.HandleFunc("/api/admin/project/db-stats", handleDBStats)
 	http.HandleFunc("/api/admin/project/query", handleReadOnlyQuery)
 	http.HandleFunc("/api/admin/regenerate-shifts", handleRegenerateShifts)
