@@ -69,14 +69,14 @@ input,select,textarea{padding:8px;border:1px solid var(--b);border-radius:6px;fo
 <div class="filters">
 <div class="fg"><label>Виконавець</label><select id="tf-user"><option value="">Усі виконавці</option></select></div>
 <div class="fg"><label>Статус</label><select id="tf-status"><option value="">Усі статуси</option>
-<option>Нова</option><option>У роботі</option><option>До перевірки</option><option>Виконана</option><option>Перевідкрита</option><option>Архів</option></select></div>
+<option>Нова</option><option>У роботі</option><option>На паузі</option><option>До перевірки</option><option>Виконана</option><option>Перевідкрита</option><option>Архів</option></select></div>
 <div class="fg"><label>Пріоритет</label><select id="tf-prio"><option value="">Усі</option>
 <option>Надкритична</option><option>Термінова</option><option>Базова</option><option>Техборг</option><option>У шухляду</option></select></div>
 <div class="fg"><label>Дата з</label><input type="date" id="tf-from"></div>
 <div class="fg"><label>Дата по</label><input type="date" id="tf-to"></div>
 <button class="btn" onclick="loadTasks()">Фільтр</button>
 </div>
-<table><thead><tr><th>ID</th><th>Хто</th><th>Дата</th><th>Задача</th><th>Статус</th><th>Пріоритет</th><th>Хв</th><th></th></tr></thead><tbody id="task-tb"></tbody></table>
+<table><thead><tr><th>ID</th><th>Виконавець</th><th>Відповідальний</th><th>Хто створив</th><th>Дата</th><th>Задача</th><th>Статус</th><th>Пріоритет</th><th>Хв</th><th></th></tr></thead><tbody id="task-tb"></tbody></table>
 </div>
 
 <div class="sec" id="logs">
@@ -86,7 +86,7 @@ input,select,textarea{padding:8px;border:1px solid var(--b);border-radius:6px;fo
 </div>
 
 <script>
-const STATUSES=['Нова','У роботі','До перевірки','Виконана','Перевідкрита','Архів'];
+const STATUSES=['Нова','У роботі','На паузі','До перевірки','Виконана','Перевідкрита','Архів'];
 const PRIOS=['Надкритична','Термінова','Базова','Техборг','У шухляду'];
 let users=[], roles=[];
 
@@ -159,16 +159,18 @@ async function loadTasks(){
   document.getElementById('task-tb').innerHTML=(d||[]).map(x=>{
     const st=STATUSES.map(v=>`<option ${v===x.status?'selected':''}>${v}</option>`).join('');
     const pri=PRIOS.map(v=>`<option ${v===x.priority?'selected':''}>${v}</option>`).join('');
-    return `<tr><td>${x.id}</td><td>${x.user_name}</td><td>${x.date}</td><td>${x.task_description}</td>
+    const exec=x.user_name||'<em style="color:#94a3b8">на розгляді</em>';
+    return `<tr><td>${x.id}</td><td>${exec}</td><td>${x.responsible||'—'}</td><td>${x.created_by||'—'}</td><td>${x.date}</td><td>${x.task_description}</td>
       <td><select onchange="updTask(${x.id},'status',this.value)">${st}</select></td>
       <td><select onchange="updTask(${x.id},'priority',this.value)">${pri}</select></td>
       <td>${x.total_minutes||0}</td>
       <td><button class="btn btn-d" style="padding:2px 6px" onclick="delTask(${x.id})">✕</button></td></tr>`;
-  }).join('')||'<tr><td colspan="8">Немає задач</td></tr>';
+  }).join('')||'<tr><td colspan="10">Немає задач</td></tr>';
 }
 async function updTask(id,field,val){
-  const body={id};body[field]=val;
-  await fetch('/api/admin/tasks',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const body={id,role:'admin'};body[field]=val;
+  const r=await fetch('/api/admin/tasks',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  if(!r.ok)alert(await r.text()||'Помилка');
   loadTasks();
 }
 async function delTask(id){if(confirm('Видалити?')){await fetch('/api/admin/tasks?id='+id,{method:'DELETE'});loadTasks()}}
