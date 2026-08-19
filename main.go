@@ -66,8 +66,10 @@ type IncidentReport struct {
 	Role            string `json:"role,omitempty"`
 }
 
-// Status: Нова | У роботі | До перевірки | Виконана | Архів | Перевідкрита
+// Status: Нова | У роботі | На паузі | До перевірки | Виконана | Перевідкрита | Архів
 // Priority: Надкритична | Термінова | Базова | Техборг | У шухляду
+// User flow: Нова → У роботі ⇄ На паузі → До перевірки → Виконана
+// Admin only on Виконана: → Перевідкрита (→Нова) | → Архів
 type DailyTask struct {
 	ID              int    `json:"id,omitempty"`
 	UserName        string `json:"user_name"`
@@ -78,6 +80,9 @@ type DailyTask struct {
 	WorkStartedAt   string `json:"work_started_at,omitempty"`
 	TotalMinutes    int    `json:"total_minutes"`
 	CreatedAt       string `json:"created_at,omitempty"`
+	VisibleFrom     string `json:"visible_from,omitempty"`
+	DueDate         string `json:"due_date,omitempty"`
+	CreatedBy       string `json:"created_by,omitempty"`
 }
 
 type TableStat struct {
@@ -159,7 +164,10 @@ func initDB() {
 			priority TEXT DEFAULT 'Базова',
 			work_started_at TEXT,
 			total_minutes INTEGER DEFAULT 0,
-			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			visible_from TEXT,
+			due_date TEXT,
+			created_by TEXT
 		)`,
 		`CREATE TABLE IF NOT EXISTS audit_logs (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -194,6 +202,9 @@ func initDB() {
 	db.Exec("ALTER TABLE daily_tasks ADD COLUMN work_started_at TEXT")
 	db.Exec("ALTER TABLE daily_tasks ADD COLUMN total_minutes INTEGER DEFAULT 0")
 	db.Exec("ALTER TABLE daily_tasks ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP")
+	db.Exec("ALTER TABLE daily_tasks ADD COLUMN visible_from TEXT")
+	db.Exec("ALTER TABLE daily_tasks ADD COLUMN due_date TEXT")
+	db.Exec("ALTER TABLE daily_tasks ADD COLUMN created_by TEXT")
 	db.Exec("ALTER TABLE users ADD COLUMN is_oncall INTEGER DEFAULT 1")
 
 	tables := []string{"users", "team_roles", "absence_types", "shifts", "absences", "incidents", "daily_tasks", "audit_logs", "app_logs"}
