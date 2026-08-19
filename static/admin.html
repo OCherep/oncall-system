@@ -30,6 +30,7 @@ input,select,textarea{padding:8px;border:1px solid var(--b);border-radius:6px;fo
 <a data-s="requests">Заявки</a>
 <a data-s="tasks">Задачі з дейлі</a>
 <a data-s="logs">Логи</a>
+<a data-s="db">База даних</a>
 </div>
 
 <div class="sec on" id="users">
@@ -83,12 +84,43 @@ input,select,textarea{padding:8px;border:1px solid var(--b);border-radius:6px;fo
 <h2>Аудит-логи</h2>
 <table><thead><tr><th>Час</th><th>Хто</th><th>Дія</th><th>IP</th><th>Деталі</th></tr></thead><tbody id="log-tb"></tbody></table>
 </div>
+
+<div class="sec" id="db">
+<h2>Робота з базою даних</h2>
+<p style="color:#64748b;font-size:13px;max-width:640px">Цей розділ захищено окремим паролем (<code>DB_ADMIN_PASSWORD</code>).
+База зберігається у volume <code>./data/oncall.db</code> і не зникає при перезбірці контейнера.</p>
+
+<div id="db-lock" style="max-width:360px;margin:16px 0;padding:16px;background:#fff;border:1px solid #e2e8f0;border-radius:8px">
+  <div class="fg" style="display:block;width:100%"><label>Пароль доступу до БД</label>
+  <input type="password" id="db-pass" style="width:100%;box-sizing:border-box" placeholder="DB admin password"></div>
+  <button class="btn" onclick="unlockDB()">Розблокувати</button>
+  <p id="db-lock-err" style="color:#ef4444;font-size:12px;margin-top:8px"></p>
+</div>
+
+<div id="db-tools" style="display:none">
+  <div style="margin-bottom:12px">
+    <button class="btn btn-s" onclick="lockDB()">Заблокувати знову</button>
+    <button class="btn" onclick="loadDBStats()">Оновити статистику</button>
+    <button class="btn btn-d" onclick="regenShifts()">Перегенерувати графік чергувань</button>
+  </div>
+  <h3>Статистика таблиць</h3>
+  <table><thead><tr><th>Таблиця</th><th>Рядків</th><th>Остання дія</th><th>Оновлено</th></tr></thead>
+  <tbody id="db-stats-tb"></tbody></table>
+
+  <h3 style="margin-top:20px">Read-only SQL (лише SELECT)</h3>
+  <textarea id="db-sql" style="width:100%;min-height:80px;font-family:monospace;font-size:12px" placeholder="SELECT * FROM users LIMIT 10"></textarea>
+  <button class="btn" style="margin-top:8px" onclick="runQuery()">Виконати</button>
+  <pre id="db-result" style="background:#0f172a;color:#e2e8f0;padding:12px;border-radius:8px;overflow:auto;max-height:320px;font-size:12px;margin-top:8px"></pre>
+</div>
+</div>
+
 </div>
 
 <script>
 const STATUSES=['Нова','У роботі','На паузі','До перевірки','Виконана','Перевідкрита','Архів'];
 const PRIOS=['Надкритична','Термінова','Базова','Техборг','У шухляду'];
 let users=[], roles=[];
+let dbPw = sessionStorage.getItem('db_pw') || '';
 
 document.querySelectorAll('.tabs a').forEach(a=>{
   a.onclick=()=>{
@@ -99,8 +131,59 @@ document.querySelectorAll('.tabs a').forEach(a=>{
     if(a.dataset.s==='tasks')loadTasks();
     if(a.dataset.s==='logs')loadLogs();
     if(a.dataset.s==='requests')loadReqs();
+    if(a.dataset.s==='db'){ if(sessionStorage.getItem('db_pw')){ showDBTools(); loadDBStats(); } else showDBLock(); }
   };
 });
+
+function dbHeaders(extra){
+  const h={'Content-Type':'application/json'};
+  if(dbPw) h['X-DB-Admin-Password']=dbPw;
+  return Object.assign(h, extra||{});
+}
+function showDBLock(){
+  document.getElementById('db-lock').style.display='block';
+  document.getElementById('db-tools').style.display='none';
+  document.getElementById('db-lock-err').innerText='';
+}
+function showDBTools(){
+  document.getElementById('db-lock').style.display='none';
+  document.getElementById('db-tools').style.display='block';
+}
+async function unlockDB(){
+  const p=document.getElementById('db-pass').value;
+  const r=await fetch('/api/admin/project/unlock',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:p})});
+  if(!r.ok){document.getElementById('db-lock-err').innerText=await r.text()||'Невірний пароль';return;}
+  dbPw=p; sessionStorage.setItem('db_pw',p);
+  showDBTools(); loadDBStats();
+}
+function lockDB(){
+  dbPw=''; sessionStorage.removeItem('db_pw');
+  document.getElementById('db-pass').value='';
+  showDBLock();
+}
+async function loadDBStats(){
+  if(!dbPw){showDBLock();return;}
+  const r=await fetch('/api/admin/project/db-stats',{headers:dbHeaders()});
+  if(r.status===403){lockDB();return;}
+  const d=await r.json();
+  document.getElementById('db-stats-tb').innerHTML=(d||[]).map(x=>
+    `<tr><td>${x.table_name}</td><td>${x.row_count}</td><td>${x.last_action||'—'}</td><td>${x.last_update||'—'}</td></tr>`
+  ).join('')||'<tr><td colspan="4">Немає даних</td></tr>';
+}
+async function runQuery(){
+  if(!dbPw){showDBLock();return;}
+  const sql=document.getElementById('db-sql').value.trim();
+  const r=await fetch('/api/admin/project/query',{method:'POST',headers:dbHeaders(),body:JSON.stringify({sql})});
+  const t=await r.text();
+  try{document.getElementById('db-result').textContent=JSON.stringify(JSON.parse(t),null,2);}
+  catch(e){document.getElementById('db-result').textContent=t;}
+}
+async function regenShifts(){
+  if(!dbPw){showDBLock();return;}
+  if(!confirm('Очистити shifts і перегенерувати при наступному завантаженні календаря?'))return;
+  const r=await fetch('/api/admin/regenerate-shifts',{method:'POST',headers:dbHeaders()});
+  alert(r.ok?'Готово. Оновіть календар.':(await r.text()));
+}
 
 async function loadAll(){
   const [u,r,t]=await Promise.all([
