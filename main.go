@@ -2,11 +2,12 @@ package main
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
-	"html/template"
 	"log"
 	"net/http"
-	"strings"
+	"os"
+	"time"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -68,6 +69,8 @@ type IncidentReport struct {
 	Role            string `json:"role,omitempty"`
 }
 
+// Status: Нова | У роботі | До перевірки | Виконана | Архів | Перевідкрита
+// Priority: Надкритична | Термінова | Базова | Техборг | У шухляду
 type DailyTask struct {
 	ID              int    `json:"id,omitempty"`
 	UserName        string `json:"user_name"`
@@ -89,133 +92,148 @@ type TableStat struct {
 
 type AuditLog struct {
 	ID        int    `json:"id"`
-	Timestamp string `json:"timestamp"`
 	UserName  string `json:"user_name"`
 	Action    string `json:"action"`
 	IP        string `json:"ip"`
 	Details   string `json:"details"`
-}
-
-type AppLog struct {
-	ID        int    `json:"id"`
 	Timestamp string `json:"timestamp"`
-	App       string `json:"app"`
-	Level     string `json:"level"`
-	Message   string `json:"message"`
 }
 
-func main() {
-	var err error
-	db, err = sql.Open("sqlite3", "./oncall.db?_journal_mode=WAL")
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer db.Close()
-	initDB()
-	http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("./static"))))
-	http.HandleFunc("/", handleIndex)
-	http.HandleFunc("/admin", handleAdminPage)
-	http.HandleFunc("/api/data", handleGetData)
-	http.HandleFunc("/api/login", handleLogin)
-	http.HandleFunc("/api/request-absence", handleRequestAbsence)
-	http.HandleFunc("/api/incidents", handleIncidents)
-	http.HandleFunc("/api/daily-tasks", handleDailyTasks)
-	http.HandleFunc("/api/admin/users", handleAdminUsers)
-	http.HandleFunc("/api/admin/team-roles", handleAdminTeamRoles)
-	http.HandleFunc("/api/admin/absence-types", handleAdminAbsenceTypes)
-	http.HandleFunc("/api/admin/requests", handleAdminRequests)
-	http.HandleFunc("/api/admin/tasks", handleAdminTasks)
-	http.HandleFunc("/api/admin/project/db-stats", handleDBStats)
-	http.HandleFunc("/api/admin/project/query", handleReadOnlyQuery)
-	http.HandleFunc("/api/admin/project/audit-logs", handleAuditLogs)
-	http.HandleFunc("/api/admin/project/app-logs", handleAppLogs)
-	logAppEvent("OnCall Core", "INFO", "Сервер запущено на порту 8084")
-	fmt.Println("Server running at http://localhost:8084")
-	log.Fatal(http.ListenAndServe(":8084", nil))
+func logAudit(user, action, ip, details string) {
+	db.Exec(`INSERT INTO audit_logs (user_name, action, ip, details, timestamp) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+		user, action, ip, details)
 }
 
 func initDB() {
-	queries := []string{
-		`CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE, password TEXT, name TEXT, role TEXT, team_role_id INTEGER, is_oncall INTEGER DEFAULT 1);`,
-		`CREATE TABLE IF NOT EXISTS team_roles (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE);`,
-		`CREATE TABLE IF NOT EXISTS absence_types (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, code TEXT UNIQUE);`,
-		`CREATE TABLE IF NOT EXISTS shifts (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT UNIQUE, primary_user TEXT, backup_user TEXT);`,
-		`CREATE TABLE IF NOT EXISTS absences (id INTEGER PRIMARY KEY AUTOINCREMENT, user_name TEXT, type TEXT, start_date TEXT, end_date TEXT, status TEXT DEFAULT 'Approved');`,
-		`CREATE TABLE IF NOT EXISTS incidents (id INTEGER PRIMARY KEY AUTOINCREMENT, user_name TEXT NOT NULL, date TEXT NOT NULL, type TEXT NOT NULL, duration_minutes INTEGER NOT NULL, description TEXT NOT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP);`,
-		`CREATE TABLE IF NOT EXISTS daily_tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, user_name TEXT NOT NULL, date TEXT NOT NULL, task_description TEXT NOT NULL, status TEXT DEFAULT 'Нова', priority TEXT DEFAULT 'Базова', work_started_at TEXT, total_minutes INTEGER DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP);`,
-		`CREATE TABLE IF NOT EXISTS audit_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP, user_name TEXT, action TEXT, ip TEXT, details TEXT);`,
-		`CREATE TABLE IF NOT EXISTS app_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP, app TEXT, level TEXT, message TEXT);`,
-		`CREATE TABLE IF NOT EXISTS table_tracker (table_name TEXT PRIMARY KEY, last_action TEXT, last_update DATETIME DEFAULT CURRENT_TIMESTAMP);`,
+	var err error
+	db, err = sql.Open("sqlite3", "./oncall.db?_journal_mode=WAL&_busy_timeout=5000")
+	if err != nil {
+		log.Fatal(err)
 	}
-	for _, q := range queries {
-		if _, err := db.Exec(q); err != nil {
-			log.Fatalf("Failed to init db: %v", err)
+	db.SetMaxOpenConns(1)
+
+	stmts := []string{
+		`CREATE TABLE IF NOT EXISTS users (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			username TEXT UNIQUE NOT NULL,
+			password TEXT NOT NULL,
+			name TEXT NOT NULL,
+			role TEXT DEFAULT 'user',
+			team_role_id INTEGER,
+			is_oncall INTEGER DEFAULT 1
+		)`,
+		`CREATE TABLE IF NOT EXISTS team_roles (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			name TEXT UNIQUE NOT NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS absence_types (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			name TEXT UNIQUE NOT NULL,
+			code TEXT
+		)`,
+		`CREATE TABLE IF NOT EXISTS shifts (
+			date TEXT PRIMARY KEY,
+			primary_user TEXT,
+			backup_user TEXT
+		)`,
+		`CREATE TABLE IF NOT EXISTS absences (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_name TEXT,
+			type TEXT,
+			start_date TEXT,
+			end_date TEXT,
+			status TEXT DEFAULT 'Pending'
+		)`,
+		`CREATE TABLE IF NOT EXISTS incidents (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_name TEXT,
+			date TEXT,
+			type TEXT,
+			duration_minutes INTEGER,
+			description TEXT,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE TABLE IF NOT EXISTS daily_tasks (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_name TEXT,
+			date TEXT,
+			task_description TEXT,
+			status TEXT DEFAULT 'Нова',
+			priority TEXT DEFAULT 'Базова',
+			work_started_at TEXT,
+			total_minutes INTEGER DEFAULT 0,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE TABLE IF NOT EXISTS audit_logs (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_name TEXT,
+			action TEXT,
+			ip TEXT,
+			details TEXT,
+			timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE TABLE IF NOT EXISTS app_logs (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			level TEXT,
+			message TEXT,
+			timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE TABLE IF NOT EXISTS table_tracker (
+			table_name TEXT PRIMARY KEY,
+			row_count INTEGER,
+			last_action TEXT,
+			last_update DATETIME
+		)`,
+	}
+	for _, s := range stmts {
+		if _, err := db.Exec(s); err != nil {
+			log.Printf("schema: %v", err)
 		}
 	}
-	db.Exec("ALTER TABLE absences ADD COLUMN status TEXT DEFAULT 'Approved'")
+
+	// migrations for existing DBs
 	db.Exec("ALTER TABLE incidents ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP")
 	db.Exec("ALTER TABLE daily_tasks ADD COLUMN status TEXT DEFAULT 'Нова'")
 	db.Exec("ALTER TABLE daily_tasks ADD COLUMN priority TEXT DEFAULT 'Базова'")
 	db.Exec("ALTER TABLE daily_tasks ADD COLUMN work_started_at TEXT")
 	db.Exec("ALTER TABLE daily_tasks ADD COLUMN total_minutes INTEGER DEFAULT 0")
 	db.Exec("ALTER TABLE daily_tasks ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP")
-	db.Exec("UPDATE daily_tasks SET status='Нова' WHERE status IS NULL OR status=''")
-	db.Exec("UPDATE daily_tasks SET priority='Базова' WHERE priority IS NULL OR priority=''")
-	tables := []string{"users", "team_roles", "absence_types", "shifts", "absences", "incidents", "daily_tasks", "audit_logs", "app_logs"}
-	for _, t := range tables {
-		db.Exec("INSERT OR IGNORE INTO table_tracker (table_name, last_action, last_update) VALUES (?, 'INIT', CURRENT_TIMESTAMP)", t)
-		createTriggersForTable(t)
-	}
-	var absTypeCount int
-	db.QueryRow("SELECT COUNT(*) FROM absence_types").Scan(&absTypeCount)
-	if absTypeCount == 0 {
-		db.Exec("INSERT INTO absence_types (name, code) VALUES ('Відпустка', 'Vacation')")
-		db.Exec("INSERT INTO absence_types (name, code) VALUES ('Day Off', 'DayOff')")
-		db.Exec("INSERT INTO absence_types (name, code) VALUES ('Sick Day', 'SickDay')")
-	}
-	var rolesCount int
-	db.QueryRow("SELECT COUNT(*) FROM team_roles").Scan(&rolesCount)
-	if rolesCount == 0 {
-		db.Exec("INSERT INTO team_roles (name) VALUES ('DevOps Engineer')")
-		db.Exec("INSERT INTO team_roles (name) VALUES ('Backend Developer')")
-		db.Exec("INSERT INTO team_roles (name) VALUES ('Frontend Developer')")
-		db.Exec("INSERT INTO team_roles (name) VALUES ('QA Engineer')")
-		db.Exec("INSERT INTO team_roles (name) VALUES ('Team Lead')")
-		db.Exec("INSERT INTO team_roles (name) VALUES ('Project Manager')")
-	}
-	var userCount int
-	db.QueryRow("SELECT COUNT(*) FROM users").Scan(&userCount)
-	if userCount == 0 {
-		db.Exec("INSERT INTO users (username, password, name, role, team_role_id, is_oncall) VALUES ('admin', 'admin', 'Адміністратор', 'admin', 5, 0)")
-		db.Exec("INSERT INTO users (username, password, name, role, team_role_id, is_oncall) VALUES ('pm', '1234', 'Олена PM', 'user', 6, 0)")
-		db.Exec("INSERT INTO users (username, password, name, role, team_role_id, is_oncall) VALUES ('dev1', '1234', 'Олексій', 'user', 1, 1)")
+	db.Exec("ALTER TABLE users ADD COLUMN is_oncall INTEGER DEFAULT 1")
+
+	// seed admin if empty
+	var cnt int
+	db.QueryRow("SELECT COUNT(*) FROM users").Scan(&cnt)
+	if cnt == 0 {
+		db.Exec(`INSERT INTO users (username, password, name, role, is_oncall) VALUES ('admin', 'admin', 'Admin', 'admin', 0)`)
+		db.Exec(`INSERT INTO absence_types (name, code) VALUES ('Відпустка', 'vacation'), ('Лікарняний', 'sick'), ('Вихідний', 'dayoff')`)
+		log.Println("seeded default admin / admin")
 	}
 }
 
-func createTriggersForTable(tableName string) {
-	for _, act := range []string{"INSERT", "UPDATE", "DELETE"} {
-		trigName := fmt.Sprintf("trig_%s_%s", tableName, strings.ToLower(act))
-		query := fmt.Sprintf(`CREATE TRIGGER IF NOT EXISTS %s AFTER %s ON %s BEGIN INSERT INTO table_tracker (table_name, last_action, last_update) VALUES ('%s', '%s', CURRENT_TIMESTAMP) ON CONFLICT(table_name) DO UPDATE SET last_action='%s', last_update=CURRENT_TIMESTAMP; END;`, trigName, act, tableName, tableName, act, act)
-		db.Exec(query)
+func main() {
+	initDB()
+	defer db.Close()
+
+	http.HandleFunc("/api/login", handleLogin)
+	http.HandleFunc("/api/data", handleGetData)
+	http.HandleFunc("/api/request-absence", handleRequestAbsence)
+	http.HandleFunc("/api/incidents", handleIncidents)
+	http.HandleFunc("/api/daily-tasks", handleDailyTasks)
+
+	http.HandleFunc("/api/admin/users", handleAdminUsers)
+	http.HandleFunc("/api/admin/roles", handleAdminRoles)
+	http.HandleFunc("/api/admin/absence-types", handleAdminAbsenceTypes)
+	http.HandleFunc("/api/admin/requests", handleAdminRequests)
+	http.HandleFunc("/api/admin/logs", handleAdminLogs)
+	http.HandleFunc("/api/admin/tasks", handleAdminTasks)
+
+	fs := http.FileServer(http.Dir("./static"))
+	http.Handle("/", fs)
+
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
 	}
-}
-
-func logAudit(userName, action, ip, details string) {
-	db.Exec("INSERT INTO audit_logs (user_name, action, ip, details) VALUES (?, ?, ?, ?)", userName, action, ip, details)
-}
-
-func logAppEvent(app, level, message string) {
-	db.Exec("INSERT INTO app_logs (app, level, message) VALUES (?, ?, ?)", app, level, message)
-}
-
-func handleIndex(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/" {
-		http.NotFound(w, r)
-		return
-	}
-	template.Must(template.ParseFiles("static/index.html")).Execute(w, nil)
-}
-
-func handleAdminPage(w http.ResponseWriter, r *http.Request) {
-	template.Must(template.ParseFiles("static/admin.html")).Execute(w, nil)
+	log.Printf("listening on :%s", port)
+	log.Fatal(http.ListenAndServe(":"+port, nil))
 }
