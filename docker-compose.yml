@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    container_name: oncall_app_3
+    restart: always
+    environment:
+      - PORT=8083
+    volumes:
+      - ./data:/app/data
+      - /var/log/oncall-app:/var/log/oncall-app
+
+  nginx:
+    image: nginx:alpine
+    container_name: oncall_nginx_3
+    restart: always
+    ports:
+      - "83:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./static:/usr/share/nginx/html:ro
+      - /var/log/oncall-app:/var/log/oncall-app
+    depends_on:
+      - app
