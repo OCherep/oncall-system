@@ -249,11 +249,13 @@
                 <span>OnCall System</span>
             </a>
 
+            <!-- Меню дій для авторизованих користувачів -->
             <div id="user-actions" style="display: none; gap: 10px;">
                 <button class="btn" onclick="openIncidentModal()">Звіт про звернення</button>
                 <button class="btn" onclick="openAbsenceModal()">Заявки на відпустку/дейофф</button>
             </div>
 
+            <!-- Кнопка адміністрування (Лише для Admin, TL, PM) -->
             <div id="admin-actions" style="display: none;">
                 <a href="/admin" class="btn btn-primary">Адміністрування</a>
             </div>
@@ -397,7 +399,7 @@
     <!-- Модалка детальної розгортки дня -->
     <div class="modal" id="day-detail-modal">
         <div class="modal-content">
-            <h3 id="day-detail-title">Деталі дня</h3>
+            <h3 id="day-detail-title">Деталі дня: 2026-08-19</h3>
             
             <div class="day-detail-section">
                 <h4>🛡️ Чергування</h4>
@@ -680,6 +682,7 @@
         function openDayDetail(dateStr) {
             document.getElementById('day-detail-title').innerText = `Деталі дня: ${dateStr}`;
 
+            // Чергування
             const shift = currentMonthData.shifts ? currentMonthData.shifts[dateStr] : null;
             if (shift) {
                 document.getElementById('day-detail-shifts').innerHTML = `
@@ -690,6 +693,7 @@
                 document.getElementById('day-detail-shifts').innerText = "Чергування не призначено";
             }
 
+            // Відсутності
             const absList = (currentMonthData.absences || []).filter(a => dateStr >= a.start_date && dateStr <= a.end_date);
             if (absList.length > 0) {
                 document.getElementById('day-detail-absences').innerHTML = absList.map(a => `• <b>${a.user_name}</b> (${a.type})`).join('<br>');
@@ -697,6 +701,7 @@
                 document.getElementById('day-detail-absences').innerText = "Відсутностей немає";
             }
 
+            // Дейлі Задачі
             const tasks = currentMonthData.daily_tasks ? currentMonthData.daily_tasks[dateStr] : [];
             if (tasks && tasks.length > 0) {
                 document.getElementById('day-detail-daily-tasks').innerHTML = tasks.map(t => `• <b>${t.user_name}:</b> ${t.task_description}`).join('<br>');
@@ -704,6 +709,7 @@
                 document.getElementById('day-detail-daily-tasks').innerText = "Задач з Дейлі не зафіксовано";
             }
 
+            // Сторонні звернення
             const incs = currentMonthData.incidents ? currentMonthData.incidents[dateStr] : [];
             if (incs && incs.length > 0) {
                 document.getElementById('day-detail-incidents').innerHTML = incs.map(i => `• <b>${i.user_name}</b> [${i.type} - ${i.duration_minutes} хв]: ${i.description}`).join('<br>');
