@@ -1,0 +1,785 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Адміністрування - OnCall System</title>
+    <style>
+        :root {
+            --primary-color: #2563eb;
+            --bg-color: #f8fafc;
+            --text-color: #0f172a;
+            --border-color: #e2e8f0;
+            --sidebar-width: 260px;
+        }
+
+        body {
+            margin: 0;
+            font-family: system-ui, -apple-system, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        .sidebar {
+            width: var(--sidebar-width);
+            background-color: #ffffff;
+            border-right: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .sidebar-header {
+            padding: 20px;
+            font-size: 18px;
+            font-weight: bold;
+            color: var(--primary-color);
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .sidebar-menu {
+            list-style: none;
+            padding: 0;
+            margin: 20px 0;
+        }
+
+        .sidebar-menu li a {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 20px;
+            color: #64748b;
+            text-decoration: none;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+
+        .sidebar-menu li a:hover, .sidebar-menu li a.active {
+            background-color: #eff6ff;
+            color: var(--primary-color);
+            border-left: 4px solid var(--primary-color);
+        }
+
+        .main-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .header {
+            height: 60px;
+            background-color: #ffffff;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 30px;
+        }
+
+        .content-area {
+            padding: 30px;
+            overflow-y: auto;
+            flex: 1;
+        }
+
+        .section { display: none; }
+        .section.active { display: block; }
+
+        .btn {
+            padding: 8px 16px;
+            border-radius: 6px;
+            border: 1px solid var(--border-color);
+            background-color: #ffffff;
+            cursor: pointer;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+
+        .btn-primary { background-color: var(--primary-color); color: white; border: none; }
+        .btn-primary:hover { background-color: #1d4ed8; }
+        .btn-danger { background-color: #ef4444; color: white; border: none; }
+        .btn-danger:hover { background-color: #dc2626; }
+        .btn-success { background-color: #10b981; color: white; border: none; }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+            border-radius: 8px;
+            overflow: hidden;
+            border: 1px solid var(--border-color);
+            margin-top: 15px;
+        }
+
+        th, td {
+            padding: 12px 15px;
+            text-align: left;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        th { background-color: #f8fafc; font-weight: 600; }
+
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.5);
+            align-items: center;
+            justify-content: center;
+            z-index: 2000;
+        }
+
+        .modal-content {
+            background: white;
+            padding: 25px;
+            border-radius: 8px;
+            width: 100%;
+            max-width: 450px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .form-group input, .form-group select {
+            padding: 8px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+        }
+
+        .tabs-sub {
+            display: flex;
+            gap: 10px;
+            border-bottom: 1px solid var(--border-color);
+            margin-bottom: 20px;
+        }
+
+        .tab-sub-btn {
+            padding: 8px 16px;
+            border: none;
+            background: none;
+            cursor: pointer;
+            font-weight: 500;
+            color: #64748b;
+            border-bottom: 2px solid transparent;
+        }
+
+        .tab-sub-btn.active {
+            color: var(--primary-color);
+            border-bottom: 2px solid var(--primary-color);
+        }
+
+        .sql-console {
+            width: 100%;
+            height: 120px;
+            font-family: monospace;
+            padding: 10px;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            box-sizing: border-box;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="sidebar">
+        <div class="sidebar-header">
+            <span>Admin Panel</span>
+        </div>
+        <ul class="sidebar-menu">
+            <li><a href="#" class="active" onclick="switchTab('users', event)">👥 Користувачі</a></li>
+            <li><a href="#" onclick="switchTab('team-roles', event)">🛡️ Ролі в команді</a></li>
+            <li><a href="#" onclick="switchTab('absence-types', event)">🏖️ Типи відсутностей</a></li>
+            <li><a href="#" onclick="switchTab('requests', event)">📋 Заявки на відпустку</a></li>
+            <li><a href="#" onclick="switchTab('project', event)">⚙️ Проєкт та системні дані</a></li>
+        </ul>
+    </div>
+
+    <div class="main-content">
+        <div class="header">
+            <h3>Панель керування</h3>
+            <div>
+                <a href="/" class="btn">Повернутися на сайт</a>
+            </div>
+        </div>
+
+        <div class="content-area">
+
+            <!-- Вкладка Користувачі -->
+            <div id="users-section" class="section active">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <h2>Керування користувачами</h2>
+                    <button class="btn btn-primary" onclick="openUserModal()">+ Додати користувача</button>
+                </div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>ПІБ</th>
+                            <th>Логін</th>
+                            <th>Системна роль</th>
+                            <th>Роль в команді</th>
+                            <th>Чергує</th>
+                            <th>Дії</th>
+                        </tr>
+                    </thead>
+                    <tbody id="users-table"></tbody>
+                </table>
+            </div>
+
+            <!-- Вкладка Ролі в команді -->
+            <div id="team-roles-section" class="section">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <h2>Ролі в команді</h2>
+                    <button class="btn btn-primary" onclick="openRoleModal()">+ Додати роль</button>
+                </div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Назва ролі</th>
+                            <th>Дії</th>
+                        </tr>
+                    </thead>
+                    <tbody id="team-roles-table"></tbody>
+                </table>
+            </div>
+
+            <!-- Вкладка Типи відсутностей -->
+            <div id="absence-types-section" class="section">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <h2>Типи відсутностей</h2>
+                    <button class="btn btn-primary" onclick="openAbsenceTypeModal()">+ Додати тип</button>
+                </div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Назва</th>
+                            <th>Код</th>
+                            <th>Дії</th>
+                        </tr>
+                    </thead>
+                    <tbody id="absence-types-table"></tbody>
+                </table>
+            </div>
+
+            <!-- Вкладка Заявки -->
+            <div id="requests-section" class="section">
+                <h2>Заявки на відпустку / DayOff</h2>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Користувач</th>
+                            <th>Тип</th>
+                            <th>Початок</th>
+                            <th>Завершення</th>
+                            <th>Статус</th>
+                            <th>Дії</th>
+                        </tr>
+                    </thead>
+                    <tbody id="requests-table"></tbody>
+                </table>
+            </div>
+
+            <!-- Вкладка Проєкт та системні дані -->
+            <div id="project-section" class="section">
+                <h2>Проєкт та системні дані</h2>
+                
+                <div class="tabs-sub">
+                    <button class="tab-sub-btn active" onclick="switchSubTab('logs', event)">Логи додатків</button>
+                    <button class="tab-sub-btn" onclick="switchSubTab('db', event)">Статистика БД</button>
+                    <button class="tab-sub-btn" onclick="switchSubTab('query', event)">SQL Консоль</button>
+                    <button class="tab-sub-btn" onclick="switchSubTab('audit', event)">Аудит дій</button>
+                </div>
+
+                <!-- Підвкладка Логи -->
+                <div id="sub-logs" class="sub-section">
+                    <div style="margin-bottom: 10px;">
+                        <label>Фільтр сервісу: </label>
+                        <select id="log-app-filter" onchange="loadAppLogs()">
+                            <option value="All">Усі сервіси</option>
+                            <option value="Auth Service">Auth Service</option>
+                            <option value="OnCall Core">OnCall Core</option>
+                            <option value="Admin Panel">Admin Panel</option>
+                            <option value="Nginx Proxy">Nginx Proxy</option>
+                        </select>
+                    </div>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Час</th>
+                                <th>Сервіс</th>
+                                <th>Рівень</th>
+                                <th>Повідомлення</th>
+                            </tr>
+                        </thead>
+                        <tbody id="logs-table"></tbody>
+                    </table>
+                </div>
+
+                <!-- Підвкладка Статистика БД -->
+                <div id="sub-db" class="sub-section" style="display: none;">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Таблиця</th>
+                                <th>Кількість записів</th>
+                                <th>Остання дія</th>
+                                <th>Час оновлення</th>
+                            </tr>
+                        </thead>
+                        <tbody id="db-stats-table"></tbody>
+                    </table>
+                </div>
+
+                <!-- Підвкладка SQL Консоль -->
+                <div id="sub-query" class="sub-section" style="display: none;">
+                    <textarea id="sql-input" class="sql-console" placeholder="SELECT * FROM users;"></textarea>
+                    <button class="btn btn-primary" style="margin-top: 10px;" onclick="executeSqlQuery()">Виконати запит (Read-Only)</button>
+                    <div id="sql-result" style="margin-top: 15px; overflow-x: auto;"></div>
+                </div>
+
+                <!-- Підвкладка Аудит -->
+                <div id="sub-audit" class="sub-section" style="display: none;">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Час</th>
+                                <th>Користувач</th>
+                                <th>Дія</th>
+                                <th>IP</th>
+                                <th>Деталі</th>
+                            </tr>
+                        </thead>
+                        <tbody id="audit-table"></tbody>
+                    </table>
+                </div>
+
+            </div>
+
+        </div>
+    </div>
+
+    <!-- Модалка Користувача -->
+    <div class="modal" id="user-modal">
+        <div class="modal-content">
+            <h3 id="user-modal-title">Додати користувача</h3>
+            <input type="hidden" id="user-id">
+            <div class="form-group">
+                <label>ПІБ</label>
+                <input type="text" id="user-name">
+            </div>
+            <div class="form-group">
+                <label>Логін</label>
+                <input type="text" id="user-username">
+            </div>
+            <div class="form-group">
+                <label>Пароль (залиште порожнім, щоб не змінювати)</label>
+                <input type="password" id="user-password">
+            </div>
+            <div class="form-group">
+                <label>Системна роль</label>
+                <select id="user-role">
+                    <option value="user">User</option>
+                    <option value="admin">Admin</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Роль в команді</label>
+                <select id="user-team-role"></select>
+            </div>
+            <div class="form-group">
+                <label>
+                    <input type="checkbox" id="user-oncall" checked> Бере участь у чергуваннях
+                </label>
+            </div>
+            <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                <button class="btn" onclick="closeModal('user-modal')">Скасувати</button>
+                <button class="btn btn-primary" onclick="saveUser()">Зберегти</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Модалка Ролі в команді -->
+    <div class="modal" id="role-modal">
+        <div class="modal-content">
+            <h3 id="role-modal-title">Додати роль</h3>
+            <input type="hidden" id="role-id">
+            <div class="form-group">
+                <label>Назва ролі</label>
+                <input type="text" id="role-name">
+            </div>
+            <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                <button class="btn" onclick="closeModal('role-modal')">Скасувати</button>
+                <button class="btn btn-primary" onclick="saveTeamRole()">Зберегти</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Модалка Типу відсутності -->
+    <div class="modal" id="absence-type-modal">
+        <div class="modal-content">
+            <h3 id="absence-type-modal-title">Додати тип відсутності</h3>
+            <input type="hidden" id="absence-type-id">
+            <div class="form-group">
+                <label>Назва</label>
+                <input type="text" id="absence-type-name">
+            </div>
+            <div class="form-group">
+                <label>Код (наприклад: vacation)</label>
+                <input type="text" id="absence-type-code">
+            </div>
+            <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                <button class="btn" onclick="closeModal('absence-type-modal')">Скасувати</button>
+                <button class="btn btn-primary" onclick="saveAbsenceType()">Зберегти</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let teamRolesCache = [];
+
+        window.onload = function() {
+            loadUsers();
+            loadTeamRoles();
+            loadAbsenceTypes();
+            loadRequests();
+            loadAppLogs();
+        };
+
+        function switchTab(tabId, event) {
+            if(event) event.preventDefault();
+            document.querySelectorAll('.sidebar-menu a').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.section').forEach(el => el.classList.remove('active'));
+
+            if(event) event.target.classList.add('active');
+            document.getElementById(`${tabId}-section`).classList.add('active');
+        }
+
+        function switchSubTab(subTabId, event) {
+            document.querySelectorAll('.tab-sub-btn').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.sub-section').forEach(el => el.style.display = 'none');
+
+            event.target.classList.add('active');
+            document.getElementById(`sub-${subTabId}`).style.display = 'block';
+
+            if(subTabId === 'db') loadDBStats();
+            if(subTabId === 'audit') loadAuditLogs();
+        }
+
+        function closeModal(id) { document.getElementById(id).style.display = 'none'; }
+
+        // --- USERS ---
+        async function loadUsers() {
+            const res = await fetch('/api/admin/users');
+            const users = await res.json();
+            const tbody = document.getElementById('users-table');
+            tbody.innerHTML = '';
+            (users || []).forEach(u => {
+                tbody.innerHTML += `
+                    <tr>
+                        <td>${u.id}</td>
+                        <td>${u.name}</td>
+                        <td>${u.username}</td>
+                        <td>${u.role}</td>
+                        <td>${u.team_role || '-'}</td>
+                        <td>${u.is_oncall ? 'Так' : 'Ні'}</td>
+                        <td>
+                            <button class="btn" onclick='editUser(${JSON.stringify(u)})'>Редагувати</button>
+                            <button class="btn btn-danger" onclick="deleteUser(${u.id})">Видалити</button>
+                        </td>
+                    </tr>
+                `;
+            });
+        }
+
+        function openUserModal() {
+            document.getElementById('user-modal-title').innerText = 'Додати користувача';
+            document.getElementById('user-id').value = '';
+            document.getElementById('user-name').value = '';
+            document.getElementById('user-username').value = '';
+            document.getElementById('user-password').value = '';
+            document.getElementById('user-role').value = 'user';
+            document.getElementById('user-oncall').checked = true;
+            populateTeamRolesSelect();
+            document.getElementById('user-modal').style.display = 'flex';
+        }
+
+        function editUser(u) {
+            document.getElementById('user-modal-title').innerText = 'Редагувати користувача';
+            document.getElementById('user-id').value = u.id;
+            document.getElementById('user-name').value = u.name;
+            document.getElementById('user-username').value = u.username;
+            document.getElementById('user-password').value = '';
+            document.getElementById('user-role').value = u.role;
+            document.getElementById('user-oncall').checked = u.is_oncall;
+            populateTeamRolesSelect(u.team_role_id);
+            document.getElementById('user-modal').style.display = 'flex';
+        }
+
+        function populateTeamRolesSelect(selectedId) {
+            const sel = document.getElementById('user-team-role');
+            sel.innerHTML = '<option value="">-- Без ролі --</option>';
+            teamRolesCache.forEach(r => {
+                sel.innerHTML += `<option value="${r.id}" ${r.id === selectedId ? 'selected' : ''}>${r.name}</option>`;
+            });
+        }
+
+        async function saveUser() {
+            const id = document.getElementById('user-id').value;
+            const name = document.getElementById('user-name').value;
+            const username = document.getElementById('user-username').value;
+            const password = document.getElementById('user-password').value;
+            const role = document.getElementById('user-role').value;
+            const teamRoleIdVal = document.getElementById('user-team-role').value;
+            const isOnCall = document.getElementById('user-oncall').checked;
+
+            const payload = {
+                id: id ? parseInt(id) : 0,
+                name, username, password, role,
+                team_role_id: teamRoleIdVal ? parseInt(teamRoleIdVal) : null,
+                is_oncall: isOnCall
+            };
+
+            const method = id ? 'PUT' : 'POST';
+            await fetch('/api/admin/users', {
+                method,
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            closeModal('user-modal');
+            loadUsers();
+        }
+
+        async function deleteUser(id) {
+            if (!confirm('Видалити користувача?')) return;
+            await fetch(`/api/admin/users?id=${id}`, { method: 'DELETE' });
+            loadUsers();
+        }
+
+        // --- TEAM ROLES ---
+        async function loadTeamRoles() {
+            const res = await fetch('/api/admin/team-roles');
+            teamRolesCache = await res.json() || [];
+            const tbody = document.getElementById('team-roles-table');
+            tbody.innerHTML = '';
+            teamRolesCache.forEach(r => {
+                tbody.innerHTML += `
+                    <tr>
+                        <td>${r.id}</td>
+                        <td>${r.name}</td>
+                        <td>
+                            <button class="btn" onclick='editTeamRole(${JSON.stringify(r)})'>Редагувати</button>
+                            <button class="btn btn-danger" onclick="deleteTeamRole(${r.id})">Видалити</button>
+                        </td>
+                    </tr>
+                `;
+            });
+        }
+
+        function openRoleModal() {
+            document.getElementById('role-modal-title').innerText = 'Додати роль';
+            document.getElementById('role-id').value = '';
+            document.getElementById('role-name').value = '';
+            document.getElementById('role-modal').style.display = 'flex';
+        }
+
+        function editTeamRole(r) {
+            document.getElementById('role-modal-title').innerText = 'Редагувати роль';
+            document.getElementById('role-id').value = r.id;
+            document.getElementById('role-name').value = r.name;
+            document.getElementById('role-modal').style.display = 'flex';
+        }
+
+        async function saveTeamRole() {
+            const id = document.getElementById('role-id').value;
+            const name = document.getElementById('role-name').value;
+            const method = id ? 'PUT' : 'POST';
+
+            await fetch('/api/admin/team-roles', {
+                method,
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: id ? parseInt(id) : 0, name })
+            });
+
+            closeModal('role-modal');
+            loadTeamRoles();
+        }
+
+        async function deleteTeamRole(id) {
+            if (!confirm('Видалити роль?')) return;
+            await fetch(`/api/admin/team-roles?id=${id}`, { method: 'DELETE' });
+            loadTeamRoles();
+        }
+
+        // --- ABSENCE TYPES ---
+        async function loadAbsenceTypes() {
+            const res = await fetch('/api/admin/absence-types');
+            const types = await res.json() || [];
+            const tbody = document.getElementById('absence-types-table');
+            tbody.innerHTML = '';
+            types.forEach(t => {
+                tbody.innerHTML += `
+                    <tr>
+                        <td>${t.id}</td>
+                        <td>${t.name}</td>
+                        <td>${t.code}</td>
+                        <td>
+                            <button class="btn" onclick='editAbsenceType(${JSON.stringify(t)})'>Редагувати</button>
+                            <button class="btn btn-danger" onclick="deleteAbsenceType(${t.id})">Видалити</button>
+                        </td>
+                    </tr>
+                `;
+            });
+        }
+
+        function openAbsenceTypeModal() {
+            document.getElementById('absence-type-modal-title').innerText = 'Додати тип відсутності';
+            document.getElementById('absence-type-id').value = '';
+            document.getElementById('absence-type-name').value = '';
+            document.getElementById('absence-type-code').value = '';
+            document.getElementById('absence-type-modal').style.display = 'flex';
+        }
+
+        function editAbsenceType(t) {
+            document.getElementById('absence-type-modal-title').innerText = 'Редагувати тип відсутності';
+            document.getElementById('absence-type-id').value = t.id;
+            document.getElementById('absence-type-name').value = t.name;
+            document.getElementById('absence-type-code').value = t.code;
+            document.getElementById('absence-type-modal').style.display = 'flex';
+        }
+
+        async function saveAbsenceType() {
+            const id = document.getElementById('absence-type-id').value;
+            const name = document.getElementById('absence-type-name').value;
+            const code = document.getElementById('absence-type-code').value;
+            const method = id ? 'PUT' : 'POST';
+
+            await fetch('/api/admin/absence-types', {
+                method,
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: id ? parseInt(id) : 0, name, code })
+            });
+
+            closeModal('absence-type-modal');
+            loadAbsenceTypes();
+        }
+
+        async function deleteAbsenceType(id) {
+            if (!confirm('Видалити тип відсутності?')) return;
+            await fetch(`/api/admin/absence-types?id=${id}`, { method: 'DELETE' });
+            loadAbsenceTypes();
+        }
+
+        // --- REQUESTS ---
+        async function loadRequests() {
+            const res = await fetch('/api/admin/requests');
+            const reqs = await res.json() || [];
+            const tbody = document.getElementById('requests-table');
+            tbody.innerHTML = '';
+            reqs.forEach(r => {
+                tbody.innerHTML += `
+                    <tr>
+                        <td>${r.id}</td>
+                        <td>${r.user_name}</td>
+                        <td>${r.type}</td>
+                        <td>${r.start_date}</td>
+                        <td>${r.end_date}</td>
+                        <td><b>${r.status}</b></td>
+                        <td>
+                            ${r.status === 'Pending' ? `
+                                <button class="btn btn-success" onclick="updateRequestStatus(${r.id}, 'Approved')">Затвердити</button>
+                                <button class="btn btn-danger" onclick="updateRequestStatus(${r.id}, 'Rejected')">Відхилити</button>
+                            ` : '-'}
+                        </td>
+                    </tr>
+                `;
+            });
+        }
+
+        async function updateRequestStatus(id, status) {
+            await fetch('/api/admin/requests', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id, status })
+            });
+            loadRequests();
+        }
+
+        // --- PROJECT SYSTEM DATA ---
+        async function loadAppLogs() {
+            const app = document.getElementById('log-app-filter').value;
+            const res = await fetch(`/api/admin/project/app-logs?app=${app}`);
+            const logs = await res.json() || [];
+            const tbody = document.getElementById('logs-table');
+            tbody.innerHTML = '';
+            logs.forEach(l => {
+                tbody.innerHTML += `<tr><td>${l.timestamp}</td><td>${l.app}</td><td>${l.level}</td><td>${l.message}</td></tr>`;
+            });
+        }
+
+        async function loadDBStats() {
+            const res = await fetch('/api/admin/project/db-stats');
+            const stats = await res.json() || [];
+            const tbody = document.getElementById('db-stats-table');
+            tbody.innerHTML = '';
+            stats.forEach(s => {
+                tbody.innerHTML += `<tr><td>${s.table_name}</td><td>${s.row_count}</td><td>${s.last_action}</td><td>${s.last_update}</td></tr>`;
+            });
+        }
+
+        async function executeSqlQuery() {
+            const query = document.getElementById('sql-input').value;
+            const res = await fetch('/api/admin/project/query', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ query })
+            });
+
+            const div = document.getElementById('sql-result');
+            if (!res.ok) {
+                const err = await res.text();
+                div.innerHTML = `<span style="color:red">${err}</span>`;
+                return;
+            }
+
+            const data = await res.json();
+            if (!data.columns || data.columns.length === 0) {
+                div.innerHTML = "Порожній результат";
+                return;
+            }
+
+            let html = '<table><thead><tr>' + data.columns.map(c => `<th>${c}</th>`).join('') + '</tr></thead><tbody>';
+            data.rows.forEach(row => {
+                html += '<tr>' + data.columns.map(c => `<td>${row[c] !== null ? row[c] : 'NULL'}</td>`).join('') + '</tr>';
+            });
+            html += '</tbody></table>';
+            div.innerHTML = html;
+        }
+
+        async function loadAuditLogs() {
+            const res = await fetch('/api/admin/project/audit-logs');
+            const logs = await res.json() || [];
+            const tbody = document.getElementById('audit-table');
+            tbody.innerHTML = '';
+            logs.forEach(l => {
+                tbody.innerHTML += `<tr><td>${l.timestamp}</td><td>${l.user_name}</td><td>${l.action}</td><td>${l.ip}</td><td>${l.details}</td></tr>`;
+            });
+        }
+    </script>
+</body>
+</html>
