@@ -132,7 +132,7 @@ func handleAdminAbsenceTypes(w http.ResponseWriter, r *http.Request) {
 		var types []AbsenceType
 		for rows.Next() {
 			var t AbsenceType
-			typesRows.Scan(&t.ID, &t.Name, &t.Code)
+			rows.Scan(&t.ID, &t.Name, &t.Code)
 			types = append(types, t)
 		}
 		json.NewEncoder(w).Encode(types)
