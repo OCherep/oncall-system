@@ -7,7 +7,7 @@
 body{margin:0;font-family:system-ui,sans-serif;background:var(--bg);color:var(--t)}
 .navbar{position:fixed;top:0;left:0;right:0;height:56px;background:#fff;border-bottom:1px solid var(--b);display:flex;align-items:center;justify-content:space-between;padding:0 16px;z-index:100}
 .btn{background:var(--p);color:#fff;border:none;padding:8px 14px;border-radius:6px;cursor:pointer;font-size:13px}
-.btn:hover{opacity:.9}.btn-d{background:#ef4444}.btn-s{background:#64748b}.btn-p{background:#16a34a}
+.btn:hover{opacity:.9}.btn-d{background:#ef4444}.btn-s{background:#64748b}.btn-p{background:#16a34a}.btn-e{background:#0ea5e9}
 .main{margin-top:72px;padding:16px;max-width:1100px;margin-left:auto;margin-right:auto}
 .tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
 .tabs a{padding:8px 14px;background:#fff;border:1px solid var(--b);border-radius:6px;text-decoration:none;color:var(--t);font-size:13px;cursor:pointer}
@@ -15,9 +15,12 @@ body{margin:0;font-family:system-ui,sans-serif;background:var(--bg);color:var(--
 .sec{display:none}.sec.on{display:block}
 table{width:100%;border-collapse:collapse;background:#fff;border:1px solid var(--b);border-radius:8px;font-size:13px;margin-top:8px}
 th,td{padding:8px 10px;border-bottom:1px solid var(--b);text-align:left}th{background:#f1f5f9}
-.fg{margin-bottom:10px;display:inline-block;margin-right:12px}label{display:block;font-size:12px;color:#64748b;margin-bottom:3px}
+.fg{margin-bottom:10px;display:inline-block;margin-right:12px;vertical-align:top}label{display:block;font-size:12px;color:#64748b;margin-bottom:3px}
 input,select,textarea{padding:8px;border:1px solid var(--b);border-radius:6px;font-size:13px}
+textarea{min-height:60px;width:280px}
 .filters{display:flex;flex-wrap:wrap;gap:8px;align-items:end;margin-bottom:12px}
+.card{background:#fff;border:1px solid var(--b);border-radius:8px;padding:14px;margin-bottom:14px}
+.card h3{margin:0 0 10px;font-size:15px}
 </style></head><body>
 <div class="navbar"><div><strong>Admin</strong> · On-Call</div>
 <div><a class="btn btn-s" href="/">← Календар</a></div></div>
@@ -34,28 +37,40 @@ input,select,textarea{padding:8px;border:1px solid var(--b);border-radius:6px;fo
 
 <div class="sec on" id="users">
 <h2>Користувачі</h2>
+<div class="card">
+<input type="hidden" id="u-id" value="">
 <div class="fg"><label>Username</label><input id="u-user"></div>
-<div class="fg"><label>Пароль</label><input id="u-pass" type="password"></div>
+<div class="fg"><label>Пароль <span style="color:#94a3b8;font-weight:400">(порожньо = не змінювати при ред.)</span></label><input id="u-pass" type="password"></div>
 <div class="fg"><label>Ім'я</label><input id="u-name"></div>
 <div class="fg"><label>Role</label><select id="u-role"><option>user</option><option>admin</option></select></div>
 <div class="fg"><label>Team role</label><select id="u-tr"></select></div>
 <div class="fg"><label>On-call</label><select id="u-on"><option value="1">Так</option><option value="0">Ні</option></select></div>
-<button class="btn" onclick="addUser()">Додати</button>
+<button class="btn" id="u-save" onclick="saveUser()">Додати</button>
+<button class="btn btn-s" id="u-cancel" style="display:none" onclick="resetUserForm()">Скасувати</button>
+</div>
 <table><thead><tr><th>ID</th><th>Username</th><th>Ім'я</th><th>Role</th><th>Team</th><th>On-call</th><th></th></tr></thead><tbody id="u-tb"></tbody></table>
 </div>
 
 <div class="sec" id="roles">
 <h2>Ролі команди</h2>
+<div class="card">
+<input type="hidden" id="r-id" value="">
 <div class="fg"><label>Назва</label><input id="r-name"></div>
-<button class="btn" onclick="addRole()">Додати</button>
+<button class="btn" id="r-save" onclick="saveRole()">Додати</button>
+<button class="btn btn-s" id="r-cancel" style="display:none" onclick="resetRoleForm()">Скасувати</button>
+</div>
 <table><thead><tr><th>ID</th><th>Назва</th><th></th></tr></thead><tbody id="r-tb"></tbody></table>
 </div>
 
 <div class="sec" id="types">
 <h2>Типи відсутності</h2>
+<div class="card">
+<input type="hidden" id="t-id" value="">
 <div class="fg"><label>Назва</label><input id="t-name"></div>
 <div class="fg"><label>Code</label><input id="t-code"></div>
-<button class="btn" onclick="addType()">Додати</button>
+<button class="btn" id="t-save" onclick="saveType()">Додати</button>
+<button class="btn btn-s" id="t-cancel" style="display:none" onclick="resetTypeForm()">Скасувати</button>
+</div>
 <table><thead><tr><th>ID</th><th>Назва</th><th>Code</th><th></th></tr></thead><tbody id="t-tb"></tbody></table>
 </div>
 
@@ -66,6 +81,22 @@ input,select,textarea{padding:8px;border:1px solid var(--b);border-radius:6px;fo
 
 <div class="sec" id="tasks">
 <h2>Задачі з дейлі</h2>
+<div class="card">
+<h3>Створити задачу</h3>
+<div class="fg"><label>Виконавець</label><select id="nt-user"><option value="">— на розгляді —</option></select></div>
+<div class="fg"><label>Відповідальна особа</label><select id="nt-resp"><option value="">—</option></select></div>
+<div class="fg"><label>Дата задачі</label><input type="date" id="nt-date"></div>
+<div class="fg"><label>Видима з</label><input type="date" id="nt-vis"></div>
+<div class="fg"><label>Термін (due)</label><input type="date" id="nt-due"></div>
+<div class="fg"><label>Статус</label><select id="nt-status">
+<option>Нова</option><option>У роботі</option><option>На паузі</option><option>До перевірки</option><option>Виконана</option><option>Перевідкрита</option><option>Архів</option>
+</select></div>
+<div class="fg"><label>Пріоритет</label><select id="nt-prio">
+<option>Базова</option><option>Надкритична</option><option>Термінова</option><option>Техборг</option><option>У шухляду</option>
+</select></div>
+<div class="fg" style="display:block;width:100%"><label>Опис задачі</label><textarea id="nt-desc" style="width:100%;max-width:640px;box-sizing:border-box"></textarea></div>
+<button class="btn" onclick="createTask()">Створити задачу</button>
+</div>
 <div class="filters">
 <div class="fg"><label>Виконавець</label><select id="tf-user"><option value="">Усі виконавці</option></select></div>
 <div class="fg"><label>Статус</label><select id="tf-status"><option value="">Усі статуси</option>
@@ -96,11 +127,13 @@ document.querySelectorAll('.tabs a').forEach(a=>{
     a.classList.add('active');
     document.querySelectorAll('.sec').forEach(s=>s.classList.remove('on'));
     document.getElementById(a.dataset.s).classList.add('on');
-    if(a.dataset.s==='tasks')loadTasks();
+    if(a.dataset.s==='tasks'){fillTaskSelects();loadTasks();}
     if(a.dataset.s==='logs')loadLogs();
     if(a.dataset.s==='requests')loadReqs();
   };
 });
+
+function today(){return new Date().toISOString().slice(0,10)}
 
 async function loadAll(){
   const [u,r,t]=await Promise.all([
@@ -114,30 +147,129 @@ async function loadAll(){
   document.getElementById('u-tb').innerHTML=(users||[]).map(x=>`<tr>
     <td>${x.id}</td><td>${x.username}</td><td>${x.name}</td><td>${x.role}</td><td>${x.team_role||'—'}</td>
     <td>${x.is_oncall?'Так':'Ні'}</td>
-    <td><button class="btn btn-d" style="padding:2px 8px" onclick="delUser(${x.id})">✕</button></td></tr>`).join('')||'<tr><td colspan="7">Порожньо</td></tr>';
+    <td style="white-space:nowrap">
+      <button class="btn btn-e" style="padding:2px 8px" onclick="editUser(${x.id})">✎</button>
+      <button class="btn btn-d" style="padding:2px 8px" onclick="delUser(${x.id})">✕</button>
+    </td></tr>`).join('')||'<tr><td colspan="7">Порожньо</td></tr>';
   document.getElementById('r-tb').innerHTML=(roles||[]).map(x=>`<tr><td>${x.id}</td><td>${x.name}</td>
-    <td><button class="btn btn-d" style="padding:2px 8px" onclick="delRole(${x.id})">✕</button></td></tr>`).join('')||'<tr><td colspan="3">Порожньо</td></tr>';
+    <td style="white-space:nowrap">
+      <button class="btn btn-e" style="padding:2px 8px" onclick="editRole(${x.id},'${String(x.name).replace(/'/g,"\\'")}')">✎</button>
+      <button class="btn btn-d" style="padding:2px 8px" onclick="delRole(${x.id})">✕</button>
+    </td></tr>`).join('')||'<tr><td colspan="3">Порожньо</td></tr>';
   document.getElementById('t-tb').innerHTML=(t||[]).map(x=>`<tr><td>${x.id}</td><td>${x.name}</td><td>${x.code||''}</td>
-    <td><button class="btn btn-d" style="padding:2px 8px" onclick="delType(${x.id})">✕</button></td></tr>`).join('')||'<tr><td colspan="4">Порожньо</td></tr>';
+    <td style="white-space:nowrap">
+      <button class="btn btn-e" style="padding:2px 8px" onclick="editType(${x.id},'${String(x.name).replace(/'/g,"\\'")}','${String(x.code||'').replace(/'/g,"\\'")}')">✎</button>
+      <button class="btn btn-d" style="padding:2px 8px" onclick="delType(${x.id})">✕</button>
+    </td></tr>`).join('')||'<tr><td colspan="4">Порожньо</td></tr>';
   const fu=document.getElementById('tf-user');
   fu.innerHTML='<option value="">Усі виконавці</option>'+(users||[]).filter(u=>u.role!=='admin').map(u=>`<option value="${u.name}">${u.name}</option>`).join('');
+  fillTaskSelects();
 }
-async function addUser(){
+
+function fillTaskSelects(){
+  const opts='<option value="">— на розгляді —</option>'+(users||[]).filter(u=>u.role!=='admin'||u.is_oncall).map(u=>`<option value="${u.name}">${u.name}</option>`).join('');
+  const resp='<option value="">—</option>'+(users||[]).map(u=>`<option value="${u.name}">${u.name}</option>`).join('');
+  const tu=document.getElementById('nt-user'), tr=document.getElementById('nt-resp');
+  if(tu) tu.innerHTML=opts;
+  if(tr) tr.innerHTML=resp;
+  const d=document.getElementById('nt-date');
+  if(d && !d.value) d.value=today();
+  const v=document.getElementById('nt-vis');
+  if(v && !v.value) v.value=today();
+}
+
+function resetUserForm(){
+  document.getElementById('u-id').value='';
+  ['u-user','u-pass','u-name'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('u-role').value='user';
+  document.getElementById('u-tr').value='';
+  document.getElementById('u-on').value='1';
+  document.getElementById('u-save').innerText='Додати';
+  document.getElementById('u-cancel').style.display='none';
+}
+function editUser(id){
+  const x=(users||[]).find(u=>u.id===id);
+  if(!x){alert('Не знайдено');return;}
+  document.getElementById('u-id').value=x.id;
+  document.getElementById('u-user').value=x.username||'';
+  document.getElementById('u-pass').value='';
+  document.getElementById('u-name').value=x.name||'';
+  document.getElementById('u-role').value=x.role||'user';
+  document.getElementById('u-tr').value=x.team_role_id||'';
+  document.getElementById('u-on').value=x.is_oncall? '1':'0';
+  document.getElementById('u-save').innerText='Зберегти';
+  document.getElementById('u-cancel').style.display='';
+  window.scrollTo({top:0,behavior:'smooth'});
+}
+async function saveUser(){
+  const id=+document.getElementById('u-id').value||0;
   const body={username:document.getElementById('u-user').value,password:document.getElementById('u-pass').value,
     name:document.getElementById('u-name').value,role:document.getElementById('u-role').value,
     team_role_id:+document.getElementById('u-tr').value||null,is_oncall:document.getElementById('u-on').value==='1'};
-  await fetch('/api/admin/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-  loadAll();
+  if(id){
+    body.id=id;
+    const r=await fetch('/api/admin/users',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    if(!r.ok){alert(await r.text()||'Помилка');return;}
+  } else {
+    const r=await fetch('/api/admin/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    if(!r.ok){alert(await r.text()||'Помилка');return;}
+  }
+  resetUserForm(); loadAll();
 }
 async function delUser(id){if(confirm('Видалити?')){await fetch('/api/admin/users?id='+id,{method:'DELETE'});loadAll()}}
-async function addRole(){
-  await fetch('/api/admin/roles',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({name:document.getElementById('r-name').value})});loadAll();
+
+function resetRoleForm(){
+  document.getElementById('r-id').value='';
+  document.getElementById('r-name').value='';
+  document.getElementById('r-save').innerText='Додати';
+  document.getElementById('r-cancel').style.display='none';
+}
+function editRole(id,name){
+  document.getElementById('r-id').value=id;
+  document.getElementById('r-name').value=name;
+  document.getElementById('r-save').innerText='Зберегти';
+  document.getElementById('r-cancel').style.display='';
+}
+async function saveRole(){
+  const id=+document.getElementById('r-id').value||0;
+  const name=document.getElementById('r-name').value.trim();
+  if(!name){alert('Вкажіть назву');return;}
+  if(id){
+    const r=await fetch('/api/admin/roles',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,name})});
+    if(!r.ok){alert(await r.text()||'Помилка');return;}
+  } else {
+    await fetch('/api/admin/roles',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})});
+  }
+  resetRoleForm(); loadAll();
 }
 async function delRole(id){if(confirm('Видалити?')){await fetch('/api/admin/roles?id='+id,{method:'DELETE'});loadAll()}}
-async function addType(){
-  await fetch('/api/admin/absence-types',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({name:document.getElementById('t-name').value,code:document.getElementById('t-code').value})});loadAll();
+
+function resetTypeForm(){
+  document.getElementById('t-id').value='';
+  document.getElementById('t-name').value='';
+  document.getElementById('t-code').value='';
+  document.getElementById('t-save').innerText='Додати';
+  document.getElementById('t-cancel').style.display='none';
+}
+function editType(id,name,code){
+  document.getElementById('t-id').value=id;
+  document.getElementById('t-name').value=name;
+  document.getElementById('t-code').value=code||'';
+  document.getElementById('t-save').innerText='Зберегти';
+  document.getElementById('t-cancel').style.display='';
+}
+async function saveType(){
+  const id=+document.getElementById('t-id').value||0;
+  const name=document.getElementById('t-name').value.trim();
+  const code=document.getElementById('t-code').value.trim();
+  if(!name){alert('Вкажіть назву');return;}
+  if(id){
+    const r=await fetch('/api/admin/absence-types',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,name,code})});
+    if(!r.ok){alert(await r.text()||'Помилка');return;}
+  } else {
+    await fetch('/api/admin/absence-types',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,code})});
+  }
+  resetTypeForm(); loadAll();
 }
 async function delType(id){if(confirm('Видалити?')){await fetch('/api/admin/absence-types?id='+id,{method:'DELETE'});loadAll()}}
 
@@ -149,6 +281,28 @@ async function loadReqs(){
     <button class="btn btn-d" onclick="setSt(${x.id},'Rejected')">✕</button>`:'—'}</td></tr>`).join('')||'<tr><td colspan="7">Немає</td></tr>';
 }
 async function setSt(id,status){await fetch('/api/admin/requests',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,status})});loadReqs()}
+
+async function createTask(){
+  const desc=document.getElementById('nt-desc').value.trim();
+  const date=document.getElementById('nt-date').value;
+  if(!desc||!date){alert('Потрібні дата та опис');return;}
+  const body={
+    user_name:document.getElementById('nt-user').value||'',
+    responsible:document.getElementById('nt-resp').value||'',
+    date:date,
+    visible_from:document.getElementById('nt-vis').value||date,
+    due_date:document.getElementById('nt-due').value||'',
+    task_description:desc,
+    status:document.getElementById('nt-status').value||'Нова',
+    priority:document.getElementById('nt-prio').value||'Базова',
+    created_by:'admin'
+  };
+  const r=await fetch('/api/daily-tasks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  if(!r.ok){alert(await r.text()||'Помилка створення');return;}
+  document.getElementById('nt-desc').value='';
+  alert('Задачу створено');
+  loadTasks();
+}
 
 async function loadTasks(){
   const u=document.getElementById('tf-user').value,s=document.getElementById('tf-status').value;
