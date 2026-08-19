@@ -67,12 +67,11 @@ type IncidentReport struct {
 }
 
 // Status: Нова | У роботі | На паузі | До перевірки | Виконана | Перевідкрита | Архів
-// Priority: Надкритична | Термінова | Базова | Техборг | У шухляду
 // User flow: Нова → У роботі ⇄ На паузі → До перевірки → Виконана
-// Admin only on Виконана: → Перевідкрита (→Нова) | → Архів
+// Unassigned executor (empty user_name) = «на розгляді» — only admin can change status
 type DailyTask struct {
 	ID              int    `json:"id,omitempty"`
-	UserName        string `json:"user_name"`
+	UserName        string `json:"user_name"` // виконавець; порожнє = «на розгляді»
 	Date            string `json:"date"`
 	TaskDescription string `json:"task_description"`
 	Status          string `json:"status"`
@@ -83,6 +82,7 @@ type DailyTask struct {
 	VisibleFrom     string `json:"visible_from,omitempty"`
 	DueDate         string `json:"due_date,omitempty"`
 	CreatedBy       string `json:"created_by,omitempty"`
+	Responsible     string `json:"responsible,omitempty"` // відповідальна особа
 }
 
 type TableStat struct {
@@ -167,7 +167,8 @@ func initDB() {
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 			visible_from TEXT,
 			due_date TEXT,
-			created_by TEXT
+			created_by TEXT,
+			responsible TEXT
 		)`,
 		`CREATE TABLE IF NOT EXISTS audit_logs (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -205,6 +206,7 @@ func initDB() {
 	db.Exec("ALTER TABLE daily_tasks ADD COLUMN visible_from TEXT")
 	db.Exec("ALTER TABLE daily_tasks ADD COLUMN due_date TEXT")
 	db.Exec("ALTER TABLE daily_tasks ADD COLUMN created_by TEXT")
+	db.Exec("ALTER TABLE daily_tasks ADD COLUMN responsible TEXT")
 	db.Exec("ALTER TABLE users ADD COLUMN is_oncall INTEGER DEFAULT 1")
 
 	tables := []string{"users", "team_roles", "absence_types", "shifts", "absences", "incidents", "daily_tasks", "audit_logs", "app_logs"}
