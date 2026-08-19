@@ -1,26 +1,27 @@
-# oncall-system
+# oncall-system (гілка `grok`)
 
-Система управління on-call чергуваннями, відсутностями та звітами про звернення.
+Об'єднана версія: **good** (база) + модуль інцидентів з **actualy-last**.
 
-## Гілка `grok`
+## Структура backend
 
-Об'єднана версія на базі `good` + модуль інцидентів з `actualy-last`.
+```
+main.go              — types, initDB (incidents table), triggers, routing
+handlers_client.go   — login, /api/data, absences, incidents
+handlers_admin.go    — CRUD users/roles/types/requests + monitoring
+```
 
-### Основні можливості
-- Персистентний розклад чергувань (`shifts`)
-- Заявки на відсутність з модерацією
-- Звіти про звернення (інциденти) з тривалістю
-- Реальне audit- та app-логування
-- Тригери відстеження змін у таблицях
-- Адмін-панель (CRUD користувачів, ролей, типів відсутностей)
-- Моніторинг БД + read-only SQL-консоль
-
-### Швидкий старт
+## Швидкий старт
 
 ```bash
-# Локально
+git clone https://github.com/OCherep/oncall-system.git
+cd oncall-system
+git checkout grok
+
+# Підтягнути повний frontend з good (UI вже підтримує incidents)
+git checkout good -- static/
+
 go mod tidy
-go run main.go
+go run .
 # → http://localhost:8083
 
 # Docker
@@ -28,15 +29,20 @@ docker compose up -d --build
 # → http://localhost:83
 ```
 
-### Облікові записи за замовчуванням
-- `admin` / `admin` (адміністратор)
-- `dev1` / `1234` (користувач on-call)
+## Облікові записи
+- `admin` / `admin`
+- `dev1` / `1234`
 - `pm` / `1234`
 
-### API (коротко)
+## API
 - `POST /api/login`
-- `GET  /api/data?year=&month=`
+- `GET  /api/data?year=&month=` (shifts, absences, **incidents**, stats)
 - `POST /api/request-absence`
 - `POST /api/incidents`
-- Адмін: `/api/admin/users`, `/team-roles`, `/absence-types`, `/requests`
-- Моніторинг: `/api/admin/project/{db-stats,query,audit-logs,app-logs}`
+- Admin CRUD: `/api/admin/users`, `/team-roles`, `/absence-types`, `/requests`
+- Monitoring: `/api/admin/project/{db-stats,query,audit-logs,app-logs}`
+
+## Що включено
+- Персистентні shifts, реальні audit/app logs, table triggers (з good)
+- Таблиця incidents + API + stats.incident_minutes (з actualy-last)
+- Frontend з good уже має повний UI інцидентів
