@@ -5,8 +5,49 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 )
+
+// dbAdminPassword returns the secondary password required for DB tools.
+// Set via env DB_ADMIN_PASSWORD (default: "db-admin-change-me").
+func dbAdminPassword() string {
+	p := os.Getenv("DB_ADMIN_PASSWORD")
+	if p == "" {
+		return "db-admin-change-me"
+	}
+	return p
+}
+
+func checkDBAdminPassword(r *http.Request) bool {
+	p := r.Header.Get("X-DB-Admin-Password")
+	if p == "" {
+		p = r.URL.Query().Get("db_password")
+	}
+	return p != "" && p == dbAdminPassword()
+}
+
+func handleDBUnlock(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", 405)
+		return
+	}
+	var req struct {
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
+	if req.Password != dbAdminPassword() {
+		logAudit("admin", "DB_UNLOCK_FAILED", r.RemoteAddr, "wrong password")
+		http.Error(w, "Невірний пароль доступу до бази", 403)
+		return
+	}
+	logAudit("admin", "DB_UNLOCK_OK", r.RemoteAddr, "db tools unlocked")
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
 
 func handleAdminUsers(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
@@ -274,11 +315,6 @@ func handleAdminTasks(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "id required", 400)
 			return
 		}
-		// Admin path: reuse client handler logic by calling through HTTP is overkill;
-		// forward fields into client-style update via direct SQL + status rules
-		raw["role"] = "admin"
-		body, _ := json.Marshal(raw)
-		// Simulate client PUT by reusing same DB rules: minimal update path
 		var cur DailyTask
 		var ws, ca, visN, dueN, respN sql.NullString
 		err := db.QueryRow(`SELECT id, user_name, date, task_description, COALESCE(status,'Нова'), COALESCE(priority,'Базова'),
@@ -313,10 +349,6 @@ func handleAdminTasks(w http.ResponseWriter, r *http.Request) {
 			total = tmp.TotalMinutes
 			workStarted = ""
 		}
-		if newStatus == "У роботі" && cur.Status != "У роботі" {
-			workStarted = ""
-			// set later if needed
-		}
 		var workArg interface{}
 		if workStarted == "" {
 			workArg = nil
@@ -329,7 +361,7 @@ func handleAdminTasks(w http.ResponseWriter, r *http.Request) {
 		}
 		db.Exec(`UPDATE daily_tasks SET status=?, priority=?, work_started_at=?, total_minutes=?, user_name=? WHERE id=?`,
 			newStatus, newPriority, workArg, total, userName, t.ID)
-		_ = body
+		_ = b
 		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 	case http.MethodDelete:
 		db.Exec("DELETE FROM daily_tasks WHERE id=?", r.URL.Query().Get("id"))
@@ -341,6 +373,10 @@ func handleAdminTasks(w http.ResponseWriter, r *http.Request) {
 
 func handleDBStats(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
+	if !checkDBAdminPassword(r) {
+		http.Error(w, "Потрібен пароль доступу до бази (заголовок X-DB-Admin-Password)", 403)
+		return
+	}
 	rows, _ := db.Query(`SELECT table_name, COALESCE(row_count,0), COALESCE(last_action,''), COALESCE(datetime(last_update,'localtime'),'') FROM table_tracker`)
 	var list []TableStat
 	if rows != nil {
@@ -348,7 +384,6 @@ func handleDBStats(w http.ResponseWriter, r *http.Request) {
 		for rows.Next() {
 			var t TableStat
 			rows.Scan(&t.TableName, &t.RowCount, &t.LastAction, &t.LastUpdate)
-			// live count
 			var cnt int
 			db.QueryRow("SELECT COUNT(*) FROM " + t.TableName).Scan(&cnt)
 			t.RowCount = cnt
@@ -362,6 +397,10 @@ func handleReadOnlyQuery(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST only", 405)
+		return
+	}
+	if !checkDBAdminPassword(r) {
+		http.Error(w, "Потрібен пароль доступу до бази (заголовок X-DB-Admin-Password)", 403)
 		return
 	}
 	var req struct {
@@ -407,6 +446,10 @@ func handleRegenerateShifts(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST only", 405)
+		return
+	}
+	if !checkDBAdminPassword(r) {
+		http.Error(w, "Потрібен пароль доступу до бази", 403)
 		return
 	}
 	db.Exec(`DELETE FROM shifts`)
