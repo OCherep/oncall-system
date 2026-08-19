@@ -1,0 +1,747 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>On-Call Schedule</title>
+    <style>
+        :root {
+            --primary-color: #2563eb;
+            --bg-color: #f8fafc;
+            --text-color: #0f172a;
+            --border-color: #e2e8f0;
+            --disabled-color: #94a3b8;
+            --disabled-bg: #f1f5f9;
+        }
+
+        body {
+            margin: 0;
+            font-family: system-ui, -apple-system, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+        }
+
+        .navbar {
+            position: fixed;
+            top: 0; left: 0; right: 0;
+            height: 60px;
+            background-color: #ffffff;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 20px;
+            z-index: 1000;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        }
+
+        .nav-left, .nav-right {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-weight: bold;
+            font-size: 18px;
+            color: var(--primary-color);
+            text-decoration: none;
+        }
+
+        .btn {
+            padding: 8px 16px;
+            border-radius: 6px;
+            border: 1px solid var(--border-color);
+            background-color: #ffffff;
+            cursor: pointer;
+            font-weight: 500;
+            transition: all 0.2s;
+            text-decoration: none;
+            color: var(--text-color);
+            font-size: 14px;
+        }
+
+        .btn:hover { background-color: #f1f5f9; }
+
+        .btn-primary {
+            background-color: var(--primary-color);
+            color: white;
+            border: none;
+        }
+
+        .btn-primary:hover { background-color: #1d4ed8; }
+
+        .content {
+            margin-top: 75px;
+            padding: 10px 20px 20px 20px;
+            max-width: 1200px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .breadcrumbs {
+            font-size: 12px;
+            color: #64748b;
+            margin-bottom: 15px;
+        }
+
+        .calendar-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .calendar-grid {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 1px;
+            background-color: var(--border-color);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .day-header {
+            background-color: #f1f5f9;
+            padding: 10px;
+            text-align: center;
+            font-weight: 600;
+        }
+
+        .day-cell {
+            background-color: #ffffff;
+            min-height: 110px;
+            padding: 8px;
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+
+        .day-cell:hover {
+            background-color: #f8fafc;
+        }
+
+        .day-number {
+            font-weight: bold;
+            font-size: 14px;
+            margin-bottom: 3px;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .shift-card {
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            padding: 6px;
+            font-size: 11px;
+            background-color: #eff6ff;
+        }
+
+        .user-tag.inactive {
+            color: var(--disabled-color);
+            text-decoration: line-through;
+            background-color: var(--disabled-bg);
+        }
+
+        .badge {
+            font-size: 10px;
+            padding: 2px 5px;
+            border-radius: 3px;
+            display: inline-block;
+            margin-top: 2px;
+        }
+
+        .badge-daily {
+            background-color: #e0e7ff;
+            color: #3730a3;
+        }
+
+        .badge-incident {
+            background-color: #fef3c7;
+            color: #92400e;
+        }
+
+        .tables-section {
+            margin-top: 30px;
+            display: flex;
+            flex-direction: column;
+            gap: 25px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+            border-radius: 8px;
+            overflow: hidden;
+            border: 1px solid var(--border-color);
+        }
+
+        th, td {
+            padding: 12px 15px;
+            text-align: left;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        th { background-color: #f8fafc; font-weight: 600; }
+
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.5);
+            align-items: center;
+            justify-content: center;
+            z-index: 2000;
+        }
+
+        .modal-content {
+            background: white;
+            padding: 25px;
+            border-radius: 8px;
+            width: 100%;
+            max-width: 450px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            max-height: 85vh;
+            overflow-y: auto;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .form-group input, .form-group select, .form-group textarea {
+            padding: 8px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+        }
+
+        .day-detail-section {
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 10px;
+            margin-bottom: 10px;
+        }
+
+        .day-detail-section h4 {
+            margin: 0 0 8px 0;
+            color: var(--primary-color);
+        }
+    </style>
+</head>
+<body>
+
+    <nav class="navbar">
+        <div class="nav-left">
+            <a href="/" class="logo">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M12 12c-2-2.5-4-4-6-4a4 4 0 0 0 0 8c2 0 4-1.5 6-4zm0 0c2 2.5 4 4 6 4a4 4 0 0 0 0-8c-2 0-4 1.5-6 4z"/>
+                </svg>
+                <span>OnCall System</span>
+            </a>
+
+            <div id="user-actions" style="display: none; gap: 10px;">
+                <button class="btn" onclick="openIncidentModal()">Звіт про звернення</button>
+                <button class="btn" onclick="openAbsenceModal()">Заявки на відпустку/дейофф</button>
+            </div>
+
+            <div id="admin-actions" style="display: none;">
+                <a href="/admin" class="btn btn-primary">Адміністрування</a>
+            </div>
+        </div>
+
+        <div class="nav-right">
+            <span id="user-info" style="font-weight: 500;"></span>
+            <button id="auth-btn" class="btn btn-primary" onclick="toggleAuth()">Sign In</button>
+        </div>
+    </nav>
+
+    <div class="content">
+        <div class="breadcrumbs">
+            <span>Головна</span> / <span>Графік чергувань</span>
+        </div>
+
+        <div class="calendar-header">
+            <h2 id="month-title">Місяць Рік</h2>
+            <div>
+                <button class="btn" onclick="changeMonth(-1)">&#8592; Попередній</button>
+                <button class="btn" onclick="changeMonth(1)">Наступний &#8594;</button>
+            </div>
+        </div>
+
+        <div class="calendar-grid" id="calendar">
+            <div class="day-header">Пн</div>
+            <div class="day-header">Вт</div>
+            <div class="day-header">Ср</div>
+            <div class="day-header">Чт</div>
+            <div class="day-header">Пт</div>
+            <div class="day-header">Сб</div>
+            <div class="day-header">Нд</div>
+        </div>
+
+        <div class="tables-section">
+            <div>
+                <h3>Статистика чергувань та сторонніх запитів за місяць</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Член команди</th>
+                            <th>Основні чергування</th>
+                            <th>Дублюючі чергування</th>
+                            <th>Сторонні звернення (год)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="stats-table"></tbody>
+                </table>
+            </div>
+
+            <div>
+                <h3>Затверджені відпустки, DayOff та SickDay</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Користувач</th>
+                            <th>Тип</th>
+                            <th>Дата початку</th>
+                            <th>Дата завершення</th>
+                        </tr>
+                    </thead>
+                    <tbody id="absences-table"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Модалка авторизації -->
+    <div class="modal" id="login-modal">
+        <div class="modal-content">
+            <h3>Авторизація</h3>
+            <div class="form-group">
+                <label>Логін</label>
+                <input type="text" id="login-username" placeholder="admin, pm або dev1">
+            </div>
+            <div class="form-group">
+                <label>Пароль</label>
+                <input type="password" id="login-password" value="1234">
+            </div>
+            <div id="login-error" style="color: red; font-size: 12px; display: none;"></div>
+            <button class="btn btn-primary" onclick="performLogin()">Увійти</button>
+            <button class="btn" onclick="closeLoginModal()">Скасувати</button>
+        </div>
+    </div>
+
+    <!-- Модалка створення заявки на відсутність -->
+    <div class="modal" id="absence-modal">
+        <div class="modal-content">
+            <h3>Подати заявку на відсутність</h3>
+            <div class="form-group">
+                <label>Тип відсутності</label>
+                <select id="absence-type-select"></select>
+            </div>
+            <div class="form-group">
+                <label>Дата початку</label>
+                <input type="date" id="absence-start-date">
+            </div>
+            <div class="form-group">
+                <label>Дата завершення</label>
+                <input type="date" id="absence-end-date">
+            </div>
+            <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 10px;">
+                <button class="btn" onclick="closeAbsenceModal()">Скасувати</button>
+                <button class="btn btn-primary" onclick="submitAbsenceRequest()">Надіслати на затвердження</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Модалка створення звіту про стороннє звернення -->
+    <div class="modal" id="incident-modal">
+        <div class="modal-content">
+            <h3>Звіт про стороннє звернення</h3>
+            <div class="form-group">
+                <label>Дата звернення</label>
+                <input type="date" id="incident-date">
+            </div>
+            <div class="form-group">
+                <label>Категорія/Тип запиту</label>
+                <select id="incident-type">
+                    <option value="Consultation">Консультація</option>
+                    <option value="Ad-hoc Support">Ad-hoc Підтримка</option>
+                    <option value="Bug Investigation">Аналіз багу</option>
+                    <option value="Access Request">Запит доступу</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Витрачений час (хвилини)</label>
+                <input type="number" id="incident-duration" placeholder="Наприклад: 45" min="5" step="5">
+            </div>
+            <div class="form-group">
+                <label>Опис запиту / Джерело</label>
+                <textarea id="incident-description" rows="3" placeholder="Опишіть коротко проблему та хто звернувся"></textarea>
+            </div>
+            <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 10px;">
+                <button class="btn" onclick="closeIncidentModal()">Скасувати</button>
+                <button class="btn btn-primary" onclick="submitIncidentReport()">Зберегти звіт</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Модалка детальної розгортки дня -->
+    <div class="modal" id="day-detail-modal">
+        <div class="modal-content">
+            <h3 id="day-detail-title">Деталі дня</h3>
+            
+            <div class="day-detail-section">
+                <h4>🛡️ Чергування</h4>
+                <div id="day-detail-shifts">Не призначено</div>
+            </div>
+
+            <div class="day-detail-section">
+                <h4>🏖️ Відсутності</h4>
+                <div id="day-detail-absences">Немає</div>
+            </div>
+
+            <div class="day-detail-section">
+                <h4>📋 Задачі з Дейлі-мітінгу</h4>
+                <div id="day-detail-daily-tasks">Задач немає</div>
+            </div>
+
+            <div class="day-detail-section">
+                <h4>⏱️ Сторонні звернення (Зайнятість)</h4>
+                <div id="day-detail-incidents">Запитів немає</div>
+            </div>
+
+            <div style="display: flex; justify-content: flex-end; margin-top: 10px;">
+                <button class="btn" onclick="closeDayDetailModal()">Закрити</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentUser = null;
+        let currentDate = new Date();
+        let absenceTypes = [];
+        let currentMonthData = { shifts: {}, absences: [], daily_tasks: {}, incidents: {} };
+
+        window.onload = function() {
+            checkSession();
+            loadData();
+        };
+
+        function checkSession() {
+            const saved = localStorage.getItem('currentUser');
+            if (saved) {
+                currentUser = JSON.parse(saved);
+                document.getElementById('user-info').innerText = `${currentUser.name} (${currentUser.role})`;
+                document.getElementById('auth-btn').innerText = 'Sign Out';
+                document.getElementById('user-actions').style.display = 'flex';
+
+                const isAdminRole = currentUser.role === 'admin';
+                const isManagerRole = currentUser.team_role === 'Team Lead' || currentUser.team_role === 'Project Manager';
+
+                if (isAdminRole || isManagerRole) {
+                    document.getElementById('admin-actions').style.display = 'block';
+                } else {
+                    document.getElementById('admin-actions').style.display = 'none';
+                }
+            } else {
+                document.getElementById('user-info').innerText = '';
+                document.getElementById('auth-btn').innerText = 'Sign In';
+                document.getElementById('user-actions').style.display = 'none';
+                document.getElementById('admin-actions').style.display = 'none';
+            }
+        }
+
+        function toggleAuth() {
+            if (currentUser) {
+                currentUser = null;
+                localStorage.removeItem('currentUser');
+                checkSession();
+            } else {
+                document.getElementById('login-modal').style.display = 'flex';
+            }
+        }
+
+        function closeLoginModal() { document.getElementById('login-modal').style.display = 'none'; }
+
+        async function performLogin() {
+            const username = document.getElementById('login-username').value;
+            const password = document.getElementById('login-password').value;
+
+            const res = await fetch('/api/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username, password })
+            });
+
+            if (res.ok) {
+                currentUser = await res.json();
+                localStorage.setItem('currentUser', JSON.stringify(currentUser));
+                closeLoginModal();
+                checkSession();
+            } else {
+                const err = await res.json();
+                document.getElementById('login-error').innerText = err.error || 'Помилка';
+                document.getElementById('login-error').style.display = 'block';
+            }
+        }
+
+        function changeMonth(delta) {
+            currentDate.setMonth(currentDate.getMonth() + delta);
+            loadData();
+        }
+
+        async function loadData() {
+            const year = currentDate.getFullYear();
+            const month = currentDate.getMonth() + 1;
+
+            const res = await fetch(`/api/data?year=${year}&month=${month}`);
+            const data = await res.json();
+
+            currentMonthData = data;
+            absenceTypes = data.absence_types || [];
+            populateAbsenceSelect();
+
+            renderCalendar(data.year, data.month, data.shifts || {}, data.absences || [], data.daily_tasks || {}, data.incidents || {});
+            renderStats(data.stats || []);
+            renderAbsences(data.absences || []);
+        }
+
+        function populateAbsenceSelect() {
+            const select = document.getElementById('absence-type-select');
+            select.innerHTML = '';
+            absenceTypes.forEach(t => {
+                select.innerHTML += `<option value="${t.code}">${t.name}</option>`;
+            });
+        }
+
+        function openAbsenceModal() {
+            if (!currentUser) return;
+            const today = new Date().toISOString().split('T')[0];
+            document.getElementById('absence-start-date').value = today;
+            document.getElementById('absence-end-date').value = today;
+            document.getElementById('absence-modal').style.display = 'flex';
+        }
+
+        function closeAbsenceModal() { document.getElementById('absence-modal').style.display = 'none'; }
+
+        function openIncidentModal() {
+            if (!currentUser) return;
+            document.getElementById('incident-date').value = new Date().toISOString().split('T')[0];
+            document.getElementById('incident-modal').style.display = 'flex';
+        }
+
+        function closeIncidentModal() { document.getElementById('incident-modal').style.display = 'none'; }
+
+        async function submitIncidentReport() {
+            const date = document.getElementById('incident-date').value;
+            const type = document.getElementById('incident-type').value;
+            const duration = parseInt(document.getElementById('incident-duration').value, 10);
+            const description = document.getElementById('incident-description').value;
+
+            if (!date || !duration || !description) {
+                alert("Заповніть усі поля!");
+                return;
+            }
+
+            const res = await fetch('/api/incidents', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    user_name: currentUser.name,
+                    date,
+                    type,
+                    duration_minutes: duration,
+                    description
+                })
+            });
+
+            if (res.ok) {
+                alert("Звіт успішно збережено!");
+                closeIncidentModal();
+                loadData();
+            } else {
+                alert("Помилка відправки звіту");
+            }
+        }
+
+        async function submitAbsenceRequest() {
+            const type = document.getElementById('absence-type-select').value;
+            const startDate = document.getElementById('absence-start-date').value;
+            const endDate = document.getElementById('absence-end-date').value;
+
+            if (!startDate || !endDate) {
+                alert("Оберіть дати");
+                return;
+            }
+
+            const res = await fetch('/api/request-absence', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    user_name: currentUser.name,
+                    type,
+                    start_date: startDate,
+                    end_date: endDate
+                })
+            });
+
+            if (res.ok) {
+                alert("Заявку надіслано на затвердження!");
+                closeAbsenceModal();
+                loadData();
+            } else {
+                alert("Помилка відправки заявки");
+            }
+        }
+
+        function isUserInactiveOnDate(userName, dateStr, absences) {
+            for (let abs of absences) {
+                if (abs.user_name === userName && dateStr >= abs.start_date && dateStr <= abs.end_date) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        function renderCalendar(year, month, shifts, absences, dailyTasks, incidents) {
+            const monthNames = ["Січень", "Лютий", "Березень", "Квітень", "Травень", "Червень", "Липень", "Серпень", "Вересень", "Жовтень", "Листопад", "Грудень"];
+            document.getElementById('month-title').innerText = `${monthNames[month - 1]} ${year}`;
+
+            const grid = document.getElementById('calendar');
+            while (grid.children.length > 7) grid.removeChild(grid.lastChild);
+
+            const firstDayIndex = new Date(year, month - 1, 1).getDay();
+            const daysInMonth = new Date(year, month, 0).getDate();
+            let startOffset = firstDayIndex === 0 ? 6 : firstDayIndex - 1;
+
+            for (let i = 0; i < startOffset; i++) {
+                const emptyCell = document.createElement('div');
+                emptyCell.className = 'day-cell';
+                emptyCell.style.backgroundColor = '#fafafa';
+                emptyCell.style.cursor = 'default';
+                grid.appendChild(emptyCell);
+            }
+
+            for (let day = 1; day <= daysInMonth; day++) {
+                const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                const cell = document.createElement('div');
+                cell.className = 'day-cell';
+                cell.onclick = () => openDayDetail(dateStr);
+
+                const dayNum = document.createElement('div');
+                dayNum.className = 'day-number';
+                dayNum.innerText = day;
+
+                cell.appendChild(dayNum);
+
+                if (shifts[dateStr]) {
+                    const shift = shifts[dateStr];
+                    const card = document.createElement('div');
+                    card.className = 'shift-card';
+
+                    const primaryInactive = isUserInactiveOnDate(shift.primary_user, dateStr, absences);
+                    const backupInactive = isUserInactiveOnDate(shift.backup_user, dateStr, absences);
+
+                    card.innerHTML = `
+                        <div><strong>Осн:</strong> <span class="user-tag ${primaryInactive ? 'inactive' : ''}">${shift.primary_user}</span></div>
+                        <div><strong>Дубл:</strong> <span class="user-tag ${backupInactive ? 'inactive' : ''}">${shift.backup_user}</span></div>
+                    `;
+                    cell.appendChild(card);
+                }
+
+                if (dailyTasks[dateStr] && dailyTasks[dateStr].length > 0) {
+                    const badge = document.createElement('span');
+                    badge.className = 'badge badge-daily';
+                    badge.innerText = `📋 Задач: ${dailyTasks[dateStr].length}`;
+                    cell.appendChild(badge);
+                }
+
+                if (incidents[dateStr] && incidents[dateStr].length > 0) {
+                    const badge = document.createElement('span');
+                    badge.className = 'badge badge-incident';
+                    const totalMins = incidents[dateStr].reduce((sum, item) => sum + item.duration_minutes, 0);
+                    badge.innerText = `⏱️ ${incidents[dateStr].length} зверн. (${totalMins}хв)`;
+                    cell.appendChild(badge);
+                }
+
+                grid.appendChild(cell);
+            }
+        }
+
+        function openDayDetail(dateStr) {
+            document.getElementById('day-detail-title').innerText = `Деталі дня: ${dateStr}`;
+
+            const shift = currentMonthData.shifts ? currentMonthData.shifts[dateStr] : null;
+            if (shift) {
+                document.getElementById('day-detail-shifts').innerHTML = `
+                    <b>Основний:</b> ${shift.primary_user}<br>
+                    <b>Дублюючий:</b> ${shift.backup_user}
+                `;
+            } else {
+                document.getElementById('day-detail-shifts').innerText = "Чергування не призначено";
+            }
+
+            const absList = (currentMonthData.absences || []).filter(a => dateStr >= a.start_date && dateStr <= a.end_date);
+            if (absList.length > 0) {
+                document.getElementById('day-detail-absences').innerHTML = absList.map(a => `• <b>${a.user_name}</b> (${a.type})`).join('<br>');
+            } else {
+                document.getElementById('day-detail-absences').innerText = "Відсутностей немає";
+            }
+
+            const tasks = currentMonthData.daily_tasks ? currentMonthData.daily_tasks[dateStr] : [];
+            if (tasks && tasks.length > 0) {
+                document.getElementById('day-detail-daily-tasks').innerHTML = tasks.map(t => `• <b>${t.user_name}:</b> ${t.task_description}`).join('<br>');
+            } else {
+                document.getElementById('day-detail-daily-tasks').innerText = "Задач з Дейлі не зафіксовано";
+            }
+
+            const incs = currentMonthData.incidents ? currentMonthData.incidents[dateStr] : [];
+            if (incs && incs.length > 0) {
+                document.getElementById('day-detail-incidents').innerHTML = incs.map(i => `• <b>${i.user_name}</b> [${i.type} - ${i.duration_minutes} хв]: ${i.description}`).join('<br>');
+            } else {
+                document.getElementById('day-detail-incidents').innerText = "Звернень немає";
+            }
+
+            document.getElementById('day-detail-modal').style.display = 'flex';
+        }
+
+        function closeDayDetailModal() {
+            document.getElementById('day-detail-modal').style.display = 'none';
+        }
+
+        function renderStats(stats) {
+            const tbody = document.getElementById('stats-table');
+            tbody.innerHTML = '';
+            stats.forEach(st => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${st.name}</td>
+                    <td>${st.primary_count}</td>
+                    <td>${st.backup_count}</td>
+                    <td>${(st.incident_minutes / 60).toFixed(1)} год</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function renderAbsences(absences) {
+            const tbody = document.getElementById('absences-table');
+            tbody.innerHTML = '';
+            absences.forEach(a => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `<td>${a.user_name}</td><td>${a.type}</td><td>${a.start_date}</td><td>${a.end_date}</td>`;
+                tbody.appendChild(tr);
+            });
+        }
+    </script>
+</body>
+</html>
