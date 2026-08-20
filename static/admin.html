@@ -8,7 +8,7 @@ body{margin:0;font-family:system-ui,sans-serif;background:var(--bg);color:var(--
 .navbar{position:fixed;top:0;left:0;right:0;height:56px;background:#fff;border-bottom:1px solid var(--b);display:flex;align-items:center;justify-content:space-between;padding:0 16px;z-index:100}
 .btn{background:var(--p);color:#fff;border:none;padding:8px 14px;border-radius:6px;cursor:pointer;font-size:13px}
 .btn:hover{opacity:.9}.btn-d{background:#ef4444}.btn-s{background:#64748b}.btn-p{background:#16a34a}.btn-e{background:#0ea5e9}
-.main{margin-top:72px;padding:16px;max-width:1100px;margin-left:auto;margin-right:auto}
+.main{margin-top:72px;padding:16px;max-width:1200px;margin-left:auto;margin-right:auto}
 .tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
 .tabs a{padding:8px 14px;background:#fff;border:1px solid var(--b);border-radius:6px;text-decoration:none;color:var(--t);font-size:13px;cursor:pointer}
 .tabs a.active{background:var(--p);color:#fff;border-color:var(--p)}
@@ -22,6 +22,9 @@ textarea{min-height:60px;width:280px}
 .card{background:#fff;border:1px solid var(--b);border-radius:8px;padding:14px;margin-bottom:14px}
 .card h3{margin:0 0 10px;font-size:15px}
 .swatch{display:inline-block;width:14px;height:14px;border-radius:3px;vertical-align:middle;border:1px solid #cbd5e1}
+.row-due-soon{background:#fef2f2}.row-due-over{background:#fee2e2}
+.badge-due{display:inline-block;padding:1px 6px;border-radius:4px;font-size:11px;background:#ef4444;color:#fff;margin-left:4px}
+.badge-due-soon{background:#f59e0b}
 </style></head><body>
 <div class="navbar"><div><strong>Admin</strong> · On-Call</div>
 <div><a class="btn btn-s" href="/">← Календар</a></div></div>
@@ -41,7 +44,7 @@ textarea{min-height:60px;width:280px}
 <div class="card">
 <input type="hidden" id="u-id" value="">
 <div class="fg"><label>Username</label><input id="u-user"></div>
-<div class="fg"><label>Пароль <span style="color:#94a3b8;font-weight:400">(порожньо = не змінювати при ред.)</span></label><input id="u-pass" type="password"></div>
+<div class="fg"><label>Пароль <span style="color:#94a3b8;font-weight:400">(порожньо = не змінювати)</span></label><input id="u-pass" type="password"></div>
 <div class="fg"><label>Ім'я</label><input id="u-name"></div>
 <div class="fg"><label>Role</label><select id="u-role"><option>user</option><option>admin</option></select></div>
 <div class="fg"><label>Team role</label><select id="u-tr"></select></div>
@@ -69,7 +72,7 @@ textarea{min-height:60px;width:280px}
 <input type="hidden" id="t-id" value="">
 <div class="fg"><label>Назва</label><input id="t-name"></div>
 <div class="fg"><label>Code</label><input id="t-code"></div>
-<div class="fg"><label>Колір (hex)</label><input id="t-color" type="color" value="#f59e0b" style="width:60px;height:36px;padding:2px"></div>
+<div class="fg"><label>Колір</label><input id="t-color" type="color" value="#f59e0b" style="width:60px;height:36px;padding:2px"></div>
 <button class="btn" id="t-save" onclick="saveType()">Додати</button>
 <button class="btn btn-s" id="t-cancel" style="display:none" onclick="resetTypeForm()">Скасувати</button>
 </div>
@@ -83,33 +86,43 @@ textarea{min-height:60px;width:280px}
 
 <div class="sec" id="tasks">
 <h2>Задачі з дейлі</h2>
-<div class="card">
-<h3>Створити задачу</h3>
+<div class="card" id="task-edit-card">
+<h3 id="task-edit-title">Створити задачу</h3>
+<input type="hidden" id="nt-id" value="">
 <div class="fg"><label>Виконавець</label><select id="nt-user"><option value="">— на розгляді —</option></select></div>
 <div class="fg"><label>Відповідальна особа</label><select id="nt-resp"><option value="">—</option></select></div>
 <div class="fg"><label>Дата задачі</label><input type="date" id="nt-date"></div>
 <div class="fg"><label>Видима з</label><input type="date" id="nt-vis"></div>
-<div class="fg"><label>Термін (due)</label><input type="date" id="nt-due"></div>
+<div class="fg"><label>Термін (due) <span style="color:#ef4444">★ маркер</span></label><input type="date" id="nt-due"></div>
+<div class="fg"><label>План (хв)</label><input type="number" id="nt-est" min="0" value="0" style="width:80px"></div>
 <div class="fg"><label>Статус</label><select id="nt-status">
 <option>Нова</option><option>У роботі</option><option>На паузі</option><option>До перевірки</option><option>Виконана</option><option>Перевідкрита</option><option>Архів</option>
 </select></div>
 <div class="fg"><label>Пріоритет</label><select id="nt-prio">
 <option>Базова</option><option>Надкритична</option><option>Термінова</option><option>Техборг</option><option>У шухляду</option>
 </select></div>
-<div class="fg" style="display:block;width:100%"><label>Опис задачі</label><textarea id="nt-desc" style="width:100%;max-width:640px;box-sizing:border-box"></textarea></div>
-<button class="btn" onclick="createTask()">Створити задачу</button>
+<div class="fg" style="display:block;width:100%"><label>Опис</label><textarea id="nt-desc" style="width:100%;max-width:640px;box-sizing:border-box"></textarea></div>
+<button class="btn" id="nt-save" onclick="saveTask()">Створити задачу</button>
+<button class="btn btn-s" id="nt-cancel" style="display:none" onclick="resetTaskForm()">Скасувати</button>
 </div>
+
 <div class="filters">
-<div class="fg"><label>Виконавець</label><select id="tf-user"><option value="">Усі виконавці</option></select></div>
-<div class="fg"><label>Статус</label><select id="tf-status"><option value="">Усі статуси</option>
+<div class="fg"><label>Режим</label>
+<select id="tf-mode" onchange="onModeChange()">
+<option value="month">Поточний місяць</option>
+<option value="archive">Архів (усі)</option>
+</select></div>
+<div class="fg" id="tf-month-wrap"><label>Місяць</label><input type="month" id="tf-month"></div>
+<div class="fg"><label>Пошук</label><input id="tf-q" placeholder="опис, виконавець…" style="width:160px"></div>
+<div class="fg"><label>Виконавець</label><select id="tf-user"><option value="">Усі</option></select></div>
+<div class="fg"><label>Статус</label><select id="tf-status"><option value="">Усі</option>
 <option>Нова</option><option>У роботі</option><option>На паузі</option><option>До перевірки</option><option>Виконана</option><option>Перевідкрита</option><option>Архів</option></select></div>
 <div class="fg"><label>Пріоритет</label><select id="tf-prio"><option value="">Усі</option>
 <option>Надкритична</option><option>Термінова</option><option>Базова</option><option>Техборг</option><option>У шухляду</option></select></div>
-<div class="fg"><label>Дата з</label><input type="date" id="tf-from"></div>
-<div class="fg"><label>Дата по</label><input type="date" id="tf-to"></div>
 <button class="btn" onclick="loadTasks()">Фільтр</button>
 </div>
-<table><thead><tr><th>ID</th><th>Виконавець</th><th>Відповідальний</th><th>Хто створив</th><th>Дата</th><th>Задача</th><th>Статус</th><th>Пріоритет</th><th>Хв</th><th></th></tr></thead><tbody id="task-tb"></tbody></table>
+<p style="font-size:12px;color:#64748b;margin:0 0 8px">★ Due: задача <b>критична за часом</b> за добу до due (переддень здачі). Прострочені — червонішим.</p>
+<table><thead><tr><th>ID</th><th>Виконавець</th><th>Відп.</th><th>Дата</th><th>Due</th><th>Задача</th><th>Статус</th><th>Пріоритет</th><th>План/факт</th><th></th></tr></thead><tbody id="task-tb"></tbody></table>
 </div>
 
 <div class="sec" id="logs">
@@ -121,7 +134,7 @@ textarea{min-height:60px;width:280px}
 <script>
 const STATUSES=['Нова','У роботі','На паузі','До перевірки','Виконана','Перевідкрита','Архів'];
 const PRIOS=['Надкритична','Термінова','Базова','Техборг','У шухляду'];
-let users=[], roles=[];
+let users=[], roles=[], _tasksCache=[];
 
 document.querySelectorAll('.tabs a').forEach(a=>{
   a.onclick=()=>{
@@ -129,7 +142,7 @@ document.querySelectorAll('.tabs a').forEach(a=>{
     a.classList.add('active');
     document.querySelectorAll('.sec').forEach(s=>s.classList.remove('on'));
     document.getElementById(a.dataset.s).classList.add('on');
-    if(a.dataset.s==='tasks'){fillTaskSelects();loadTasks();}
+    if(a.dataset.s==='tasks'){fillTaskSelects();initMonth();loadTasks();}
     if(a.dataset.s==='logs')loadLogs();
     if(a.dataset.s==='requests')loadReqs();
   };
@@ -143,6 +156,30 @@ function memberOpts(selected, allowEmpty){
     o+=`<option value="${esc(u.name)}" ${u.name===selected?'selected':''}>${esc(u.name)}</option>`;
   });
   return o;
+}
+function initMonth(){
+  const el=document.getElementById('tf-month');
+  if(el && !el.value){
+    const n=new Date();
+    el.value=`${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}`;
+  }
+}
+function onModeChange(){
+  const arch=document.getElementById('tf-mode').value==='archive';
+  document.getElementById('tf-month-wrap').style.display=arch?'none':'';
+  loadTasks();
+}
+/** due критичний: сьогодні == due-1 день, або сьогодні >= due */
+function dueFlag(due){
+  if(!due) return null;
+  const t=today();
+  if(t>due) return 'over';
+  // переддень: due - 1 day
+  const d=new Date(due+'T12:00:00');
+  d.setDate(d.getDate()-1);
+  const prev=d.toISOString().slice(0,10);
+  if(t>=prev) return 'soon';
+  return null;
 }
 
 async function loadAll(){
@@ -177,8 +214,8 @@ async function loadAll(){
   }).join('')||'<tr><td colspan="5">Порожньо</td></tr>';
   window._atypes=t||[];
   const fu=document.getElementById('tf-user');
-  fu.innerHTML='<option value="">Усі виконавці</option>'+(users||[]).filter(u=>u.role!=='admin').map(u=>`<option value="${esc(u.name)}">${esc(u.name)}</option>`).join('');
-  fillTaskSelects();
+  fu.innerHTML='<option value="">Усі</option>'+(users||[]).filter(u=>u.role!=='admin').map(u=>`<option value="${esc(u.name)}">${esc(u.name)}</option>`).join('');
+  fillTaskSelects(); initMonth();
 }
 
 function fillTaskSelects(){
@@ -194,101 +231,46 @@ function fillTaskSelects(){
 function resetUserForm(){
   document.getElementById('u-id').value='';
   ['u-user','u-pass','u-name'].forEach(id=>document.getElementById(id).value='');
-  document.getElementById('u-role').value='user';
-  document.getElementById('u-tr').value='';
-  document.getElementById('u-on').value='1';
-  document.getElementById('u-save').innerText='Додати';
-  document.getElementById('u-cancel').style.display='none';
+  document.getElementById('u-role').value='user'; document.getElementById('u-tr').value=''; document.getElementById('u-on').value='1';
+  document.getElementById('u-save').innerText='Додати'; document.getElementById('u-cancel').style.display='none';
 }
 function editUser(id){
-  const x=(users||[]).find(u=>u.id===id);
-  if(!x){alert('Не знайдено');return;}
+  const x=(users||[]).find(u=>u.id===id); if(!x)return;
   document.getElementById('u-id').value=x.id;
-  document.getElementById('u-user').value=x.username||'';
-  document.getElementById('u-pass').value='';
-  document.getElementById('u-name').value=x.name||'';
-  document.getElementById('u-role').value=x.role||'user';
-  document.getElementById('u-tr').value=x.team_role_id||'';
-  document.getElementById('u-on').value=x.is_oncall? '1':'0';
-  document.getElementById('u-save').innerText='Зберегти';
-  document.getElementById('u-cancel').style.display='';
-  window.scrollTo({top:0,behavior:'smooth'});
+  document.getElementById('u-user').value=x.username||''; document.getElementById('u-pass').value='';
+  document.getElementById('u-name').value=x.name||''; document.getElementById('u-role').value=x.role||'user';
+  document.getElementById('u-tr').value=x.team_role_id||''; document.getElementById('u-on').value=x.is_oncall?'1':'0';
+  document.getElementById('u-save').innerText='Зберегти'; document.getElementById('u-cancel').style.display='';
 }
 async function saveUser(){
   const id=+document.getElementById('u-id').value||0;
   const body={username:document.getElementById('u-user').value,password:document.getElementById('u-pass').value,
     name:document.getElementById('u-name').value,role:document.getElementById('u-role').value,
     team_role_id:+document.getElementById('u-tr').value||null,is_oncall:document.getElementById('u-on').value==='1'};
-  if(id){
-    body.id=id;
-    const r=await fetch('/api/admin/users',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-    if(!r.ok){alert(await r.text()||'Помилка');return;}
-  } else {
-    const r=await fetch('/api/admin/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-    if(!r.ok){alert(await r.text()||'Помилка');return;}
-  }
+  if(id){body.id=id; const r=await fetch('/api/admin/users',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}); if(!r.ok){alert(await r.text());return;}}
+  else{const r=await fetch('/api/admin/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}); if(!r.ok){alert(await r.text());return;}}
   resetUserForm(); loadAll();
 }
 async function delUser(id){if(confirm('Видалити?')){await fetch('/api/admin/users?id='+id,{method:'DELETE'});loadAll()}}
 
-function resetRoleForm(){
-  document.getElementById('r-id').value='';
-  document.getElementById('r-name').value='';
-  document.getElementById('r-save').innerText='Додати';
-  document.getElementById('r-cancel').style.display='none';
-}
-function editRole(id){
-  const x=(roles||[]).find(r=>r.id===id);
-  if(!x)return;
-  document.getElementById('r-id').value=id;
-  document.getElementById('r-name').value=x.name;
-  document.getElementById('r-save').innerText='Зберегти';
-  document.getElementById('r-cancel').style.display='';
-}
+function resetRoleForm(){document.getElementById('r-id').value='';document.getElementById('r-name').value='';document.getElementById('r-save').innerText='Додати';document.getElementById('r-cancel').style.display='none';}
+function editRole(id){const x=(roles||[]).find(r=>r.id===id);if(!x)return;document.getElementById('r-id').value=id;document.getElementById('r-name').value=x.name;document.getElementById('r-save').innerText='Зберегти';document.getElementById('r-cancel').style.display='';}
 async function saveRole(){
-  const id=+document.getElementById('r-id').value||0;
-  const name=document.getElementById('r-name').value.trim();
+  const id=+document.getElementById('r-id').value||0, name=document.getElementById('r-name').value.trim();
   if(!name){alert('Вкажіть назву');return;}
-  if(id){
-    const r=await fetch('/api/admin/roles',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,name})});
-    if(!r.ok){alert(await r.text()||'Помилка');return;}
-  } else {
-    await fetch('/api/admin/roles',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})});
-  }
+  if(id) await fetch('/api/admin/roles',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,name})});
+  else await fetch('/api/admin/roles',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})});
   resetRoleForm(); loadAll();
 }
 async function delRole(id){if(confirm('Видалити?')){await fetch('/api/admin/roles?id='+id,{method:'DELETE'});loadAll()}}
 
-function resetTypeForm(){
-  document.getElementById('t-id').value='';
-  document.getElementById('t-name').value='';
-  document.getElementById('t-code').value='';
-  document.getElementById('t-color').value='#f59e0b';
-  document.getElementById('t-save').innerText='Додати';
-  document.getElementById('t-cancel').style.display='none';
-}
-function editType(id){
-  const x=(window._atypes||[]).find(t=>t.id===id);
-  if(!x)return;
-  document.getElementById('t-id').value=id;
-  document.getElementById('t-name').value=x.name||'';
-  document.getElementById('t-code').value=x.code||'';
-  document.getElementById('t-color').value=x.color||'#f59e0b';
-  document.getElementById('t-save').innerText='Зберегти';
-  document.getElementById('t-cancel').style.display='';
-}
+function resetTypeForm(){document.getElementById('t-id').value='';document.getElementById('t-name').value='';document.getElementById('t-code').value='';document.getElementById('t-color').value='#f59e0b';document.getElementById('t-save').innerText='Додати';document.getElementById('t-cancel').style.display='none';}
+function editType(id){const x=(window._atypes||[]).find(t=>t.id===id);if(!x)return;document.getElementById('t-id').value=id;document.getElementById('t-name').value=x.name||'';document.getElementById('t-code').value=x.code||'';document.getElementById('t-color').value=x.color||'#f59e0b';document.getElementById('t-save').innerText='Зберегти';document.getElementById('t-cancel').style.display='';}
 async function saveType(){
-  const id=+document.getElementById('t-id').value||0;
-  const name=document.getElementById('t-name').value.trim();
-  const code=document.getElementById('t-code').value.trim();
-  const color=document.getElementById('t-color').value||'#f59e0b';
+  const id=+document.getElementById('t-id').value||0,name=document.getElementById('t-name').value.trim(),code=document.getElementById('t-code').value.trim(),color=document.getElementById('t-color').value||'#f59e0b';
   if(!name){alert('Вкажіть назву');return;}
-  if(id){
-    const r=await fetch('/api/admin/absence-types',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,name,code,color})});
-    if(!r.ok){alert(await r.text()||'Помилка');return;}
-  } else {
-    await fetch('/api/admin/absence-types',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,code,color})});
-  }
+  if(id) await fetch('/api/admin/absence-types',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,name,code,color})});
+  else await fetch('/api/admin/absence-types',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,code,color})});
   resetTypeForm(); loadAll();
 }
 async function delType(id){if(confirm('Видалити?')){await fetch('/api/admin/absence-types?id='+id,{method:'DELETE'});loadAll()}}
@@ -302,7 +284,39 @@ async function loadReqs(){
 }
 async function setSt(id,status){await fetch('/api/admin/requests',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,status})});loadReqs()}
 
-async function createTask(){
+function resetTaskForm(){
+  document.getElementById('nt-id').value='';
+  document.getElementById('nt-desc').value='';
+  document.getElementById('nt-due').value='';
+  document.getElementById('nt-est').value='0';
+  document.getElementById('nt-status').value='Нова';
+  document.getElementById('nt-prio').value='Базова';
+  document.getElementById('nt-date').value=today();
+  document.getElementById('nt-vis').value=today();
+  fillTaskSelects();
+  document.getElementById('task-edit-title').innerText='Створити задачу';
+  document.getElementById('nt-save').innerText='Створити задачу';
+  document.getElementById('nt-cancel').style.display='none';
+}
+function editTask(id){
+  const x=_tasksCache.find(t=>t.id===id); if(!x){alert('Не знайдено');return;}
+  document.getElementById('nt-id').value=x.id;
+  document.getElementById('nt-user').innerHTML=memberOpts(x.user_name||'',true);
+  document.getElementById('nt-resp').innerHTML='<option value="">—</option>'+(users||[]).map(u=>`<option value="${esc(u.name)}" ${u.name===x.responsible?'selected':''}>${esc(u.name)}</option>`).join('');
+  document.getElementById('nt-date').value=x.date||'';
+  document.getElementById('nt-vis').value=x.visible_from||x.date||'';
+  document.getElementById('nt-due').value=x.due_date||'';
+  document.getElementById('nt-est').value=x.estimated_minutes||0;
+  document.getElementById('nt-status').value=x.status||'Нова';
+  document.getElementById('nt-prio').value=x.priority||'Базова';
+  document.getElementById('nt-desc').value=x.task_description||'';
+  document.getElementById('task-edit-title').innerText='Редагувати задачу #'+x.id;
+  document.getElementById('nt-save').innerText='Зберегти';
+  document.getElementById('nt-cancel').style.display='';
+  document.getElementById('task-edit-card').scrollIntoView({behavior:'smooth'});
+}
+async function saveTask(){
+  const id=+document.getElementById('nt-id').value||0;
   const desc=document.getElementById('nt-desc').value.trim();
   const date=document.getElementById('nt-date').value;
   if(!desc||!date){alert('Потрібні дата та опис');return;}
@@ -312,38 +326,60 @@ async function createTask(){
     date:date,
     visible_from:document.getElementById('nt-vis').value||date,
     due_date:document.getElementById('nt-due').value||'',
+    estimated_minutes:+document.getElementById('nt-est').value||0,
     task_description:desc,
     status:document.getElementById('nt-status').value||'Нова',
     priority:document.getElementById('nt-prio').value||'Базова',
-    created_by:'admin'
+    created_by:'admin', role:'admin'
   };
-  const r=await fetch('/api/daily-tasks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-  if(!r.ok){alert(await r.text()||'Помилка створення');return;}
-  document.getElementById('nt-desc').value='';
-  alert('Задачу створено');
-  loadTasks();
+  if(id){
+    body.id=id;
+    const r=await fetch('/api/admin/tasks',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    if(!r.ok){alert(await r.text()||'Помилка');return;}
+  } else {
+    const r=await fetch('/api/daily-tasks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    if(!r.ok){alert(await r.text()||'Помилка створення');return;}
+  }
+  resetTaskForm(); loadTasks();
 }
 
 async function loadTasks(){
   const u=document.getElementById('tf-user').value,s=document.getElementById('tf-status').value;
-  const pr=document.getElementById('tf-prio').value,f=document.getElementById('tf-from').value,t=document.getElementById('tf-to').value;
+  const pr=document.getElementById('tf-prio').value,q=document.getElementById('tf-q').value.trim();
+  const mode=document.getElementById('tf-mode').value;
   const p=new URLSearchParams();
-  if(u)p.set('user',u);if(s)p.set('status',s);if(pr)p.set('priority',pr);if(f)p.set('date_from',f);if(t)p.set('date_to',t);
+  if(u)p.set('user',u);if(s)p.set('status',s);if(pr)p.set('priority',pr);if(q)p.set('q',q);
+  if(mode==='archive') p.set('archive','1');
+  else {
+    const m=document.getElementById('tf-month').value; // YYYY-MM
+    if(m){const [yy,mm]=m.split('-'); p.set('year',yy); p.set('month',String(+mm));}
+  }
   const d=await fetch('/api/admin/tasks?'+p).then(r=>r.json());
-  document.getElementById('task-tb').innerHTML=(d||[]).map(x=>{
+  _tasksCache=d||[];
+  document.getElementById('task-tb').innerHTML=_tasksCache.map(x=>{
+    const flag=dueFlag(x.due_date);
+    const rowClass=flag==='over'?'row-due-over':(flag==='soon'?'row-due-soon':'');
+    let dueBadge='';
+    if(flag==='over') dueBadge='<span class="badge-due">прострочено</span>';
+    else if(flag==='soon') dueBadge='<span class="badge-due badge-due-soon">переддень</span>';
     const st=STATUSES.map(v=>`<option ${v===x.status?'selected':''}>${v}</option>`).join('');
     const pri=PRIOS.map(v=>`<option ${v===x.priority?'selected':''}>${v}</option>`).join('');
     const execSel=`<select onchange="updTask(${x.id},'user_name',this.value)">${memberOpts(x.user_name||'',true)}</select>`;
-    const respSel=`<select onchange="updTask(${x.id},'responsible',this.value)"><option value="">—</option>${(users||[]).map(u=>`<option value="${esc(u.name)}" ${u.name===x.responsible?'selected':''}>${esc(u.name)}</option>`).join('')}</select>`;
-    return `<tr><td>${x.id}</td><td>${execSel}</td><td>${respSel}</td><td>${esc(x.created_by||'—')}</td><td>${x.date}</td><td>${esc(x.task_description)}</td>
+    const dueInp=`<input type="date" value="${x.due_date||''}" style="width:130px" onchange="updTask(${x.id},'due_date',this.value)">`;
+    return `<tr class="${rowClass}"><td>${x.id}</td><td>${execSel}</td><td>${esc(x.responsible||'—')}</td>
+      <td>${x.date}</td><td>${dueInp}${dueBadge}</td>
+      <td>${esc(x.task_description)}</td>
       <td><select onchange="updTask(${x.id},'status',this.value)">${st}</select></td>
       <td><select onchange="updTask(${x.id},'priority',this.value)">${pri}</select></td>
-      <td>${x.total_minutes||0}</td>
-      <td><button class="btn btn-d" style="padding:2px 6px" onclick="delTask(${x.id})">✕</button></td></tr>`;
+      <td>${x.estimated_minutes||0}/${x.total_minutes||0}</td>
+      <td style="white-space:nowrap">
+        <button class="btn btn-e" style="padding:2px 6px" onclick="editTask(${x.id})">✎</button>
+        <button class="btn btn-d" style="padding:2px 6px" onclick="delTask(${x.id})">✕</button>
+      </td></tr>`;
   }).join('')||'<tr><td colspan="10">Немає задач</td></tr>';
 }
 async function updTask(id,field,val){
-  const body={id,role:'admin'};body[field]=val;
+  const body={id,role:'admin'}; body[field]=val;
   const r=await fetch('/api/admin/tasks',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   if(!r.ok)alert(await r.text()||'Помилка');
   loadTasks();
