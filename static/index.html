@@ -26,7 +26,12 @@ th,td{padding:8px 10px;border-bottom:1px solid var(--b);text-align:left}th{backg
 .mc h3{margin:0 0 12px}.fg{margin-bottom:10px}label{display:block;font-size:12px;color:#64748b;margin-bottom:3px}
 input,select,textarea{width:100%;padding:8px;border:1px solid var(--b);border-radius:6px;font-size:13px;box-sizing:border-box}
 textarea{min-height:70px;resize:vertical}
-.st{padding:2px 6px;border-radius:4px;background:#e0e7ff;font-size:11px}.prio{padding:2px 6px;border-radius:4px;background:#fef3c7;font-size:11px}
+.st{padding:2px 6px;border-radius:4px;font-size:11px}.prio{padding:2px 6px;border-radius:4px;background:#fef3c7;font-size:11px}
+#alerts{margin-bottom:12px}.alert{padding:10px 14px;border-radius:8px;margin-bottom:8px;font-size:13px}
+.alert-warning{background:#fef3c7;border:1px solid #f59e0b;color:#92400e}
+.alert-error{background:#fee2e2;border:1px solid #ef4444;color:#991b1b}
+.task-row-new{background:#f1f5f9}.task-row-ok{background:#f0fdf4}.task-row-pause{background:#eff6ff}.task-row-urgent{background:#fef2f2}.task-row-done{opacity:.65}
+.badge-new{background:#94a3b8;color:#fff}.badge-work{background:#22c55e;color:#fff}.badge-pause{background:#3b82f6;color:#fff}.badge-check{background:#eab308;color:#fff}.badge-done{background:#64748b;color:#fff}.badge-urgent{background:#ef4444;color:#fff}
 </style></head><body>
 <div class="navbar"><div class="nav-l"><strong>On-Call</strong><span id="user-info" style="color:#64748b;font-size:13px"></span></div>
 <div class="nav-r">
@@ -38,6 +43,7 @@ textarea{min-height:70px;resize:vertical}
 </div></div>
 
 <div class="main">
+<div id="alerts"></div>
 <div class="roster" id="roster"></div>
 <div class="cal-h"><button class="btn btn-s" onclick="chg(-1)">◀</button><h2 id="mt" style="margin:0"></h2><button class="btn btn-s" onclick="chg(1)">▶</button></div>
 <div id="cal"><div class="dh">Пн</div><div class="dh">Вт</div><div class="dh">Ср</div><div class="dh">Чт</div><div class="dh">Пт</div><div class="dh">Сб</div><div class="dh">Нд</div></div>
@@ -73,6 +79,8 @@ textarea{min-height:70px;resize:vertical}
 <div class="fg" id="task-assignee-wrap" style="display:none"><label>Виконавець</label><select id="tuser"></select></div>
 <div class="fg" id="task-resp-wrap" style="display:none"><label>Відповідальна особа</label><select id="tresp"></select></div>
 <div class="fg"><label>Дата</label><input type="date" id="td"></div>
+<div class="fg" id="task-due-wrap" style="display:none"><label>Термін фінішу (due)</label><input type="date" id="tdue"></div>
+<div class="fg"><label>Планований час виконання (хв)</label><input type="number" id="test" min="0" value="30"></div>
 <div class="fg"><label>Опис</label><textarea id="tdesc"></textarea></div>
 <div class="fg"><label>Пріоритет</label><select id="tprio"><option>Базова</option><option>Надкритична</option><option>Термінова</option><option>Техборг</option><option>У шухляду</option></select></div>
 <button class="btn" onclick="subTask()">Створити</button>
@@ -112,17 +120,30 @@ function cl(id){document.getElementById(id).style.display='none'}
 async function doLogin(){
   const r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({username:document.getElementById('lu').value,password:document.getElementById('lp').value})});
-  if(r.ok){U=await r.json();localStorage.setItem('u',JSON.stringify(U));cl('m-login');sess()}else alert('Помилка входу');
+  if(r.ok){U=await r.json();localStorage.setItem('u',JSON.stringify(U));cl('m-login');sess();load()}else alert('Помилка входу');
 }
 async function load(){
   const r=await fetch(`/api/data?year=${Y}&month=${M}`);D=await r.json();AT=D.absence_types||[];
+  renderAlerts(D.alerts||[]);
   roster(D.team_members||[],D.absences||[]);
   cal(D.year,D.month,D.shifts||{},D.absences||[],D.incidents||{},D.team_members||[],D.daily_tasks||{},AT);
   stats(D.stats||[]);
 }
+function renderAlerts(list){
+  const el=document.getElementById('alerts');
+  if(!U||U.role!=='admin'||!list.length){el.innerHTML='';return}
+  el.innerHTML=list.map(a=>`<div class="alert alert-${a.level||'warning'}">${esc(a.message)}</div>`).join('');
+}
 function chg(n){M+=n;if(M<1){M=12;Y--}if(M>12){M=1;Y++}load()}
 function inact(n,ds,abs){for(const a of abs||[])if(a.user_name===n&&ds>=a.start_date&&ds<=a.end_date)return true;return false}
 function esc(s){const d=document.createElement('div');d.textContent=s||'';return d.innerHTML}
+function absRank(typeName){
+  const n=(typeName||'').toLowerCase();
+  if(n.includes('ікарн')||n.includes('sick')) return 30;
+  if(n.includes('ідпуст')||n.includes('vacation')) return 20;
+  if(n.includes('ихідн')||n.includes('dayoff')) return 10;
+  return 5;
+}
 function absColor(typeName){
   const t=(AT||[]).find(x=>x.name===typeName);
   if(t&&t.color) return t.color;
@@ -131,6 +152,17 @@ function absColor(typeName){
   if(n.includes('ікарн')||n.includes('sick')) return '#ef4444';
   if(n.includes('ихідн')||n.includes('dayoff')) return '#94a3b8';
   return '#f59e0b';
+}
+function taskTone(t){
+  const due=t.due_date||'';
+  const td=today();
+  if(t.status==='Виконана'||t.status==='Архів') return {row:'task-row-done',badge:'badge-done'};
+  if(t.status==='На паузі') return {row:'task-row-pause',badge:'badge-pause'};
+  if(t.priority==='Надкритична'||t.priority==='Термінова'||(due&&due<=td)) return {row:'task-row-urgent',badge:'badge-urgent'};
+  if(t.status==='Нова') return {row:'task-row-new',badge:'badge-new'};
+  if(t.status==='До перевірки') return {row:'task-row-ok',badge:'badge-check'};
+  if(t.status==='У роботі') return {row:'task-row-ok',badge:'badge-work'};
+  return {row:'',badge:'badge-new'};
 }
 function roster(ms,abs){
   const el=document.getElementById('roster'),t=today();
@@ -141,7 +173,8 @@ function roster(ms,abs){
 function showPerson(name){
   const ds=today();
   document.getElementById('person-title').innerText=name+' · '+ds;
-  const abs=(D.absences||[]).filter(a=>a.user_name===name&&ds>=a.start_date&&ds<=a.end_date);
+  let abs=(D.absences||[]).filter(a=>a.user_name===name&&ds>=a.start_date&&ds<=a.end_date);
+  abs.sort((a,b)=>absRank(b.type)-absRank(a.type));
   const tasks=[];
   Object.values(D.daily_tasks||{}).forEach(list=>{(list||[]).forEach(t=>{
     if(t.date===ds&&(t.user_name===name||t.responsible===name||t.created_by===name)) tasks.push(t);
@@ -151,7 +184,7 @@ function showPerson(name){
   let h='';
   if(sh&&(sh.primary_user===name||sh.backup_user===name))
     h+=`<p><b>Чергування:</b> ${sh.primary_user===name?'Основний':''}${sh.backup_user===name?(sh.primary_user===name?' · ':'')+'Дублюючий':''}</p>`;
-  h+=`<h4>Відсутності</h4>`+(abs.length?abs.map(a=>`• ${esc(a.type)} (${a.start_date}–${a.end_date})`).join('<br>'):'Немає');
+  h+=`<h4>Відсутності</h4>`+(abs.length?abs.map(a=>`• <b>${esc(a.type)}</b> (${a.start_date}–${a.end_date})`).join('<br>'):'Немає');
   h+=`<h4>Задачі (виконавець / відповідальний / створив)</h4>`;
   if(tasks.length){
     h+='<table><thead><tr><th>Роль</th><th>Задача</th><th>Статус</th><th>Пріоритет</th></tr></thead><tbody>';
@@ -160,7 +193,8 @@ function showPerson(name){
       if(t.user_name===name) roles.push('виконавець');
       if(t.responsible===name) roles.push('відп.');
       if(t.created_by===name) roles.push('створив');
-      h+=`<tr><td>${roles.join(', ')}</td><td>${esc(t.task_description)}</td><td>${esc(t.status)}</td><td>${esc(t.priority)}</td></tr>`;
+      const tone=taskTone(t);
+      h+=`<tr class="${tone.row}"><td>${roles.join(', ')}</td><td>${esc(t.task_description)}</td><td><span class="st ${tone.badge}">${esc(t.status)}</span></td><td>${esc(t.priority)}</td></tr>`;
     });
     h+='</tbody></table>';
   } else h+='<p>Немає</p>';
@@ -183,7 +217,8 @@ function cal(y,m,sh,abs,inc,tm,tasks,atypes){
     const ds=`${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
     const c=document.createElement('div');c.className='dc';c.onclick=()=>day(ds);
     c.innerHTML=`<div class="dn">${d}</div>`;
-    const da=(abs||[]).filter(a=>ds>=a.start_date&&ds<=a.end_date);
+    let da=(abs||[]).filter(a=>ds>=a.start_date&&ds<=a.end_date);
+    da=[...da].sort((a,b)=>absRank(b.type)-absRank(a.type));
     da.forEach(a=>{
       const col=absColor(a.type);
       c.innerHTML+=`<div class="ba" style="background:${col}22;color:${col};border:1px solid ${col}55">${esc(a.user_name.split(' ')[0])} · ${esc(a.type)}</div>`;
@@ -211,7 +246,8 @@ function day(ds){
   const s=D.shifts&&D.shifts[ds],abs=D.absences||[];
   let h=s?`<b>Основний:</b> ${esc(s.primary_user)}`+(s.backup_user?`<br><b>Дублюючий:</b> ${esc(s.backup_user)}`:'<br><em style="color:#94a3b8">Лише один черговий</em>'):'Чергування не призначено';
   document.getElementById('ds').innerHTML=h;
-  const al=abs.filter(a=>ds>=a.start_date&&ds<=a.end_date);
+  let al=abs.filter(a=>ds>=a.start_date&&ds<=a.end_date);
+  al=[...al].sort((a,b)=>absRank(b.type)-absRank(a.type));
   document.getElementById('da').innerHTML=al.length?al.map(a=>{
     const col=absColor(a.type);
     return `<span class="ba" style="background:${col}22;color:${col};border:1px solid ${col}55;margin-right:6px"><b>${esc(a.user_name)}</b> (${esc(a.type)})</span>`;
@@ -220,27 +256,20 @@ function day(ds){
   const tasks=(D.daily_tasks||{})[ds]||[];
   if(tasks.length){
     const isAdm=U&&U.role==='admin';
-    let html='<table><thead><tr><th>Виконавець</th><th>Відповідальний</th><th>Задача</th><th>Статус</th><th>Пріоритет</th><th>Час</th><th></th></tr></thead><tbody>';
+    let html='<table><thead><tr><th>Виконавець</th><th>Відповідальний</th><th>Задача</th><th>Статус</th><th>Пріоритет</th><th>План/факт</th><th></th></tr></thead><tbody>';
     tasks.forEach(t=>{
       const unassigned=!t.user_name;
       const canStatus=U && (isAdm || !unassigned) && (isAdm || t.status!=='Виконана');
       const allowed=nextStatuses(t.status);
       const stOpts=(allowed.length?allowed:[t.status]).map(x=>`<option ${x===t.status?'selected':''}>${x}</option>`).join('');
       const prOpts=PRIOS.map(x=>`<option ${x===t.priority?'selected':''}>${x}</option>`).join('');
-      let execCell;
-      if(isAdm){
-        execCell=`<select onchange="updTask(${t.id},'user_name',this.value)">${memberOpts(t.user_name||'',true)}</select>`;
-      } else {
-        execCell=t.user_name?esc(t.user_name):'<em style="color:#94a3b8">на розгляді</em>';
-      }
-      let respCell=esc(t.responsible||'—');
-      if(isAdm){
-        respCell=`<select onchange="updTask(${t.id},'responsible',this.value)"><option value="">—</option>${memberOpts(t.responsible||'',false)}</select>`;
-      }
-      html+=`<tr><td>${execCell}</td><td>${respCell}</td><td>${esc(t.task_description)}</td>
-        <td>${canStatus?`<select onchange="updTask(${t.id},'status',this.value)">${stOpts}</select>`:`<span class="st">${esc(t.status)}</span>`}</td>
+      const tone=taskTone(t);
+      let execCell=isAdm?`<select onchange="updTask(${t.id},'user_name',this.value)">${memberOpts(t.user_name||'',true)}</select>`:(t.user_name?esc(t.user_name):'<em style="color:#94a3b8">на розгляді</em>');
+      let respCell=isAdm?`<select onchange="updTask(${t.id},'responsible',this.value)"><option value="">—</option>${memberOpts(t.responsible||'',false)}</select>`:esc(t.responsible||'—');
+      html+=`<tr class="${tone.row}"><td>${execCell}</td><td>${respCell}</td><td>${esc(t.task_description)}${t.due_date?' <small style="color:#64748b">до '+esc(t.due_date)+'</small>':''}</td>
+        <td>${canStatus?`<select onchange="updTask(${t.id},'status',this.value)">${stOpts}</select>`:`<span class="st ${tone.badge}">${esc(t.status)}</span>`}</td>
         <td>${isAdm?`<select onchange="updTask(${t.id},'priority',this.value)">${prOpts}</select>`:`<span class="prio">${esc(t.priority)}</span>`}</td>
-        <td>${t.total_minutes||0} хв</td>
+        <td>${t.estimated_minutes||0}/${t.total_minutes||0} хв</td>
         <td>${isAdm?`<button class="btn btn-d" style="padding:2px 6px" onclick="delTask(${t.id})">✕</button>`:''}</td></tr>`;
     });
     html+='</tbody></table>';
@@ -290,8 +319,7 @@ function openInc(){
   const wrap=document.getElementById('inc-who-wrap');
   const hint=document.getElementById('inc-hint');
   if(U&&U.role==='admin'){
-    wrap.style.display='';
-    fillMemberSelect('iuser', true);
+    wrap.style.display=''; fillMemberSelect('iuser', true);
     hint.innerText='Admin може фіксувати на будь-яку дату і від імені будь-якого члена команди.';
   } else {
     wrap.style.display='none';
@@ -307,16 +335,17 @@ async function subInc(){
 
 function openTask(){
   document.getElementById('td').value=today();document.getElementById('tdesc').value='';document.getElementById('tprio').value='Базова';
+  document.getElementById('test').value=30;
   const isAdm=U&&U.role==='admin';
-  const wrap=document.getElementById('task-assignee-wrap');
-  const rw=document.getElementById('task-resp-wrap');
-  if(wrap) wrap.style.display=isAdm?'':'none';
-  if(rw) rw.style.display=isAdm?'':'none';
+  document.getElementById('task-assignee-wrap').style.display=isAdm?'':'none';
+  document.getElementById('task-resp-wrap').style.display=isAdm?'':'none';
+  document.getElementById('task-due-wrap').style.display=isAdm?'':'none';
   if(isAdm){
     fillMemberSelect('tuser', true);
     const tu=document.getElementById('tuser');
     if(tu) tu.innerHTML='<option value="">— на розгляді —</option>'+tu.innerHTML;
     fillMemberSelect('tresp', true);
+    document.getElementById('tdue').value='';
   }
   document.getElementById('m-task').style.display='flex'}
 async function subTask(){
@@ -324,9 +353,10 @@ async function subTask(){
   const who=isAdm?(document.getElementById('tuser').value||''):U.name;
   const body={user_name:who,date:document.getElementById('td').value,
     task_description:document.getElementById('tdesc').value.trim(),priority:document.getElementById('tprio').value,status:'Нова',
-    created_by:U.name};
+    created_by:U.name,estimated_minutes:+document.getElementById('test').value||0};
   if(isAdm){
     body.responsible=document.getElementById('tresp')?document.getElementById('tresp').value||'':'';
+    body.due_date=document.getElementById('tdue').value||'';
   }
   const r=await fetch('/api/daily-tasks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   if(r.ok){alert('Збережено');cl('m-task');load()}else alert('Помилка')}
