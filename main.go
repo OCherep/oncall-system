@@ -57,25 +57,24 @@ type UserStat struct {
 	IncidentMinutes int    `json:"incident_minutes"`
 }
 
-// IncidentReport — звернення (розширена модель)
 type IncidentReport struct {
 	ID              int    `json:"id,omitempty"`
-	UserName        string `json:"user_name"` // виконавець / на кого
+	UserName        string `json:"user_name"`
 	Date            string `json:"date"`
 	Type            string `json:"type"`
-	DurationMinutes int    `json:"duration_minutes"` // legacy / manual duration
+	DurationMinutes int    `json:"duration_minutes"`
 	Description     string `json:"description"`
 	CreatedAt       string `json:"created_at,omitempty"`
-	Role            string `json:"role,omitempty"` // hint from client
+	Role            string `json:"role,omitempty"`
 	Status          string `json:"status,omitempty"`
 	Priority        string `json:"priority,omitempty"`
-	Source          string `json:"source,omitempty"` // self | team_lead | monitoring | external | manual
+	Source          string `json:"source,omitempty"`
 	Responsible     string `json:"responsible,omitempty"`
 	CreatedBy       string `json:"created_by,omitempty"`
 	WorkStartedAt   string `json:"work_started_at,omitempty"`
 	TotalMinutes    int    `json:"total_minutes,omitempty"`
 	DueDate         string `json:"due_date,omitempty"`
-	ReportedFor     string `json:"reported_for,omitempty"` // чиє звернення (якщо фіксує тімлід)
+	ReportedFor     string `json:"reported_for,omitempty"`
 }
 
 type IncidentPriority struct {
@@ -89,7 +88,7 @@ type IncidentPriority struct {
 
 type Comment struct {
 	ID         int    `json:"id,omitempty"`
-	EntityType string `json:"entity_type"` // task | incident
+	EntityType string `json:"entity_type"`
 	EntityID   int    `json:"entity_id"`
 	AuthorName string `json:"author_name"`
 	Body       string `json:"body"`
@@ -163,100 +162,40 @@ func initDB() {
 			is_oncall INTEGER DEFAULT 1
 		)`,
 		`CREATE TABLE IF NOT EXISTS team_roles (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			name TEXT UNIQUE NOT NULL
-		)`,
+			id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL)`,
 		`CREATE TABLE IF NOT EXISTS absence_types (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			name TEXT UNIQUE NOT NULL,
-			code TEXT,
-			color TEXT
-		)`,
-		`CREATE TABLE IF NOT EXISTS shifts (
-			date TEXT PRIMARY KEY,
-			primary_user TEXT,
-			backup_user TEXT
-		)`,
+			id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL, code TEXT, color TEXT)`,
+		`CREATE TABLE IF NOT EXISTS shifts (date TEXT PRIMARY KEY, primary_user TEXT, backup_user TEXT)`,
 		`CREATE TABLE IF NOT EXISTS absences (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			user_name TEXT,
-			type TEXT,
-			start_date TEXT,
-			end_date TEXT,
-			status TEXT DEFAULT 'Pending'
-		)`,
+			id INTEGER PRIMARY KEY AUTOINCREMENT, user_name TEXT, type TEXT, start_date TEXT, end_date TEXT, status TEXT DEFAULT 'Pending')`,
 		`CREATE TABLE IF NOT EXISTS incidents (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			user_name TEXT,
-			date TEXT,
-			type TEXT,
-			duration_minutes INTEGER DEFAULT 0,
-			description TEXT,
+			id INTEGER PRIMARY KEY AUTOINCREMENT, user_name TEXT, date TEXT, type TEXT,
+			duration_minutes INTEGER DEFAULT 0, description TEXT,
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-			status TEXT DEFAULT 'Нове',
-			priority TEXT DEFAULT 'Звичайний',
-			source TEXT DEFAULT 'self',
-			responsible TEXT,
-			created_by TEXT,
-			work_started_at TEXT,
-			total_minutes INTEGER DEFAULT 0,
-			due_date TEXT,
-			reported_for TEXT
-		)`,
+			status TEXT DEFAULT 'Нове', priority TEXT DEFAULT 'Звичайний', source TEXT DEFAULT 'self',
+			responsible TEXT, created_by TEXT, work_started_at TEXT,
+			total_minutes INTEGER DEFAULT 0, due_date TEXT, reported_for TEXT)`,
 		`CREATE TABLE IF NOT EXISTS incident_priorities (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			name TEXT UNIQUE NOT NULL,
-			code TEXT,
-			color TEXT,
-			sort_order INTEGER DEFAULT 0,
-			is_default INTEGER DEFAULT 0
-		)`,
+			id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL, code TEXT, color TEXT,
+			sort_order INTEGER DEFAULT 0, is_default INTEGER DEFAULT 0)`,
 		`CREATE TABLE IF NOT EXISTS comments (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			entity_type TEXT NOT NULL,
-			entity_id INTEGER NOT NULL,
-			author_name TEXT,
-			body TEXT,
-			is_system INTEGER DEFAULT 0,
-			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-		)`,
+			id INTEGER PRIMARY KEY AUTOINCREMENT, entity_type TEXT NOT NULL, entity_id INTEGER NOT NULL,
+			author_name TEXT, body TEXT, is_system INTEGER DEFAULT 0,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`,
 		`CREATE TABLE IF NOT EXISTS daily_tasks (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			user_name TEXT,
-			date TEXT,
-			task_description TEXT,
-			status TEXT DEFAULT 'Нова',
-			priority TEXT DEFAULT 'Базова',
-			work_started_at TEXT,
-			total_minutes INTEGER DEFAULT 0,
-			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-			visible_from TEXT,
-			due_date TEXT,
-			created_by TEXT,
-			responsible TEXT,
-			estimated_minutes INTEGER DEFAULT 0,
-			incident_id INTEGER DEFAULT 0
-		)`,
+			id INTEGER PRIMARY KEY AUTOINCREMENT, user_name TEXT, date TEXT, task_description TEXT,
+			status TEXT DEFAULT 'Нова', priority TEXT DEFAULT 'Базова', work_started_at TEXT,
+			total_minutes INTEGER DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			visible_from TEXT, due_date TEXT, created_by TEXT, responsible TEXT,
+			estimated_minutes INTEGER DEFAULT 0, incident_id INTEGER DEFAULT 0)`,
 		`CREATE TABLE IF NOT EXISTS audit_logs (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			user_name TEXT,
-			action TEXT,
-			ip TEXT,
-			details TEXT,
-			timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-		)`,
+			id INTEGER PRIMARY KEY AUTOINCREMENT, user_name TEXT, action TEXT, ip TEXT, details TEXT,
+			timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)`,
 		`CREATE TABLE IF NOT EXISTS app_logs (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			level TEXT,
-			message TEXT,
-			timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-		)`,
+			id INTEGER PRIMARY KEY AUTOINCREMENT, level TEXT, message TEXT,
+			timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)`,
 		`CREATE TABLE IF NOT EXISTS table_tracker (
-			table_name TEXT PRIMARY KEY,
-			row_count INTEGER,
-			last_action TEXT,
-			last_update DATETIME
-		)`,
+			table_name TEXT PRIMARY KEY, row_count INTEGER, last_action TEXT, last_update DATETIME)`,
 	}
 	for _, s := range stmts {
 		if _, err := db.Exec(s); err != nil {
@@ -264,7 +203,6 @@ func initDB() {
 		}
 	}
 
-	// migrations for existing DBs
 	db.Exec("ALTER TABLE incidents ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP")
 	db.Exec("ALTER TABLE incidents ADD COLUMN status TEXT DEFAULT 'Нове'")
 	db.Exec("ALTER TABLE incidents ADD COLUMN priority TEXT DEFAULT 'Звичайний'")
@@ -310,12 +248,9 @@ func initDB() {
 	if cnt == 0 {
 		db.Exec(`INSERT INTO users (username, password, name, role, is_oncall) VALUES ('admin', 'admin', 'Admin', 'admin', 0)`)
 		db.Exec(`INSERT INTO absence_types (name, code, color) VALUES
-			('Відпустка', 'vacation', '#3b82f6'),
-			('Лікарняний', 'sick', '#ef4444'),
-			('Вихідний', 'dayoff', '#94a3b8')`)
+			('Відпустка', 'vacation', '#3b82f6'), ('Лікарняний', 'sick', '#ef4444'), ('Вихідний', 'dayoff', '#94a3b8')`)
 		log.Println("seeded default admin / admin")
 	}
-
 	var pc int
 	db.QueryRow("SELECT COUNT(*) FROM incident_priorities").Scan(&pc)
 	if pc == 0 {
@@ -339,6 +274,8 @@ func main() {
 	http.HandleFunc("/api/daily-tasks", handleDailyTasks)
 	http.HandleFunc("/api/comments", handleComments)
 	http.HandleFunc("/api/incident-priorities", handleIncidentPrioritiesPublic)
+	// webhook: заготовка для моніторингу; за замовчуванням вимкнено (ENABLE_INCIDENT_WEBHOOK=1)
+	http.HandleFunc("/api/webhooks/incidents", handleIncidentWebhook)
 
 	http.HandleFunc("/api/admin/users", handleAdminUsers)
 	http.HandleFunc("/api/admin/roles", handleAdminRoles)
