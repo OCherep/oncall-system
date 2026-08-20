@@ -51,7 +51,6 @@ func isAbsentOnDate(userName, dateStr string, absences []AbsenceRequest) bool {
 	return false
 }
 
-// absenceRank: лікарняний > відпустка > вихідний > інше
 func absenceRank(typ string) int {
 	n := strings.ToLower(typ)
 	switch {
@@ -99,8 +98,8 @@ func generateShifts(year, month int, oncallUsers []string, absences []AbsenceReq
 func scanDailyTask(scanner interface{ Scan(...interface{}) error }) (DailyTask, error) {
 	var t DailyTask
 	var workStarted, created, vis, due, cby, resp sql.NullString
-	var est sql.NullInt64
-	err := scanner.Scan(&t.ID, &t.UserName, &t.Date, &t.TaskDescription, &t.Status, &t.Priority, &workStarted, &t.TotalMinutes, &created, &vis, &due, &cby, &resp, &est)
+	var est, iid sql.NullInt64
+	err := scanner.Scan(&t.ID, &t.UserName, &t.Date, &t.TaskDescription, &t.Status, &t.Priority, &workStarted, &t.TotalMinutes, &created, &vis, &due, &cby, &resp, &est, &iid)
 	if workStarted.Valid {
 		t.WorkStartedAt = workStarted.String
 	}
@@ -122,6 +121,9 @@ func scanDailyTask(scanner interface{ Scan(...interface{}) error }) (DailyTask, 
 	if est.Valid {
 		t.EstimatedMinutes = int(est.Int64)
 	}
+	if iid.Valid {
+		t.IncidentID = int(iid.Int64)
+	}
 	if t.Status == "" {
 		t.Status = "Нова"
 	}
@@ -130,6 +132,58 @@ func scanDailyTask(scanner interface{ Scan(...interface{}) error }) (DailyTask, 
 	}
 	return t, err
 }
+
+func scanIncident(scanner interface{ Scan(...interface{}) error }) (IncidentReport, error) {
+	var inc IncidentReport
+	var st, pr, src, resp, cby, ws, due, rf sql.NullString
+	var tot sql.NullInt64
+	err := scanner.Scan(&inc.ID, &inc.UserName, &inc.Date, &inc.Type, &inc.DurationMinutes, &inc.Description, &inc.CreatedAt,
+		&st, &pr, &src, &resp, &cby, &ws, &tot, &due, &rf)
+	if st.Valid {
+		inc.Status = st.String
+	}
+	if pr.Valid {
+		inc.Priority = pr.String
+	}
+	if src.Valid {
+		inc.Source = src.String
+	}
+	if resp.Valid {
+		inc.Responsible = resp.String
+	}
+	if cby.Valid {
+		inc.CreatedBy = cby.String
+	}
+	if ws.Valid {
+		inc.WorkStartedAt = ws.String
+	}
+	if tot.Valid {
+		inc.TotalMinutes = int(tot.Int64)
+	}
+	if due.Valid {
+		inc.DueDate = due.String
+	}
+	if rf.Valid {
+		inc.ReportedFor = rf.String
+	}
+	if inc.Status == "" {
+		inc.Status = "Нове"
+	}
+	if inc.Priority == "" {
+		inc.Priority = "Звичайний"
+	}
+	if inc.Source == "" {
+		inc.Source = "self"
+	}
+	return inc, err
+}
+
+const incidentSelect = `SELECT id, user_name, date, type, COALESCE(duration_minutes,0), description,
+	COALESCE(datetime(created_at,'localtime'),''),
+	COALESCE(status,'Нове'), COALESCE(priority,'Звичайний'), COALESCE(source,'self'),
+	COALESCE(responsible,''), COALESCE(created_by,''), work_started_at,
+	COALESCE(total_minutes,0), COALESCE(due_date,''), COALESCE(reported_for,'')
+	FROM incidents`
 
 func allowedNextStatuses(cur, role string) []string {
 	isAdmin := role == "admin"
@@ -184,6 +238,42 @@ func isStatusAllowed(cur, next, role string) bool {
 	return false
 }
 
+func incidentNextStatuses(cur, role string) []string {
+	isAdmin := role == "admin"
+	switch cur {
+	case "Нове":
+		return []string{"Нове", "В роботі"}
+	case "В роботі":
+		return []string{"В роботі", "На паузі", "Вирішено"}
+	case "На паузі":
+		return []string{"На паузі", "В роботі"}
+	case "Вирішено":
+		if isAdmin {
+			return []string{"Вирішено", "Архів", "Нове"}
+		}
+		return []string{}
+	case "Архів":
+		if isAdmin {
+			return []string{"Архів", "Нове"}
+		}
+		return []string{}
+	default:
+		return []string{"Нове", "В роботі"}
+	}
+}
+
+func isIncidentStatusAllowed(cur, next, role string) bool {
+	if next == "" || next == cur {
+		return true
+	}
+	for _, s := range incidentNextStatuses(cur, role) {
+		if s == next {
+			return true
+		}
+	}
+	return false
+}
+
 func handleGetData(w http.ResponseWriter, r *http.Request) {
 	year := time.Now().Year()
 	month := int(time.Now().Month())
@@ -193,6 +283,8 @@ func handleGetData(w http.ResponseWriter, r *http.Request) {
 	if m := r.URL.Query().Get("month"); m != "" {
 		fmt.Sscanf(m, "%d", &month)
 	}
+	viewer := r.URL.Query().Get("viewer") // name of logged-in user for personal alerts
+
 	rows, err := db.Query(`SELECT u.id, u.username, u.name, u.role, u.team_role_id, COALESCE(tr.name, ''), COALESCE(u.is_oncall, 1)
 		FROM users u LEFT JOIN team_roles tr ON u.team_role_id = tr.id WHERE u.role != 'admin' OR COALESCE(u.is_oncall, 0) = 1 ORDER BY u.name`)
 	var team []User
@@ -221,7 +313,6 @@ func handleGetData(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// ЗАВЖДИ перераховуємо графік місяця з урахуванням актуальних відсутностей
 	monthLike := fmt.Sprintf("%04d-%02d-%%", year, month)
 	db.Exec(`DELETE FROM shifts WHERE date LIKE ?`, monthLike)
 	shifts := generateShifts(year, month, oncallUsers, absences)
@@ -229,10 +320,7 @@ func handleGetData(w http.ResponseWriter, r *http.Request) {
 		db.Exec(`INSERT OR REPLACE INTO shifts (date, primary_user, backup_user) VALUES (?, ?, ?)`, s.Date, s.PrimaryUser, s.BackupUser)
 	}
 
-	monthPattern := monthLike
-	incRows, err := db.Query(`SELECT id, user_name, date, type, duration_minutes, description,
-		COALESCE(datetime(created_at,'localtime'), datetime('now','localtime'))
-		FROM incidents WHERE date LIKE ? ORDER BY created_at ASC`, monthPattern)
+	incRows, err := db.Query(incidentSelect+` WHERE date LIKE ? ORDER BY created_at ASC`, monthLike)
 	incidents := make(map[string][]IncidentReport)
 	statsMap := make(map[string]*UserStat)
 	for _, name := range oncallUsers {
@@ -241,13 +329,18 @@ func handleGetData(w http.ResponseWriter, r *http.Request) {
 	if err == nil {
 		defer incRows.Close()
 		for incRows.Next() {
-			var inc IncidentReport
-			incRows.Scan(&inc.ID, &inc.UserName, &inc.Date, &inc.Type, &inc.DurationMinutes, &inc.Description, &inc.CreatedAt)
+			inc, _ := scanIncident(incRows)
 			incidents[inc.Date] = append(incidents[inc.Date], inc)
-			if _, exists := statsMap[inc.UserName]; !exists {
+			mins := inc.DurationMinutes
+			if inc.TotalMinutes > mins {
+				mins = inc.TotalMinutes
+			}
+			if _, exists := statsMap[inc.UserName]; !exists && inc.UserName != "" {
 				statsMap[inc.UserName] = &UserStat{Name: inc.UserName}
 			}
-			statsMap[inc.UserName].IncidentMinutes += inc.DurationMinutes
+			if inc.UserName != "" {
+				statsMap[inc.UserName].IncidentMinutes += mins
+			}
 		}
 	}
 	for _, s := range shifts {
@@ -272,8 +365,8 @@ func handleGetData(w http.ResponseWriter, r *http.Request) {
 		COALESCE(status,'Нова'), COALESCE(priority,'Базова'), work_started_at,
 		COALESCE(total_minutes,0), COALESCE(datetime(created_at,'localtime'),''),
 		COALESCE(visible_from,''), COALESCE(due_date,''), COALESCE(created_by,''), COALESCE(responsible,''),
-		COALESCE(estimated_minutes,0)
-		FROM daily_tasks WHERE date LIKE ? ORDER BY id`, monthPattern)
+		COALESCE(estimated_minutes,0), COALESCE(incident_id,0)
+		FROM daily_tasks WHERE date LIKE ? ORDER BY id`, monthLike)
 	dailyTasks := make(map[string][]DailyTask)
 	if taskRows != nil {
 		defer taskRows.Close()
@@ -292,8 +385,19 @@ func handleGetData(w http.ResponseWriter, r *http.Request) {
 			absenceTypes = append(absenceTypes, t)
 		}
 	}
+	ipRows, _ := db.Query(`SELECT id, name, code, COALESCE(color,''), COALESCE(sort_order,0), COALESCE(is_default,0) FROM incident_priorities ORDER BY sort_order, id`)
+	var incPrios []IncidentPriority
+	if ipRows != nil {
+		defer ipRows.Close()
+		for ipRows.Next() {
+			var p IncidentPriority
+			var def int
+			ipRows.Scan(&p.ID, &p.Name, &p.Code, &p.Color, &p.SortOrder, &def)
+			p.IsDefault = def == 1
+			incPrios = append(incPrios, p)
+		}
+	}
 
-	// сповіщення для admin: задачі на сьогодні з виконавцем у відсутності
 	today := time.Now().Format("2006-01-02")
 	var alerts []map[string]string
 	for _, t := range dailyTasks[today] {
@@ -307,7 +411,6 @@ func handleGetData(w http.ResponseWriter, r *http.Request) {
 			})
 		}
 	}
-	// також: якщо на сьогодні немає жодного чергового при наявних on-call
 	if len(oncallUsers) > 0 {
 		if _, ok := shifts[today]; !ok {
 			alerts = append(alerts, map[string]string{
@@ -316,14 +419,34 @@ func handleGetData(w http.ResponseWriter, r *http.Request) {
 			})
 		}
 	}
+	// personal / responsible alerts for non-self incidents today
+	for _, inc := range incidents[today] {
+		if inc.Status == "Вирішено" || inc.Status == "Архів" {
+			continue
+		}
+		selfSource := inc.Source == "self"
+		if selfSource && inc.CreatedBy != "" && inc.CreatedBy == inc.UserName {
+			continue
+		}
+		if !selfSource || (inc.CreatedBy != "" && inc.CreatedBy != inc.UserName) {
+			if viewer != "" && (inc.UserName == viewer || inc.Responsible == viewer) {
+				alerts = append(alerts, map[string]string{
+					"level":   "warning",
+					"message": fmt.Sprintf("Звернення #%d (%s) → %s · джерело: %s", inc.ID, truncate(inc.Description, 36), inc.UserName, inc.Source),
+				})
+			}
+		}
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"year": year, "month": month,
 		"team_members": team, "absence_types": absenceTypes,
 		"shifts": shifts, "absences": absences, "incidents": incidents, "stats": stats,
-		"daily_tasks": dailyTasks,
-		"alerts":      alerts,
+		"daily_tasks":         dailyTasks,
+		"incident_priorities":  incPrios,
+		"alerts":              alerts,
+		"today":               today,
 	})
 }
 
@@ -363,59 +486,244 @@ func handleRequestAbsence(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleIncidents(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	var inc IncidentReport
-	if err := json.NewDecoder(r.Body).Decode(&inc); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	if inc.UserName == "" || inc.Date == "" || inc.DurationMinutes <= 0 || inc.Description == "" {
-		http.Error(w, "Необхідні поля: user_name, date, duration_minutes, description", http.StatusBadRequest)
-		return
-	}
-	if inc.Type == "" {
-		inc.Type = "Звернення"
-	}
-	role := inc.Role
-	if role == "" {
-		db.QueryRow("SELECT role FROM users WHERE name = ? LIMIT 1", inc.UserName).Scan(&role)
-	}
-	today := time.Now().Format("2006-01-02")
-	isAdmin := role == "admin"
-	isFuture := inc.Date > today
-	isPast := inc.Date < today
-	if !isAdmin && isPast {
-		http.Error(w, "Без ролі admin можна фіксувати звернення лише на поточну або майбутню дату", http.StatusForbidden)
-		return
-	}
-	_, err := db.Exec(`INSERT INTO incidents (user_name, date, type, duration_minutes, description, created_at)
-		VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
-		inc.UserName, inc.Date, inc.Type, inc.DurationMinutes, inc.Description)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	result := map[string]interface{}{"status": "ok", "as_task": false}
-	if isFuture {
-		desc := "[для розгляду на дейлі] " + inc.Description
-		if inc.Type != "" {
-			desc = "[для розгляду на дейлі] [" + inc.Type + "] " + inc.Description
-		}
-		db.Exec(`INSERT INTO daily_tasks (user_name, date, task_description, status, priority, total_minutes, created_at)
-			VALUES (?, ?, ?, 'Нова', 'У шухляду', 0, CURRENT_TIMESTAMP)`,
-			inc.UserName, inc.Date, desc)
-		result["as_task"] = true
-		result["message"] = "Звернення зафіксовано на " + inc.Date + " і додано як задачу «для розгляду на дейлі»"
-		logAudit(inc.UserName, "CREATE_INCIDENT_AS_TASK", r.RemoteAddr, desc)
-	} else {
-		logAudit(inc.UserName, "CREATE_INCIDENT", r.RemoteAddr, fmt.Sprintf("%s %dхв", inc.Date, inc.DurationMinutes))
-	}
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(result)
+	switch r.Method {
+	case http.MethodGet:
+		date := r.URL.Query().Get("date")
+		q := incidentSelect + " WHERE 1=1"
+		args := []interface{}{}
+		if date != "" {
+			q += " AND date = ?"
+			args = append(args, date)
+		}
+		q += " ORDER BY id DESC LIMIT 500"
+		rows, err := db.Query(q, args...)
+		if err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
+		defer rows.Close()
+		var list []IncidentReport
+		for rows.Next() {
+			inc, _ := scanIncident(rows)
+			list = append(list, inc)
+		}
+		json.NewEncoder(w).Encode(list)
+
+	case http.MethodPost:
+		var inc IncidentReport
+		if err := json.NewDecoder(r.Body).Decode(&inc); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if inc.Date == "" || inc.Description == "" {
+			http.Error(w, "Потрібні date, description", http.StatusBadRequest)
+			return
+		}
+		if inc.Type == "" {
+			inc.Type = "Звернення"
+		}
+		if inc.Status == "" {
+			inc.Status = "Нове"
+		}
+		if inc.Priority == "" {
+			inc.Priority = "Звичайний"
+		}
+		if inc.Source == "" {
+			if inc.CreatedBy != "" && inc.UserName != "" && inc.CreatedBy != inc.UserName {
+				inc.Source = "team_lead"
+			} else {
+				inc.Source = "self"
+			}
+		}
+		if inc.ReportedFor == "" {
+			inc.ReportedFor = inc.UserName
+		}
+		role := inc.Role
+		today := time.Now().Format("2006-01-02")
+		isAdmin := role == "admin"
+		if !isAdmin && inc.Date < today {
+			http.Error(w, "Без admin можна фіксувати лише на поточну або майбутню дату", http.StatusForbidden)
+			return
+		}
+		if !isAdmin && inc.UserName == "" {
+			http.Error(w, "user_name required", http.StatusBadRequest)
+			return
+		}
+		res, err := db.Exec(`INSERT INTO incidents (user_name, date, type, duration_minutes, description, created_at,
+			status, priority, source, responsible, created_by, total_minutes, due_date, reported_for)
+			VALUES (?,?,?,?,?,CURRENT_TIMESTAMP,?,?,?,?,?,?,?,?)`,
+			inc.UserName, inc.Date, inc.Type, inc.DurationMinutes, inc.Description,
+			inc.Status, inc.Priority, inc.Source, inc.Responsible, inc.CreatedBy, 0, inc.DueDate, inc.ReportedFor)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		id, _ := res.LastInsertId()
+		inc.ID = int(id)
+		result := map[string]interface{}{"status": "ok", "id": inc.ID, "as_task": false}
+		if inc.Date > today {
+			desc := "[для розгляду на дейлі] " + inc.Description
+			db.Exec(`INSERT INTO daily_tasks (user_name, date, task_description, status, priority, total_minutes, created_at, created_by, incident_id)
+				VALUES (?, ?, ?, 'Нова', 'У шухляду', 0, CURRENT_TIMESTAMP, ?, ?)`,
+				inc.UserName, inc.Date, desc, inc.CreatedBy, inc.ID)
+			result["as_task"] = true
+			result["message"] = "Звернення зафіксовано і додано як задачу «для розгляду на дейлі»"
+			logAudit(inc.CreatedBy, "CREATE_INCIDENT_AS_TASK", r.RemoteAddr, desc)
+		} else {
+			logAudit(inc.CreatedBy, "CREATE_INCIDENT", r.RemoteAddr, fmt.Sprintf("#%d %s src=%s", inc.ID, inc.Date, inc.Source))
+		}
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(result)
+
+	case http.MethodPut:
+		var raw map[string]interface{}
+		json.NewDecoder(r.Body).Decode(&raw)
+		b, _ := json.Marshal(raw)
+		var inc IncidentReport
+		json.Unmarshal(b, &inc)
+		if inc.ID == 0 {
+			http.Error(w, "id required", 400)
+			return
+		}
+		roleHint := "user"
+		if v, ok := raw["role"].(string); ok && v != "" {
+			roleHint = v
+		}
+		rows, err := db.Query(incidentSelect+` WHERE id=?`, inc.ID)
+		if err != nil {
+			http.Error(w, "not found", 404)
+			return
+		}
+		defer rows.Close()
+		if !rows.Next() {
+			http.Error(w, "not found", 404)
+			return
+		}
+		cur, _ := scanIncident(rows)
+		newStatus := inc.Status
+		if newStatus == "" {
+			newStatus = cur.Status
+		}
+		if !isIncidentStatusAllowed(cur.Status, newStatus, roleHint) {
+			http.Error(w, "Недозволений перехід: "+cur.Status+" → "+newStatus, 400)
+			return
+		}
+		userName := cur.UserName
+		if _, ok := raw["user_name"]; ok && roleHint == "admin" {
+			userName = inc.UserName
+		}
+		prio := cur.Priority
+		if _, ok := raw["priority"]; ok {
+			prio = inc.Priority
+		}
+		resp := cur.Responsible
+		if _, ok := raw["responsible"]; ok && roleHint == "admin" {
+			resp = inc.Responsible
+		}
+		desc := cur.Description
+		if _, ok := raw["description"]; ok && inc.Description != "" {
+			desc = inc.Description
+		}
+		total := cur.TotalMinutes
+		ws := cur.WorkStartedAt
+		if cur.Status == "В роботі" && newStatus != "В роботі" {
+			if ws != "" {
+				start, e := time.Parse(time.RFC3339, ws)
+				if e != nil {
+					start, e = time.Parse("2006-01-02 15:04:05", ws)
+				}
+				if e == nil {
+					m := int(time.Since(start).Minutes())
+					if m > 0 {
+						total += m
+					}
+				}
+			}
+			ws = ""
+		}
+		if newStatus == "В роботі" && cur.Status != "В роботі" {
+			ws = time.Now().Format(time.RFC3339)
+		}
+		var wsArg interface{}
+		if ws == "" {
+			wsArg = nil
+		} else {
+			wsArg = ws
+		}
+		db.Exec(`UPDATE incidents SET status=?, priority=?, user_name=?, responsible=?, description=?, total_minutes=?, work_started_at=? WHERE id=?`,
+			newStatus, prio, userName, resp, desc, total, wsArg, inc.ID)
+		logAudit(roleHint, "UPDATE_INCIDENT", r.RemoteAddr, fmt.Sprintf("id=%d %s→%s", inc.ID, cur.Status, newStatus))
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func handleComments(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	switch r.Method {
+	case http.MethodGet:
+		et := r.URL.Query().Get("entity_type")
+		eid := r.URL.Query().Get("entity_id")
+		rows, err := db.Query(`SELECT id, entity_type, entity_id, author_name, body, COALESCE(is_system,0),
+			COALESCE(datetime(created_at,'localtime'),'') FROM comments WHERE entity_type=? AND entity_id=? ORDER BY id`, et, eid)
+		if err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
+		defer rows.Close()
+		var list []Comment
+		for rows.Next() {
+			var c Comment
+			var sys int
+			rows.Scan(&c.ID, &c.EntityType, &c.EntityID, &c.AuthorName, &c.Body, &sys, &c.CreatedAt)
+			c.IsSystem = sys == 1
+			list = append(list, c)
+		}
+		json.NewEncoder(w).Encode(list)
+	case http.MethodPost:
+		var c Comment
+		json.NewDecoder(r.Body).Decode(&c)
+		if c.EntityType == "" || c.EntityID == 0 || c.Body == "" {
+			http.Error(w, "entity_type, entity_id, body required", 400)
+			return
+		}
+		sys := 0
+		if c.IsSystem {
+			sys = 1
+		}
+		res, err := db.Exec(`INSERT INTO comments (entity_type, entity_id, author_name, body, is_system, created_at)
+			VALUES (?,?,?,?,?,CURRENT_TIMESTAMP)`, c.EntityType, c.EntityID, c.AuthorName, c.Body, sys)
+		if err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
+		id, _ := res.LastInsertId()
+		c.ID = int(id)
+		w.WriteHeader(201)
+		json.NewEncoder(w).Encode(c)
+	default:
+		http.Error(w, "Method not allowed", 405)
+	}
+}
+
+func handleIncidentPrioritiesPublic(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	rows, _ := db.Query(`SELECT id, name, code, COALESCE(color,''), COALESCE(sort_order,0), COALESCE(is_default,0) FROM incident_priorities ORDER BY sort_order, id`)
+	var list []IncidentPriority
+	if rows != nil {
+		defer rows.Close()
+		for rows.Next() {
+			var p IncidentPriority
+			var def int
+			rows.Scan(&p.ID, &p.Name, &p.Code, &p.Color, &p.SortOrder, &def)
+			p.IsDefault = def == 1
+			list = append(list, p)
+		}
+	}
+	json.NewEncoder(w).Encode(list)
 }
 
 func accumulateWorkTime(t *DailyTask) {
@@ -456,9 +764,9 @@ func handleDailyTasks(w http.ResponseWriter, r *http.Request) {
 		if t.VisibleFrom == "" {
 			t.VisibleFrom = t.Date
 		}
-		res, err := db.Exec(`INSERT INTO daily_tasks (user_name, date, task_description, status, priority, total_minutes, created_at, visible_from, due_date, created_by, responsible, estimated_minutes)
-			VALUES (?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?)`,
-			t.UserName, t.Date, t.TaskDescription, t.Status, t.Priority, t.VisibleFrom, t.DueDate, t.CreatedBy, t.Responsible, t.EstimatedMinutes)
+		res, err := db.Exec(`INSERT INTO daily_tasks (user_name, date, task_description, status, priority, total_minutes, created_at, visible_from, due_date, created_by, responsible, estimated_minutes, incident_id)
+			VALUES (?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?)`,
+			t.UserName, t.Date, t.TaskDescription, t.Status, t.Priority, t.VisibleFrom, t.DueDate, t.CreatedBy, t.Responsible, t.EstimatedMinutes, t.IncidentID)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -488,12 +796,12 @@ func handleDailyTasks(w http.ResponseWriter, r *http.Request) {
 		}
 		var cur DailyTask
 		var ws, ca, visN, dueN, respN sql.NullString
-		var estN sql.NullInt64
+		var estN, iidN sql.NullInt64
 		err := db.QueryRow(`SELECT id, user_name, date, task_description, COALESCE(status,'Нова'), COALESCE(priority,'Базова'),
 			work_started_at, COALESCE(total_minutes,0), COALESCE(datetime(created_at,'localtime'),''),
-			COALESCE(visible_from,''), COALESCE(due_date,''), COALESCE(responsible,''), COALESCE(estimated_minutes,0)
+			COALESCE(visible_from,''), COALESCE(due_date,''), COALESCE(responsible,''), COALESCE(estimated_minutes,0), COALESCE(incident_id,0)
 			FROM daily_tasks WHERE id=?`, t.ID).
-			Scan(&cur.ID, &cur.UserName, &cur.Date, &cur.TaskDescription, &cur.Status, &cur.Priority, &ws, &cur.TotalMinutes, &ca, &visN, &dueN, &respN, &estN)
+			Scan(&cur.ID, &cur.UserName, &cur.Date, &cur.TaskDescription, &cur.Status, &cur.Priority, &ws, &cur.TotalMinutes, &ca, &visN, &dueN, &respN, &estN, &iidN)
 		if err != nil {
 			http.Error(w, "not found", http.StatusNotFound)
 			return
@@ -549,7 +857,7 @@ func handleDailyTasks(w http.ResponseWriter, r *http.Request) {
 			newStatus = "Нова"
 		}
 		if cur.UserName == "" && userName == "" && roleHint != "admin" {
-			http.Error(w, "Задача «на розгляді»: виконавця ще не призначено. Змінювати статус може лише admin", http.StatusForbidden)
+			http.Error(w, "Задача «на розгляді»: змінювати статус може лише admin", http.StatusForbidden)
 			return
 		}
 		if !isStatusAllowed(cur.Status, newStatus, roleHint) {
@@ -603,7 +911,7 @@ func handleDailyTasks(w http.ResponseWriter, r *http.Request) {
 		t.UserName, t.Date, t.TaskDescription = userName, date, desc
 		t.Status, t.Priority, t.TotalMinutes, t.WorkStartedAt = newStatus, newPriority, total, workStarted
 		t.EstimatedMinutes = est
-		logAudit(userName, "UPDATE_DAILY_TASK", r.RemoteAddr, fmt.Sprintf("id=%d status=%s priority=%s assignee=%s", t.ID, newStatus, newPriority, userName))
+		logAudit(userName, "UPDATE_DAILY_TASK", r.RemoteAddr, fmt.Sprintf("id=%d status=%s", t.ID, newStatus))
 		json.NewEncoder(w).Encode(t)
 
 	case http.MethodDelete:
