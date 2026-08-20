@@ -29,9 +29,10 @@ type TeamRole struct {
 }
 
 type AbsenceType struct {
-	ID   int    `json:"id"`
-	Name string `json:"name"`
-	Code string `json:"code"`
+	ID    int    `json:"id"`
+	Name  string `json:"name"`
+	Code  string `json:"code"`
+	Color string `json:"color"` // hex, e.g. #3b82f6 — стиль у сітці календаря
 }
 
 type AbsenceRequest struct {
@@ -113,7 +114,6 @@ func initDB() {
 	if dbPath == "" {
 		dbPath = "./data/oncall.db"
 	}
-	// ensure directory exists so volume mount works across rebuilds
 	if i := strings.LastIndex(dbPath, "/"); i > 0 {
 		_ = os.MkdirAll(dbPath[:i], 0755)
 	}
@@ -141,7 +141,8 @@ func initDB() {
 		`CREATE TABLE IF NOT EXISTS absence_types (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			name TEXT UNIQUE NOT NULL,
-			code TEXT
+			code TEXT,
+			color TEXT
 		)`,
 		`CREATE TABLE IF NOT EXISTS shifts (
 			date TEXT PRIMARY KEY,
@@ -218,6 +219,12 @@ func initDB() {
 	db.Exec("ALTER TABLE daily_tasks ADD COLUMN created_by TEXT")
 	db.Exec("ALTER TABLE daily_tasks ADD COLUMN responsible TEXT")
 	db.Exec("ALTER TABLE users ADD COLUMN is_oncall INTEGER DEFAULT 1")
+	db.Exec("ALTER TABLE absence_types ADD COLUMN color TEXT")
+
+	// seed default colors for known types
+	db.Exec(`UPDATE absence_types SET color='#3b82f6' WHERE (code='vacation' OR name LIKE '%ідпуст%') AND (color IS NULL OR color='')`)
+	db.Exec(`UPDATE absence_types SET color='#ef4444' WHERE (code='sick' OR name LIKE '%ікарн%') AND (color IS NULL OR color='')`)
+	db.Exec(`UPDATE absence_types SET color='#94a3b8' WHERE (code='dayoff' OR name LIKE '%ихідн%') AND (color IS NULL OR color='')`)
 
 	tables := []string{"users", "team_roles", "absence_types", "shifts", "absences", "incidents", "daily_tasks", "audit_logs", "app_logs"}
 	for _, t := range tables {
@@ -235,7 +242,10 @@ func initDB() {
 	db.QueryRow("SELECT COUNT(*) FROM users").Scan(&cnt)
 	if cnt == 0 {
 		db.Exec(`INSERT INTO users (username, password, name, role, is_oncall) VALUES ('admin', 'admin', 'Admin', 'admin', 0)`)
-		db.Exec(`INSERT INTO absence_types (name, code) VALUES ('Відпустка', 'vacation'), ('Лікарняний', 'sick'), ('Вихідний', 'dayoff')`)
+		db.Exec(`INSERT INTO absence_types (name, code, color) VALUES
+			('Відпустка', 'vacation', '#3b82f6'),
+			('Лікарняний', 'sick', '#ef4444'),
+			('Вихідний', 'dayoff', '#94a3b8')`)
 		log.Println("seeded default admin / admin")
 	}
 }
