@@ -11,14 +11,14 @@ body{margin:0;font-family:system-ui,sans-serif;background:var(--bg);color:var(--
 .btn:hover{opacity:.9}.btn-d{background:#ef4444}.btn-s{background:#64748b}
 .main{margin-top:72px;padding:16px;max-width:1200px;margin-left:auto;margin-right:auto}
 .roster{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px}
-.chip{background:#fff;border:1px solid var(--b);padding:6px 12px;border-radius:20px;font-size:13px}
-.chip.on{border-color:var(--p);background:#eff6ff}.chip.off{opacity:.5;text-decoration:line-through}
+.chip{background:#fff;border:1px solid var(--b);padding:6px 12px;border-radius:20px;font-size:13px;cursor:pointer;transition:box-shadow .15s}
+.chip:hover{box-shadow:0 0 0 2px var(--p)}.chip.on{border-color:var(--p);background:#eff6ff}.chip.off{opacity:.5;text-decoration:line-through}
 .cal-h{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
 #cal{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
 .dh{text-align:center;font-weight:600;font-size:12px;color:#64748b;padding:4px}
 .dc{background:#fff;border:1px solid var(--b);border-radius:8px;min-height:90px;padding:6px;cursor:pointer;font-size:12px}
 .dc:hover{border-color:var(--p)}.dn{font-weight:700;margin-bottom:4px}
-.ba{color:#b45309;font-size:11px}.sc{color:#1e40af;font-size:11px;line-height:1.3}.bt{color:#7c3aed;font-size:11px}.bi{color:#dc2626;font-size:11px}
+.ba{font-size:11px;padding:1px 4px;border-radius:4px;margin:2px 0;display:inline-block}.sc{color:#1e40af;font-size:11px;line-height:1.3}.bt{color:#7c3aed;font-size:11px}.bi{color:#dc2626;font-size:11px}
 table{width:100%;border-collapse:collapse;background:#fff;border:1px solid var(--b);border-radius:8px;margin-top:8px;font-size:13px}
 th,td{padding:8px 10px;border-bottom:1px solid var(--b);text-align:left}th{background:#f1f5f9;font-weight:600}
 .modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:2000;align-items:center;justify-content:center}
@@ -88,6 +88,10 @@ textarea{min-height:70px;resize:vertical}
 <div id="di"></div>
 <button class="btn" style="margin-top:12px" onclick="cl('m-day')">Закрити</button></div></div>
 
+<div class="modal" id="m-person"><div class="mc"><h3 id="person-title">Особа</h3>
+<div id="person-body"></div>
+<button class="btn" style="margin-top:12px" onclick="cl('m-person')">Закрити</button></div></div>
+
 <script>
 const STATUSES=['Нова','У роботі','На паузі','До перевірки','Виконана','Перевідкрита','Архів'];
 const PRIOS=['Надкритична','Термінова','Базова','Техборг','У шухляду'];
@@ -113,19 +117,63 @@ async function doLogin(){
 async function load(){
   const r=await fetch(`/api/data?year=${Y}&month=${M}`);D=await r.json();AT=D.absence_types||[];
   roster(D.team_members||[],D.absences||[]);
-  cal(D.year,D.month,D.shifts||{},D.absences||[],D.incidents||{},D.team_members||[],D.daily_tasks||{});
+  cal(D.year,D.month,D.shifts||{},D.absences||[],D.incidents||{},D.team_members||[],D.daily_tasks||{},AT);
   stats(D.stats||[]);
 }
 function chg(n){M+=n;if(M<1){M=12;Y--}if(M>12){M=1;Y++}load()}
 function inact(n,ds,abs){for(const a of abs||[])if(a.user_name===n&&ds>=a.start_date&&ds<=a.end_date)return true;return false}
 function esc(s){const d=document.createElement('div');d.textContent=s||'';return d.innerHTML}
+function absColor(typeName){
+  const t=(AT||[]).find(x=>x.name===typeName);
+  if(t&&t.color) return t.color;
+  const n=(typeName||'').toLowerCase();
+  if(n.includes('ідпуст')||n.includes('vacation')) return '#3b82f6';
+  if(n.includes('ікарн')||n.includes('sick')) return '#ef4444';
+  if(n.includes('ихідн')||n.includes('dayoff')) return '#94a3b8';
+  return '#f59e0b';
+}
 function roster(ms,abs){
   const el=document.getElementById('roster'),t=today();
   if(!ms.length){el.innerHTML='<span style="color:#94a3b8">Команда порожня</span>';return}
   el.innerHTML=ms.map(m=>{const off=inact(m.name,t,abs);
-    return `<span class="chip ${m.is_oncall?'on':''} ${off?'off':''}">${m.name}${m.team_role?' · '+m.team_role:''}${off?' (відсутній)':''}</span>`}).join('');
+    return `<span class="chip ${m.is_oncall?'on':''} ${off?'off':''}" onclick="showPerson('${esc(m.name)}')">${esc(m.name)}${m.team_role?' · '+esc(m.team_role):''}${off?' (відсутній)':''}</span>`}).join('');
 }
-function cal(y,m,sh,abs,inc,tm,tasks){
+function showPerson(name){
+  const ds=today();
+  document.getElementById('person-title').innerText=name+' · '+ds;
+  const abs=(D.absences||[]).filter(a=>a.user_name===name&&ds>=a.start_date&&ds<=a.end_date);
+  const tasks=[];
+  Object.values(D.daily_tasks||{}).forEach(list=>{(list||[]).forEach(t=>{
+    if(t.date===ds&&(t.user_name===name||t.responsible===name||t.created_by===name)) tasks.push(t);
+  })});
+  const incs=((D.incidents||{})[ds]||[]).filter(i=>i.user_name===name);
+  const sh=D.shifts&&D.shifts[ds];
+  let h='';
+  if(sh&&(sh.primary_user===name||sh.backup_user===name))
+    h+=`<p><b>Чергування:</b> ${sh.primary_user===name?'Основний':''}${sh.backup_user===name?(sh.primary_user===name?' · ':'')+'Дублюючий':''}</p>`;
+  h+=`<h4>Відсутності</h4>`+(abs.length?abs.map(a=>`• ${esc(a.type)} (${a.start_date}–${a.end_date})`).join('<br>'):'Немає');
+  h+=`<h4>Задачі (виконавець / відповідальний / створив)</h4>`;
+  if(tasks.length){
+    h+='<table><thead><tr><th>Роль</th><th>Задача</th><th>Статус</th><th>Пріоритет</th></tr></thead><tbody>';
+    tasks.forEach(t=>{
+      const roles=[];
+      if(t.user_name===name) roles.push('виконавець');
+      if(t.responsible===name) roles.push('відп.');
+      if(t.created_by===name) roles.push('створив');
+      h+=`<tr><td>${roles.join(', ')}</td><td>${esc(t.task_description)}</td><td>${esc(t.status)}</td><td>${esc(t.priority)}</td></tr>`;
+    });
+    h+='</tbody></table>';
+  } else h+='<p>Немає</p>';
+  h+=`<h4>Звернення від особи</h4>`;
+  if(incs.length){
+    h+='<table><thead><tr><th>Час</th><th>Тип</th><th>Хв</th><th>Опис</th></tr></thead><tbody>';
+    incs.forEach(i=>{h+=`<tr><td>${esc(i.created_at||'')}</td><td>${esc(i.type)}</td><td>${i.duration_minutes}</td><td>${esc(i.description)}</td></tr>`});
+    h+='</tbody></table>';
+  } else h+='<p>Немає</p>';
+  document.getElementById('person-body').innerHTML=h;
+  document.getElementById('m-person').style.display='flex';
+}
+function cal(y,m,sh,abs,inc,tm,tasks,atypes){
   const mn=['Січень','Лютий','Березень','Квітень','Травень','Червень','Липень','Серпень','Вересень','Жовтень','Листопад','Грудень'];
   document.getElementById('mt').innerText=mn[m-1]+' '+y;
   const g=document.getElementById('cal');while(g.children.length>7)g.removeChild(g.lastChild);
@@ -136,35 +184,60 @@ function cal(y,m,sh,abs,inc,tm,tasks){
     const c=document.createElement('div');c.className='dc';c.onclick=()=>day(ds);
     c.innerHTML=`<div class="dn">${d}</div>`;
     const da=(abs||[]).filter(a=>ds>=a.start_date&&ds<=a.end_date);
-    if(da.length)c.innerHTML+=`<div class="ba">🏖️ ${da.map(a=>a.user_name.split(' ')[0]).join(', ')}</div>`;
-    if(sh[ds])c.innerHTML+=`<div class="sc"><b>Осн:</b> ${sh[ds].primary_user}<br><b>Дубл:</b> ${sh[ds].backup_user}</div>`;
+    da.forEach(a=>{
+      const col=absColor(a.type);
+      c.innerHTML+=`<div class="ba" style="background:${col}22;color:${col};border:1px solid ${col}55">${esc(a.user_name.split(' ')[0])} · ${esc(a.type)}</div>`;
+    });
+    if(sh[ds]){
+      let sc=`<b>Осн:</b> ${esc(sh[ds].primary_user)}`;
+      if(sh[ds].backup_user) sc+=`<br><b>Дубл:</b> ${esc(sh[ds].backup_user)}`;
+      else sc+=`<br><span style="color:#94a3b8">(один черговий)</span>`;
+      c.innerHTML+=`<div class="sc">${sc}</div>`;
+    }
     const dt=(tasks||{})[ds]||[];
     if(dt.length)c.innerHTML+=`<div class="bt">📋 ${dt.length}</div>`;
     if(inc[ds]&&inc[ds].length){const t=inc[ds].reduce((s,i)=>s+i.duration_minutes,0);c.innerHTML+=`<div class="bi">⏱️ ${inc[ds].length} (${t}хв)</div>`}
     g.appendChild(c);
   }
 }
+function memberOpts(selected, allowEmpty){
+  const ms=(D.team_members||[]).filter(m=>m.role!=='admin'||m.is_oncall);
+  let o=allowEmpty?`<option value="">— на розгляді —</option>`:'';
+  ms.forEach(m=>{o+=`<option value="${esc(m.name)}" ${m.name===selected?'selected':''}>${esc(m.name)}</option>`});
+  return o;
+}
 function day(ds){
   _day=ds;document.getElementById('dt').innerText='День: '+ds;
-  const s=D.shifts&&D.shifts[ds],ms=D.team_members||[],abs=D.absences||[];
-  let h=s?`<b>Основний:</b> ${s.primary_user}<br><b>Дублюючий:</b> ${s.backup_user}`:'Чергування не призначено';
+  const s=D.shifts&&D.shifts[ds],abs=D.absences||[];
+  let h=s?`<b>Основний:</b> ${esc(s.primary_user)}`+(s.backup_user?`<br><b>Дублюючий:</b> ${esc(s.backup_user)}`:'<br><em style="color:#94a3b8">Лише один черговий</em>'):'Чергування не призначено';
   document.getElementById('ds').innerHTML=h;
   const al=abs.filter(a=>ds>=a.start_date&&ds<=a.end_date);
-  document.getElementById('da').innerHTML=al.length?al.map(a=>`• <b>${a.user_name}</b> (${a.type})`).join('<br>'):'Немає';
+  document.getElementById('da').innerHTML=al.length?al.map(a=>{
+    const col=absColor(a.type);
+    return `<span class="ba" style="background:${col}22;color:${col};border:1px solid ${col}55;margin-right:6px"><b>${esc(a.user_name)}</b> (${esc(a.type)})</span>`;
+  }).join(''):'Немає';
 
   const tasks=(D.daily_tasks||{})[ds]||[];
   if(tasks.length){
+    const isAdm=U&&U.role==='admin';
     let html='<table><thead><tr><th>Виконавець</th><th>Відповідальний</th><th>Задача</th><th>Статус</th><th>Пріоритет</th><th>Час</th><th></th></tr></thead><tbody>';
     tasks.forEach(t=>{
-      const exec=t.user_name?esc(t.user_name):'<em style="color:#94a3b8">на розгляді</em>';
-      const resp=esc(t.responsible||'—');
       const unassigned=!t.user_name;
-      const isAdm=U&&U.role==='admin';
       const canStatus=U && (isAdm || !unassigned) && (isAdm || t.status!=='Виконана');
-      const allowed=typeof nextStatuses==='function'?nextStatuses(t.status):(isAdm?STATUSES:['У роботі','На паузі','До перевірки','Виконана']);
+      const allowed=nextStatuses(t.status);
       const stOpts=(allowed.length?allowed:[t.status]).map(x=>`<option ${x===t.status?'selected':''}>${x}</option>`).join('');
       const prOpts=PRIOS.map(x=>`<option ${x===t.priority?'selected':''}>${x}</option>`).join('');
-      html+=`<tr><td>${exec}</td><td>${resp}</td><td>${esc(t.task_description)}</td>
+      let execCell;
+      if(isAdm){
+        execCell=`<select onchange="updTask(${t.id},'user_name',this.value)">${memberOpts(t.user_name||'',true)}</select>`;
+      } else {
+        execCell=t.user_name?esc(t.user_name):'<em style="color:#94a3b8">на розгляді</em>';
+      }
+      let respCell=esc(t.responsible||'—');
+      if(isAdm){
+        respCell=`<select onchange="updTask(${t.id},'responsible',this.value)"><option value="">—</option>${memberOpts(t.responsible||'',false)}</select>`;
+      }
+      html+=`<tr><td>${execCell}</td><td>${respCell}</td><td>${esc(t.task_description)}</td>
         <td>${canStatus?`<select onchange="updTask(${t.id},'status',this.value)">${stOpts}</select>`:`<span class="st">${esc(t.status)}</span>`}</td>
         <td>${isAdm?`<select onchange="updTask(${t.id},'priority',this.value)">${prOpts}</select>`:`<span class="prio">${esc(t.priority)}</span>`}</td>
         <td>${t.total_minutes||0} хв</td>
@@ -274,7 +347,8 @@ async function updTask(id,field,val){
   const body={id,role:U&&U.role||'user'};body[field]=val;
   const r=await fetch('/api/daily-tasks',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   if(!r.ok){alert(await r.text()||'Помилка');}
-  load();day(_day)}
+  await load();day(_day)
+}
 async function delTask(id){if(!confirm('Видалити?'))return;await fetch('/api/daily-tasks?id='+id,{method:'DELETE'});cl('m-day');load()}
 
 sess();load();
