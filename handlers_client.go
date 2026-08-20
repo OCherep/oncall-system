@@ -192,37 +192,37 @@ func allowedNextStatuses(cur, role string) []string {
 		if isAdmin {
 			return []string{"Нова", "У роботі", "Архів"}
 		}
-		return []string{"У роботі"}
+		return []string{"Нова", "У роботі"}
 	case "У роботі":
 		if isAdmin {
 			return []string{"У роботі", "На паузі", "До перевірки", "Виконана", "Архів"}
 		}
-		return []string{"На паузі", "До перевірки"}
+		return []string{"У роботі", "На паузі", "До перевірки"}
 	case "На паузі":
 		if isAdmin {
 			return []string{"На паузі", "У роботі", "До перевірки", "Архів"}
 		}
-		return []string{"У роботі"}
+		return []string{"На паузі", "У роботі"}
 	case "До перевірки":
 		if isAdmin {
 			return []string{"До перевірки", "У роботі", "Виконана", "Архів"}
 		}
-		return []string{"Виконана"}
+		return []string{"До перевірки", "Виконана"}
 	case "Виконана":
 		if isAdmin {
 			return []string{"Виконана", "Перевідкрита", "Архів"}
 		}
-		return []string{}
+		return []string{"Виконана"}
 	case "Перевідкрита", "Архів":
 		if isAdmin {
 			return []string{"Перевідкрита", "Нова", "Архів", "У роботі"}
 		}
-		return []string{}
+		return []string{cur}
 	default:
 		if isAdmin {
 			return []string{cur, "Нова", "У роботі", "На паузі", "До перевірки", "Виконана", "Перевідкрита", "Архів"}
 		}
-		return []string{"У роботі"}
+		return []string{cur, "У роботі"}
 	}
 }
 
@@ -251,12 +251,12 @@ func incidentNextStatuses(cur, role string) []string {
 		if isAdmin {
 			return []string{"Вирішено", "Архів", "Нове"}
 		}
-		return []string{}
+		return []string{"Вирішено"}
 	case "Архів":
 		if isAdmin {
 			return []string{"Архів", "Нове"}
 		}
-		return []string{}
+		return []string{"Архів"}
 	default:
 		return []string{"Нове", "В роботі"}
 	}
@@ -274,6 +274,11 @@ func isIncidentStatusAllowed(cur, next, role string) bool {
 	return false
 }
 
+func addSystemComment(entityType string, entityID int, author, body string) {
+	db.Exec(`INSERT INTO comments (entity_type, entity_id, author_name, body, is_system, created_at)
+		VALUES (?,?,?,?,1,CURRENT_TIMESTAMP)`, entityType, entityID, author, body)
+}
+
 func handleGetData(w http.ResponseWriter, r *http.Request) {
 	year := time.Now().Year()
 	month := int(time.Now().Month())
@@ -283,7 +288,7 @@ func handleGetData(w http.ResponseWriter, r *http.Request) {
 	if m := r.URL.Query().Get("month"); m != "" {
 		fmt.Sscanf(m, "%d", &month)
 	}
-	viewer := r.URL.Query().Get("viewer") // name of logged-in user for personal alerts
+	viewer := r.URL.Query().Get("viewer")
 
 	rows, err := db.Query(`SELECT u.id, u.username, u.name, u.role, u.team_role_id, COALESCE(tr.name, ''), COALESCE(u.is_oncall, 1)
 		FROM users u LEFT JOIN team_roles tr ON u.team_role_id = tr.id WHERE u.role != 'admin' OR COALESCE(u.is_oncall, 0) = 1 ORDER BY u.name`)
@@ -419,7 +424,6 @@ func handleGetData(w http.ResponseWriter, r *http.Request) {
 			})
 		}
 	}
-	// personal / responsible alerts for non-self incidents today
 	for _, inc := range incidents[today] {
 		if inc.Status == "Вирішено" || inc.Status == "Архів" {
 			continue
@@ -443,10 +447,10 @@ func handleGetData(w http.ResponseWriter, r *http.Request) {
 		"year": year, "month": month,
 		"team_members": team, "absence_types": absenceTypes,
 		"shifts": shifts, "absences": absences, "incidents": incidents, "stats": stats,
-		"daily_tasks":         dailyTasks,
-		"incident_priorities":  incPrios,
-		"alerts":              alerts,
-		"today":               today,
+		"daily_tasks":        dailyTasks,
+		"incident_priorities": incPrios,
+		"alerts":             alerts,
+		"today":              today,
 	})
 }
 
@@ -590,6 +594,7 @@ func handleIncidents(w http.ResponseWriter, r *http.Request) {
 		if v, ok := raw["role"].(string); ok && v != "" {
 			roleHint = v
 		}
+		actor, _ := raw["actor"].(string)
 		rows, err := db.Query(incidentSelect+` WHERE id=?`, inc.ID)
 		if err != nil {
 			http.Error(w, "not found", 404)
@@ -653,6 +658,13 @@ func handleIncidents(w http.ResponseWriter, r *http.Request) {
 		}
 		db.Exec(`UPDATE incidents SET status=?, priority=?, user_name=?, responsible=?, description=?, total_minutes=?, work_started_at=? WHERE id=?`,
 			newStatus, prio, userName, resp, desc, total, wsArg, inc.ID)
+		if cur.Status != newStatus {
+			who := actor
+			if who == "" {
+				who = roleHint
+			}
+			addSystemComment("incident", inc.ID, who, fmt.Sprintf("Статус: %s → %s", cur.Status, newStatus))
+		}
 		logAudit(roleHint, "UPDATE_INCIDENT", r.RemoteAddr, fmt.Sprintf("id=%d %s→%s", inc.ID, cur.Status, newStatus))
 		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 
@@ -794,6 +806,7 @@ func handleDailyTasks(w http.ResponseWriter, r *http.Request) {
 		if v, ok := raw["role"].(string); ok && v != "" {
 			roleHint = v
 		}
+		actor, _ := raw["actor"].(string)
 		var cur DailyTask
 		var ws, ca, visN, dueN, respN sql.NullString
 		var estN, iidN sql.NullInt64
@@ -856,9 +869,16 @@ func handleDailyTasks(w http.ResponseWriter, r *http.Request) {
 			}
 			newStatus = "Нова"
 		}
-		if cur.UserName == "" && userName == "" && roleHint != "admin" {
-			http.Error(w, "Задача «на розгляді»: змінювати статус може лише admin", http.StatusForbidden)
-			return
+		// user може змінювати статус лише своїх задач
+		if roleHint != "admin" {
+			if cur.UserName == "" {
+				http.Error(w, "Задача «на розгляді»: змінювати статус може лише admin", http.StatusForbidden)
+				return
+			}
+			if actor != "" && cur.UserName != actor {
+				http.Error(w, "Можна змінювати лише свої задачі", http.StatusForbidden)
+				return
+			}
 		}
 		if !isStatusAllowed(cur.Status, newStatus, roleHint) {
 			http.Error(w, "Недозволений перехід статусу: "+cur.Status+" → "+newStatus, http.StatusBadRequest)
@@ -908,6 +928,16 @@ func handleDailyTasks(w http.ResponseWriter, r *http.Request) {
 		db.Exec(`UPDATE daily_tasks SET user_name=?, date=?, task_description=?, status=?, priority=?,
 			work_started_at=?, total_minutes=?, visible_from=?, due_date=?, responsible=?, estimated_minutes=? WHERE id=?`,
 			userName, date, desc, newStatus, newPriority, workArg, total, vis, due, resp, est, t.ID)
+		if cur.Status != newStatus {
+			who := actor
+			if who == "" {
+				who = userName
+				if who == "" {
+					who = roleHint
+				}
+			}
+			addSystemComment("task", t.ID, who, fmt.Sprintf("Статус: %s → %s", cur.Status, newStatus))
+		}
 		t.UserName, t.Date, t.TaskDescription = userName, date, desc
 		t.Status, t.Priority, t.TotalMinutes, t.WorkStartedAt = newStatus, newPriority, total, workStarted
 		t.EstimatedMinutes = est
