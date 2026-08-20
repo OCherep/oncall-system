@@ -21,6 +21,7 @@ textarea{min-height:60px;width:280px}
 .filters{display:flex;flex-wrap:wrap;gap:8px;align-items:end;margin-bottom:12px}
 .card{background:#fff;border:1px solid var(--b);border-radius:8px;padding:14px;margin-bottom:14px}
 .card h3{margin:0 0 10px;font-size:15px}
+.swatch{display:inline-block;width:14px;height:14px;border-radius:3px;vertical-align:middle;border:1px solid #cbd5e1}
 </style></head><body>
 <div class="navbar"><div><strong>Admin</strong> · On-Call</div>
 <div><a class="btn btn-s" href="/">← Календар</a></div></div>
@@ -68,10 +69,11 @@ textarea{min-height:60px;width:280px}
 <input type="hidden" id="t-id" value="">
 <div class="fg"><label>Назва</label><input id="t-name"></div>
 <div class="fg"><label>Code</label><input id="t-code"></div>
+<div class="fg"><label>Колір (hex)</label><input id="t-color" type="color" value="#f59e0b" style="width:60px;height:36px;padding:2px"></div>
 <button class="btn" id="t-save" onclick="saveType()">Додати</button>
 <button class="btn btn-s" id="t-cancel" style="display:none" onclick="resetTypeForm()">Скасувати</button>
 </div>
-<table><thead><tr><th>ID</th><th>Назва</th><th>Code</th><th></th></tr></thead><tbody id="t-tb"></tbody></table>
+<table><thead><tr><th>ID</th><th>Назва</th><th>Code</th><th>Колір</th><th></th></tr></thead><tbody id="t-tb"></tbody></table>
 </div>
 
 <div class="sec" id="requests">
@@ -134,6 +136,14 @@ document.querySelectorAll('.tabs a').forEach(a=>{
 });
 
 function today(){return new Date().toISOString().slice(0,10)}
+function esc(s){const d=document.createElement('div');d.textContent=s||'';return d.innerHTML}
+function memberOpts(selected, allowEmpty){
+  let o=allowEmpty?'<option value="">— на розгляді —</option>':'';
+  (users||[]).filter(u=>u.role!=='admin'||u.is_oncall).forEach(u=>{
+    o+=`<option value="${esc(u.name)}" ${u.name===selected?'selected':''}>${esc(u.name)}</option>`;
+  });
+  return o;
+}
 
 async function loadAll(){
   const [u,r,t]=await Promise.all([
@@ -145,33 +155,36 @@ async function loadAll(){
   const tr=document.getElementById('u-tr');
   tr.innerHTML='<option value="">—</option>'+(roles||[]).map(x=>`<option value="${x.id}">${x.name}</option>`).join('');
   document.getElementById('u-tb').innerHTML=(users||[]).map(x=>`<tr>
-    <td>${x.id}</td><td>${x.username}</td><td>${x.name}</td><td>${x.role}</td><td>${x.team_role||'—'}</td>
+    <td>${x.id}</td><td>${esc(x.username)}</td><td>${esc(x.name)}</td><td>${x.role}</td><td>${esc(x.team_role||'—')}</td>
     <td>${x.is_oncall?'Так':'Ні'}</td>
     <td style="white-space:nowrap">
       <button class="btn btn-e" style="padding:2px 8px" onclick="editUser(${x.id})">✎</button>
       <button class="btn btn-d" style="padding:2px 8px" onclick="delUser(${x.id})">✕</button>
     </td></tr>`).join('')||'<tr><td colspan="7">Порожньо</td></tr>';
-  document.getElementById('r-tb').innerHTML=(roles||[]).map(x=>`<tr><td>${x.id}</td><td>${x.name}</td>
+  document.getElementById('r-tb').innerHTML=(roles||[]).map(x=>`<tr><td>${x.id}</td><td>${esc(x.name)}</td>
     <td style="white-space:nowrap">
-      <button class="btn btn-e" style="padding:2px 8px" onclick="editRole(${x.id},'${String(x.name).replace(/'/g,"\\'")}')">✎</button>
+      <button class="btn btn-e" style="padding:2px 8px" onclick="editRole(${x.id})">✎</button>
       <button class="btn btn-d" style="padding:2px 8px" onclick="delRole(${x.id})">✕</button>
     </td></tr>`).join('')||'<tr><td colspan="3">Порожньо</td></tr>';
-  document.getElementById('t-tb').innerHTML=(t||[]).map(x=>`<tr><td>${x.id}</td><td>${x.name}</td><td>${x.code||''}</td>
+  document.getElementById('t-tb').innerHTML=(t||[]).map(x=>{
+    const col=x.color||'#f59e0b';
+    return `<tr><td>${x.id}</td><td>${esc(x.name)}</td><td>${esc(x.code||'')}</td>
+    <td><span class="swatch" style="background:${col}"></span> ${esc(col)}</td>
     <td style="white-space:nowrap">
-      <button class="btn btn-e" style="padding:2px 8px" onclick="editType(${x.id},'${String(x.name).replace(/'/g,"\\'")}','${String(x.code||'').replace(/'/g,"\\'")}')">✎</button>
+      <button class="btn btn-e" style="padding:2px 8px" onclick="editType(${x.id})">✎</button>
       <button class="btn btn-d" style="padding:2px 8px" onclick="delType(${x.id})">✕</button>
-    </td></tr>`).join('')||'<tr><td colspan="4">Порожньо</td></tr>';
+    </td></tr>`;
+  }).join('')||'<tr><td colspan="5">Порожньо</td></tr>';
+  window._atypes=t||[];
   const fu=document.getElementById('tf-user');
-  fu.innerHTML='<option value="">Усі виконавці</option>'+(users||[]).filter(u=>u.role!=='admin').map(u=>`<option value="${u.name}">${u.name}</option>`).join('');
+  fu.innerHTML='<option value="">Усі виконавці</option>'+(users||[]).filter(u=>u.role!=='admin').map(u=>`<option value="${esc(u.name)}">${esc(u.name)}</option>`).join('');
   fillTaskSelects();
 }
 
 function fillTaskSelects(){
-  const opts='<option value="">— на розгляді —</option>'+(users||[]).filter(u=>u.role!=='admin'||u.is_oncall).map(u=>`<option value="${u.name}">${u.name}</option>`).join('');
-  const resp='<option value="">—</option>'+(users||[]).map(u=>`<option value="${u.name}">${u.name}</option>`).join('');
   const tu=document.getElementById('nt-user'), tr=document.getElementById('nt-resp');
-  if(tu) tu.innerHTML=opts;
-  if(tr) tr.innerHTML=resp;
+  if(tu) tu.innerHTML=memberOpts('',true);
+  if(tr) tr.innerHTML='<option value="">—</option>'+(users||[]).map(u=>`<option value="${esc(u.name)}">${esc(u.name)}</option>`).join('');
   const d=document.getElementById('nt-date');
   if(d && !d.value) d.value=today();
   const v=document.getElementById('nt-vis');
@@ -224,9 +237,11 @@ function resetRoleForm(){
   document.getElementById('r-save').innerText='Додати';
   document.getElementById('r-cancel').style.display='none';
 }
-function editRole(id,name){
+function editRole(id){
+  const x=(roles||[]).find(r=>r.id===id);
+  if(!x)return;
   document.getElementById('r-id').value=id;
-  document.getElementById('r-name').value=name;
+  document.getElementById('r-name').value=x.name;
   document.getElementById('r-save').innerText='Зберегти';
   document.getElementById('r-cancel').style.display='';
 }
@@ -248,13 +263,17 @@ function resetTypeForm(){
   document.getElementById('t-id').value='';
   document.getElementById('t-name').value='';
   document.getElementById('t-code').value='';
+  document.getElementById('t-color').value='#f59e0b';
   document.getElementById('t-save').innerText='Додати';
   document.getElementById('t-cancel').style.display='none';
 }
-function editType(id,name,code){
+function editType(id){
+  const x=(window._atypes||[]).find(t=>t.id===id);
+  if(!x)return;
   document.getElementById('t-id').value=id;
-  document.getElementById('t-name').value=name;
-  document.getElementById('t-code').value=code||'';
+  document.getElementById('t-name').value=x.name||'';
+  document.getElementById('t-code').value=x.code||'';
+  document.getElementById('t-color').value=x.color||'#f59e0b';
   document.getElementById('t-save').innerText='Зберегти';
   document.getElementById('t-cancel').style.display='';
 }
@@ -262,12 +281,13 @@ async function saveType(){
   const id=+document.getElementById('t-id').value||0;
   const name=document.getElementById('t-name').value.trim();
   const code=document.getElementById('t-code').value.trim();
+  const color=document.getElementById('t-color').value||'#f59e0b';
   if(!name){alert('Вкажіть назву');return;}
   if(id){
-    const r=await fetch('/api/admin/absence-types',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,name,code})});
+    const r=await fetch('/api/admin/absence-types',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,name,code,color})});
     if(!r.ok){alert(await r.text()||'Помилка');return;}
   } else {
-    await fetch('/api/admin/absence-types',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,code})});
+    await fetch('/api/admin/absence-types',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,code,color})});
   }
   resetTypeForm(); loadAll();
 }
@@ -276,7 +296,7 @@ async function delType(id){if(confirm('Видалити?')){await fetch('/api/ad
 async function loadReqs(){
   const d=await fetch('/api/admin/requests').then(r=>r.json());
   document.getElementById('req-tb').innerHTML=(d||[]).map(x=>`<tr>
-    <td>${x.id}</td><td>${x.user_name}</td><td>${x.type}</td><td>${x.start_date}</td><td>${x.end_date}</td><td>${x.status}</td>
+    <td>${x.id}</td><td>${esc(x.user_name)}</td><td>${esc(x.type)}</td><td>${x.start_date}</td><td>${x.end_date}</td><td>${x.status}</td>
     <td>${x.status==='Pending'?`<button class="btn btn-p" onclick="setSt(${x.id},'Approved')">OK</button>
     <button class="btn btn-d" onclick="setSt(${x.id},'Rejected')">✕</button>`:'—'}</td></tr>`).join('')||'<tr><td colspan="7">Немає</td></tr>';
 }
@@ -313,8 +333,9 @@ async function loadTasks(){
   document.getElementById('task-tb').innerHTML=(d||[]).map(x=>{
     const st=STATUSES.map(v=>`<option ${v===x.status?'selected':''}>${v}</option>`).join('');
     const pri=PRIOS.map(v=>`<option ${v===x.priority?'selected':''}>${v}</option>`).join('');
-    const exec=x.user_name||'<em style="color:#94a3b8">на розгляді</em>';
-    return `<tr><td>${x.id}</td><td>${exec}</td><td>${x.responsible||'—'}</td><td>${x.created_by||'—'}</td><td>${x.date}</td><td>${x.task_description}</td>
+    const execSel=`<select onchange="updTask(${x.id},'user_name',this.value)">${memberOpts(x.user_name||'',true)}</select>`;
+    const respSel=`<select onchange="updTask(${x.id},'responsible',this.value)"><option value="">—</option>${(users||[]).map(u=>`<option value="${esc(u.name)}" ${u.name===x.responsible?'selected':''}>${esc(u.name)}</option>`).join('')}</select>`;
+    return `<tr><td>${x.id}</td><td>${execSel}</td><td>${respSel}</td><td>${esc(x.created_by||'—')}</td><td>${x.date}</td><td>${esc(x.task_description)}</td>
       <td><select onchange="updTask(${x.id},'status',this.value)">${st}</select></td>
       <td><select onchange="updTask(${x.id},'priority',this.value)">${pri}</select></td>
       <td>${x.total_minutes||0}</td>
@@ -332,7 +353,7 @@ async function delTask(id){if(confirm('Видалити?')){await fetch('/api/ad
 async function loadLogs(){
   const d=await fetch('/api/admin/logs').then(r=>r.json());
   document.getElementById('log-tb').innerHTML=(d||[]).map(x=>`<tr>
-    <td>${x.timestamp||''}</td><td>${x.user_name}</td><td>${x.action}</td><td>${x.ip||''}</td><td>${x.details||''}</td></tr>`).join('')||'<tr><td colspan="5">Порожньо</td></tr>';
+    <td>${x.timestamp||''}</td><td>${esc(x.user_name)}</td><td>${esc(x.action)}</td><td>${x.ip||''}</td><td>${esc(x.details||'')}</td></tr>`).join('')||'<tr><td colspan="5">Порожньо</td></tr>';
 }
 
 loadAll();
