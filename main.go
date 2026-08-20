@@ -32,7 +32,7 @@ type AbsenceType struct {
 	ID    int    `json:"id"`
 	Name  string `json:"name"`
 	Code  string `json:"code"`
-	Color string `json:"color"` // hex, e.g. #3b82f6 — стиль у сітці календаря
+	Color string `json:"color"`
 }
 
 type AbsenceRequest struct {
@@ -68,23 +68,21 @@ type IncidentReport struct {
 	Role            string `json:"role,omitempty"`
 }
 
-// Status: Нова | У роботі | На паузі | До перевірки | Виконана | Перевідкрита | Архів
-// User flow: Нова → У роботі ⇄ На паузі → До перевірки → Виконана
-// Unassigned executor (empty user_name) = «на розгляді» — only admin can change status
 type DailyTask struct {
-	ID              int    `json:"id,omitempty"`
-	UserName        string `json:"user_name"` // виконавець; порожнє = «на розгляді»
-	Date            string `json:"date"`
-	TaskDescription string `json:"task_description"`
-	Status          string `json:"status"`
-	Priority        string `json:"priority"`
-	WorkStartedAt   string `json:"work_started_at,omitempty"`
-	TotalMinutes    int    `json:"total_minutes"`
-	CreatedAt       string `json:"created_at,omitempty"`
-	VisibleFrom     string `json:"visible_from,omitempty"`
-	DueDate         string `json:"due_date,omitempty"`
-	CreatedBy       string `json:"created_by,omitempty"`
-	Responsible     string `json:"responsible,omitempty"` // відповідальна особа
+	ID               int    `json:"id,omitempty"`
+	UserName         string `json:"user_name"`
+	Date             string `json:"date"`
+	TaskDescription  string `json:"task_description"`
+	Status           string `json:"status"`
+	Priority         string `json:"priority"`
+	WorkStartedAt    string `json:"work_started_at,omitempty"`
+	TotalMinutes     int    `json:"total_minutes"`
+	CreatedAt        string `json:"created_at,omitempty"`
+	VisibleFrom      string `json:"visible_from,omitempty"`
+	DueDate          string `json:"due_date,omitempty"`
+	CreatedBy        string `json:"created_by,omitempty"`
+	Responsible      string `json:"responsible,omitempty"`
+	EstimatedMinutes int    `json:"estimated_minutes,omitempty"` // планований час виконання (хв)
 }
 
 type TableStat struct {
@@ -179,7 +177,8 @@ func initDB() {
 			visible_from TEXT,
 			due_date TEXT,
 			created_by TEXT,
-			responsible TEXT
+			responsible TEXT,
+			estimated_minutes INTEGER DEFAULT 0
 		)`,
 		`CREATE TABLE IF NOT EXISTS audit_logs (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -218,10 +217,10 @@ func initDB() {
 	db.Exec("ALTER TABLE daily_tasks ADD COLUMN due_date TEXT")
 	db.Exec("ALTER TABLE daily_tasks ADD COLUMN created_by TEXT")
 	db.Exec("ALTER TABLE daily_tasks ADD COLUMN responsible TEXT")
+	db.Exec("ALTER TABLE daily_tasks ADD COLUMN estimated_minutes INTEGER DEFAULT 0")
 	db.Exec("ALTER TABLE users ADD COLUMN is_oncall INTEGER DEFAULT 1")
 	db.Exec("ALTER TABLE absence_types ADD COLUMN color TEXT")
 
-	// seed default colors for known types
 	db.Exec(`UPDATE absence_types SET color='#3b82f6' WHERE (code='vacation' OR name LIKE '%ідпуст%') AND (color IS NULL OR color='')`)
 	db.Exec(`UPDATE absence_types SET color='#ef4444' WHERE (code='sick' OR name LIKE '%ікарн%') AND (color IS NULL OR color='')`)
 	db.Exec(`UPDATE absence_types SET color='#94a3b8' WHERE (code='dayoff' OR name LIKE '%ихідн%') AND (color IS NULL OR color='')`)
