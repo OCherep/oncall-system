@@ -22,7 +22,7 @@ textarea{min-height:60px;width:280px}
 .card{background:#fff;border:1px solid var(--b);border-radius:8px;padding:14px;margin-bottom:14px}
 .card h3{margin:0 0 10px;font-size:15px}
 .swatch{display:inline-block;width:14px;height:14px;border-radius:3px;vertical-align:middle;border:1px solid #cbd5e1}
-.row-due-soon{background:#fef2f2}.row-due-over{background:#fee2e2}
+.row-due-soon{background:#fff7ed}.row-due-over{background:#fee2e2}
 .badge-due{display:inline-block;padding:1px 6px;border-radius:4px;font-size:11px;background:#ef4444;color:#fff;margin-left:4px}
 .badge-due-soon{background:#f59e0b}
 </style></head><body>
@@ -34,7 +34,9 @@ textarea{min-height:60px;width:280px}
 <a data-s="users" class="active">Користувачі</a>
 <a data-s="roles">Ролі команди</a>
 <a data-s="types">Типи відсутності</a>
+<a data-s="iprios">Пріоритети звернень</a>
 <a data-s="requests">Заявки</a>
+<a data-s="incs">Звернення</a>
 <a data-s="tasks">Задачі з дейлі</a>
 <a data-s="logs">Логи</a>
 </div>
@@ -44,7 +46,7 @@ textarea{min-height:60px;width:280px}
 <div class="card">
 <input type="hidden" id="u-id" value="">
 <div class="fg"><label>Username</label><input id="u-user"></div>
-<div class="fg"><label>Пароль <span style="color:#94a3b8;font-weight:400">(порожньо = не змінювати)</span></label><input id="u-pass" type="password"></div>
+<div class="fg"><label>Пароль</label><input id="u-pass" type="password"></div>
 <div class="fg"><label>Ім'я</label><input id="u-name"></div>
 <div class="fg"><label>Role</label><select id="u-role"><option>user</option><option>admin</option></select></div>
 <div class="fg"><label>Team role</label><select id="u-tr"></select></div>
@@ -57,26 +59,34 @@ textarea{min-height:60px;width:280px}
 
 <div class="sec" id="roles">
 <h2>Ролі команди</h2>
-<div class="card">
-<input type="hidden" id="r-id" value="">
-<div class="fg"><label>Назва</label><input id="r-name"></div>
+<div class="card"><input type="hidden" id="r-id"><div class="fg"><label>Назва</label><input id="r-name"></div>
 <button class="btn" id="r-save" onclick="saveRole()">Додати</button>
-<button class="btn btn-s" id="r-cancel" style="display:none" onclick="resetRoleForm()">Скасувати</button>
-</div>
+<button class="btn btn-s" id="r-cancel" style="display:none" onclick="resetRoleForm()">Скасувати</button></div>
 <table><thead><tr><th>ID</th><th>Назва</th><th></th></tr></thead><tbody id="r-tb"></tbody></table>
 </div>
 
 <div class="sec" id="types">
 <h2>Типи відсутності</h2>
-<div class="card">
-<input type="hidden" id="t-id" value="">
+<div class="card"><input type="hidden" id="t-id">
 <div class="fg"><label>Назва</label><input id="t-name"></div>
 <div class="fg"><label>Code</label><input id="t-code"></div>
 <div class="fg"><label>Колір</label><input id="t-color" type="color" value="#f59e0b" style="width:60px;height:36px;padding:2px"></div>
 <button class="btn" id="t-save" onclick="saveType()">Додати</button>
-<button class="btn btn-s" id="t-cancel" style="display:none" onclick="resetTypeForm()">Скасувати</button>
-</div>
+<button class="btn btn-s" id="t-cancel" style="display:none" onclick="resetTypeForm()">Скасувати</button></div>
 <table><thead><tr><th>ID</th><th>Назва</th><th>Code</th><th>Колір</th><th></th></tr></thead><tbody id="t-tb"></tbody></table>
+</div>
+
+<div class="sec" id="iprios">
+<h2>Пріоритети звернень</h2>
+<div class="card"><input type="hidden" id="ip-id">
+<div class="fg"><label>Назва</label><input id="ip-name"></div>
+<div class="fg"><label>Code</label><input id="ip-code"></div>
+<div class="fg"><label>Колір</label><input id="ip-color" type="color" value="#3b82f6" style="width:60px;height:36px;padding:2px"></div>
+<div class="fg"><label>Порядок</label><input id="ip-sort" type="number" value="30" style="width:70px"></div>
+<div class="fg"><label>Default</label><select id="ip-def"><option value="0">Ні</option><option value="1">Так</option></select></div>
+<button class="btn" id="ip-save" onclick="saveIPrio()">Додати</button>
+<button class="btn btn-s" id="ip-cancel" style="display:none" onclick="resetIPrio()">Скасувати</button></div>
+<table><thead><tr><th>ID</th><th>Назва</th><th>Code</th><th>Колір</th><th>Sort</th><th>Def</th><th></th></tr></thead><tbody id="ip-tb"></tbody></table>
 </div>
 
 <div class="sec" id="requests">
@@ -84,44 +94,37 @@ textarea{min-height:60px;width:280px}
 <table><thead><tr><th>ID</th><th>Хто</th><th>Тип</th><th>З</th><th>По</th><th>Статус</th><th></th></tr></thead><tbody id="req-tb"></tbody></table>
 </div>
 
+<div class="sec" id="incs">
+<h2>Звернення</h2>
+<p style="font-size:12px;color:#64748b">Лише admin може перевести звернення → задачу з дейлі.</p>
+<table><thead><tr><th>ID</th><th>Виконавець</th><th>Дата</th><th>Пріоритет</th><th>Source</th><th>Статус</th><th>Опис</th><th></th></tr></thead><tbody id="inc-tb"></tbody></table>
+</div>
+
 <div class="sec" id="tasks">
 <h2>Задачі з дейлі</h2>
 <div class="card" id="task-edit-card">
 <h3 id="task-edit-title">Створити задачу</h3>
-<input type="hidden" id="nt-id" value="">
+<input type="hidden" id="nt-id">
 <div class="fg"><label>Виконавець</label><select id="nt-user"><option value="">— на розгляді —</option></select></div>
-<div class="fg"><label>Відповідальна особа</label><select id="nt-resp"><option value="">—</option></select></div>
-<div class="fg"><label>Дата задачі</label><input type="date" id="nt-date"></div>
+<div class="fg"><label>Відповідальна</label><select id="nt-resp"><option value="">—</option></select></div>
+<div class="fg"><label>Дата</label><input type="date" id="nt-date"></div>
 <div class="fg"><label>Видима з</label><input type="date" id="nt-vis"></div>
-<div class="fg"><label>Термін (due) <span style="color:#ef4444">★ маркер</span></label><input type="date" id="nt-due"></div>
-<div class="fg"><label>План (хв)</label><input type="number" id="nt-est" min="0" value="0" style="width:80px"></div>
-<div class="fg"><label>Статус</label><select id="nt-status">
-<option>Нова</option><option>У роботі</option><option>На паузі</option><option>До перевірки</option><option>Виконана</option><option>Перевідкрита</option><option>Архів</option>
-</select></div>
-<div class="fg"><label>Пріоритет</label><select id="nt-prio">
-<option>Базова</option><option>Надкритична</option><option>Термінова</option><option>Техборг</option><option>У шухляду</option>
-</select></div>
+<div class="fg"><label>Due ★</label><input type="date" id="nt-due"></div>
+<div class="fg"><label>План хв</label><input type="number" id="nt-est" min="0" value="0" style="width:80px"></div>
+<div class="fg"><label>Статус</label><select id="nt-status"><option>Нова</option><option>У роботі</option><option>На паузі</option><option>До перевірки</option><option>Виконана</option><option>Перевідкрита</option><option>Архів</option></select></div>
+<div class="fg"><label>Пріоритет</label><select id="nt-prio"><option>Базова</option><option>Надкритична</option><option>Термінова</option><option>Техборг</option><option>У шухляду</option></select></div>
 <div class="fg" style="display:block;width:100%"><label>Опис</label><textarea id="nt-desc" style="width:100%;max-width:640px;box-sizing:border-box"></textarea></div>
-<button class="btn" id="nt-save" onclick="saveTask()">Створити задачу</button>
+<button class="btn" id="nt-save" onclick="saveTask()">Створити</button>
 <button class="btn btn-s" id="nt-cancel" style="display:none" onclick="resetTaskForm()">Скасувати</button>
 </div>
-
 <div class="filters">
-<div class="fg"><label>Режим</label>
-<select id="tf-mode" onchange="onModeChange()">
-<option value="month">Поточний місяць</option>
-<option value="archive">Архів (усі)</option>
-</select></div>
+<div class="fg"><label>Режим</label><select id="tf-mode" onchange="onModeChange()"><option value="month">Поточний місяць</option><option value="archive">Архів</option></select></div>
 <div class="fg" id="tf-month-wrap"><label>Місяць</label><input type="month" id="tf-month"></div>
-<div class="fg"><label>Пошук</label><input id="tf-q" placeholder="опис, виконавець…" style="width:160px"></div>
+<div class="fg"><label>Пошук</label><input id="tf-q" style="width:140px"></div>
 <div class="fg"><label>Виконавець</label><select id="tf-user"><option value="">Усі</option></select></div>
-<div class="fg"><label>Статус</label><select id="tf-status"><option value="">Усі</option>
-<option>Нова</option><option>У роботі</option><option>На паузі</option><option>До перевірки</option><option>Виконана</option><option>Перевідкрита</option><option>Архів</option></select></div>
-<div class="fg"><label>Пріоритет</label><select id="tf-prio"><option value="">Усі</option>
-<option>Надкритична</option><option>Термінова</option><option>Базова</option><option>Техборг</option><option>У шухляду</option></select></div>
+<div class="fg"><label>Статус</label><select id="tf-status"><option value="">Усі</option><option>Нова</option><option>У роботі</option><option>На паузі</option><option>До перевірки</option><option>Виконана</option><option>Перевідкрита</option><option>Архів</option></select></div>
 <button class="btn" onclick="loadTasks()">Фільтр</button>
 </div>
-<p style="font-size:12px;color:#64748b;margin:0 0 8px">★ Due: задача <b>критична за часом</b> за добу до due (переддень здачі). Прострочені — червонішим.</p>
 <table><thead><tr><th>ID</th><th>Виконавець</th><th>Відп.</th><th>Дата</th><th>Due</th><th>Задача</th><th>Статус</th><th>Пріоритет</th><th>План/факт</th><th></th></tr></thead><tbody id="task-tb"></tbody></table>
 </div>
 
@@ -134,7 +137,7 @@ textarea{min-height:60px;width:280px}
 <script>
 const STATUSES=['Нова','У роботі','На паузі','До перевірки','Виконана','Перевідкрита','Архів'];
 const PRIOS=['Надкритична','Термінова','Базова','Техборг','У шухляду'];
-let users=[], roles=[], _tasksCache=[];
+let users=[],roles=[],_tasksCache=[],_iprios=[];
 
 document.querySelectorAll('.tabs a').forEach(a=>{
   a.onclick=()=>{
@@ -142,255 +145,97 @@ document.querySelectorAll('.tabs a').forEach(a=>{
     a.classList.add('active');
     document.querySelectorAll('.sec').forEach(s=>s.classList.remove('on'));
     document.getElementById(a.dataset.s).classList.add('on');
-    if(a.dataset.s==='tasks'){fillTaskSelects();initMonth();loadTasks();}
+    if(a.dataset.s==='tasks'){fillTaskSelects();initMonth();loadTasks()}
     if(a.dataset.s==='logs')loadLogs();
     if(a.dataset.s==='requests')loadReqs();
+    if(a.dataset.s==='iprios')loadIPrios();
+    if(a.dataset.s==='incs')loadIncs();
   };
 });
 
 function today(){return new Date().toISOString().slice(0,10)}
 function esc(s){const d=document.createElement('div');d.textContent=s||'';return d.innerHTML}
-function memberOpts(selected, allowEmpty){
-  let o=allowEmpty?'<option value="">— на розгляді —</option>':'';
-  (users||[]).filter(u=>u.role!=='admin'||u.is_oncall).forEach(u=>{
-    o+=`<option value="${esc(u.name)}" ${u.name===selected?'selected':''}>${esc(u.name)}</option>`;
-  });
-  return o;
-}
-function initMonth(){
-  const el=document.getElementById('tf-month');
-  if(el && !el.value){
-    const n=new Date();
-    el.value=`${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}`;
-  }
-}
-function onModeChange(){
-  const arch=document.getElementById('tf-mode').value==='archive';
-  document.getElementById('tf-month-wrap').style.display=arch?'none':'';
-  loadTasks();
-}
-/** due критичний: сьогодні == due-1 день, або сьогодні >= due */
-function dueFlag(due){
-  if(!due) return null;
-  const t=today();
-  if(t>due) return 'over';
-  // переддень: due - 1 day
-  const d=new Date(due+'T12:00:00');
-  d.setDate(d.getDate()-1);
-  const prev=d.toISOString().slice(0,10);
-  if(t>=prev) return 'soon';
-  return null;
-}
+function formatDuration(mins){mins=Math.max(0,Math.floor(+mins||0));if(mins<60)return mins+' хв';const h=Math.floor(mins/60),m=mins%60;if(mins<1440)return m?h+' год '+m+' хв':h+' год';const d=Math.floor(mins/1440),rh=Math.floor((mins%1440)/60);return rh?d+' д '+rh+' год':d+' д'}
+function memberOpts(selected,allowEmpty){let o=allowEmpty?'<option value="">— на розгляді —</option>':'';(users||[]).filter(u=>u.role!=='admin'||u.is_oncall).forEach(u=>{o+=`<option value="${esc(u.name)}" ${u.name===selected?'selected':''}>${esc(u.name)}</option>`});return o}
+function initMonth(){const el=document.getElementById('tf-month');if(el&&!el.value){const n=new Date();el.value=`${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}`}}
+function onModeChange(){document.getElementById('tf-month-wrap').style.display=document.getElementById('tf-mode').value==='archive'?'none':'';loadTasks()}
+function dueFlag(due){if(!due)return null;const t=today();if(t>due)return 'over';const d=new Date(due+'T12:00:00');d.setDate(d.getDate()-1);if(t>=d.toISOString().slice(0,10))return 'soon';return null}
 
 async function loadAll(){
-  const [u,r,t]=await Promise.all([
+  const [u,r,t,ip]=await Promise.all([
     fetch('/api/admin/users').then(r=>r.json()),
     fetch('/api/admin/roles').then(r=>r.json()),
-    fetch('/api/admin/absence-types').then(r=>r.json())
+    fetch('/api/admin/absence-types').then(r=>r.json()),
+    fetch('/api/admin/incident-priorities').then(r=>r.json()).catch(()=>[])
   ]);
-  users=u||[]; roles=r||[];
-  const tr=document.getElementById('u-tr');
-  tr.innerHTML='<option value="">—</option>'+(roles||[]).map(x=>`<option value="${x.id}">${x.name}</option>`).join('');
-  document.getElementById('u-tb').innerHTML=(users||[]).map(x=>`<tr>
-    <td>${x.id}</td><td>${esc(x.username)}</td><td>${esc(x.name)}</td><td>${x.role}</td><td>${esc(x.team_role||'—')}</td>
-    <td>${x.is_oncall?'Так':'Ні'}</td>
-    <td style="white-space:nowrap">
-      <button class="btn btn-e" style="padding:2px 8px" onclick="editUser(${x.id})">✎</button>
-      <button class="btn btn-d" style="padding:2px 8px" onclick="delUser(${x.id})">✕</button>
-    </td></tr>`).join('')||'<tr><td colspan="7">Порожньо</td></tr>';
-  document.getElementById('r-tb').innerHTML=(roles||[]).map(x=>`<tr><td>${x.id}</td><td>${esc(x.name)}</td>
-    <td style="white-space:nowrap">
-      <button class="btn btn-e" style="padding:2px 8px" onclick="editRole(${x.id})">✎</button>
-      <button class="btn btn-d" style="padding:2px 8px" onclick="delRole(${x.id})">✕</button>
-    </td></tr>`).join('')||'<tr><td colspan="3">Порожньо</td></tr>';
-  document.getElementById('t-tb').innerHTML=(t||[]).map(x=>{
-    const col=x.color||'#f59e0b';
-    return `<tr><td>${x.id}</td><td>${esc(x.name)}</td><td>${esc(x.code||'')}</td>
-    <td><span class="swatch" style="background:${col}"></span> ${esc(col)}</td>
-    <td style="white-space:nowrap">
-      <button class="btn btn-e" style="padding:2px 8px" onclick="editType(${x.id})">✎</button>
-      <button class="btn btn-d" style="padding:2px 8px" onclick="delType(${x.id})">✕</button>
-    </td></tr>`;
-  }).join('')||'<tr><td colspan="5">Порожньо</td></tr>';
+  users=u||[];roles=r||[];_iprios=ip||[];
+  document.getElementById('u-tr').innerHTML='<option value="">—</option>'+(roles||[]).map(x=>`<option value="${x.id}">${x.name}</option>`).join('');
+  document.getElementById('u-tb').innerHTML=(users||[]).map(x=>`<tr><td>${x.id}</td><td>${esc(x.username)}</td><td>${esc(x.name)}</td><td>${x.role}</td><td>${esc(x.team_role||'—')}</td><td>${x.is_oncall?'Так':'Ні'}</td>
+    <td><button class="btn btn-e" style="padding:2px 8px" onclick="editUser(${x.id})">✎</button> <button class="btn btn-d" style="padding:2px 8px" onclick="delUser(${x.id})">✕</button></td></tr>`).join('')||'<tr><td colspan="7">Порожньо</td></tr>';
+  document.getElementById('r-tb').innerHTML=(roles||[]).map(x=>`<tr><td>${x.id}</td><td>${esc(x.name)}</td><td><button class="btn btn-e" style="padding:2px 8px" onclick="editRole(${x.id})">✎</button> <button class="btn btn-d" style="padding:2px 8px" onclick="delRole(${x.id})">✕</button></td></tr>`).join('')||'<tr><td colspan="3">—</td></tr>';
+  document.getElementById('t-tb').innerHTML=(t||[]).map(x=>`<tr><td>${x.id}</td><td>${esc(x.name)}</td><td>${esc(x.code||'')}</td><td><span class="swatch" style="background:${x.color||'#f59e0b'}"></span></td>
+    <td><button class="btn btn-e" style="padding:2px 8px" onclick="editType(${x.id})">✎</button> <button class="btn btn-d" style="padding:2px 8px" onclick="delType(${x.id})">✕</button></td></tr>`).join('')||'<tr><td colspan="5">—</td></tr>';
   window._atypes=t||[];
-  const fu=document.getElementById('tf-user');
-  fu.innerHTML='<option value="">Усі</option>'+(users||[]).filter(u=>u.role!=='admin').map(u=>`<option value="${esc(u.name)}">${esc(u.name)}</option>`).join('');
-  fillTaskSelects(); initMonth();
+  document.getElementById('tf-user').innerHTML='<option value="">Усі</option>'+(users||[]).filter(u=>u.role!=='admin').map(u=>`<option value="${esc(u.name)}">${esc(u.name)}</option>`).join('');
+  fillTaskSelects();initMonth();
 }
 
 function fillTaskSelects(){
-  const tu=document.getElementById('nt-user'), tr=document.getElementById('nt-resp');
-  if(tu) tu.innerHTML=memberOpts('',true);
-  if(tr) tr.innerHTML='<option value="">—</option>'+(users||[]).map(u=>`<option value="${esc(u.name)}">${esc(u.name)}</option>`).join('');
-  const d=document.getElementById('nt-date');
-  if(d && !d.value) d.value=today();
-  const v=document.getElementById('nt-vis');
-  if(v && !v.value) v.value=today();
+  const tu=document.getElementById('nt-user'),tr=document.getElementById('nt-resp');
+  if(tu)tu.innerHTML=memberOpts('',true);
+  if(tr)tr.innerHTML='<option value="">—</option>'+(users||[]).map(u=>`<option value="${esc(u.name)}">${esc(u.name)}</option>`).join('');
+  if(document.getElementById('nt-date')&&!document.getElementById('nt-date').value)document.getElementById('nt-date').value=today();
+  if(document.getElementById('nt-vis')&&!document.getElementById('nt-vis').value)document.getElementById('nt-vis').value=today();
 }
 
-function resetUserForm(){
-  document.getElementById('u-id').value='';
-  ['u-user','u-pass','u-name'].forEach(id=>document.getElementById(id).value='');
-  document.getElementById('u-role').value='user'; document.getElementById('u-tr').value=''; document.getElementById('u-on').value='1';
-  document.getElementById('u-save').innerText='Додати'; document.getElementById('u-cancel').style.display='none';
-}
-function editUser(id){
-  const x=(users||[]).find(u=>u.id===id); if(!x)return;
-  document.getElementById('u-id').value=x.id;
-  document.getElementById('u-user').value=x.username||''; document.getElementById('u-pass').value='';
-  document.getElementById('u-name').value=x.name||''; document.getElementById('u-role').value=x.role||'user';
-  document.getElementById('u-tr').value=x.team_role_id||''; document.getElementById('u-on').value=x.is_oncall?'1':'0';
-  document.getElementById('u-save').innerText='Зберегти'; document.getElementById('u-cancel').style.display='';
-}
-async function saveUser(){
-  const id=+document.getElementById('u-id').value||0;
-  const body={username:document.getElementById('u-user').value,password:document.getElementById('u-pass').value,
-    name:document.getElementById('u-name').value,role:document.getElementById('u-role').value,
-    team_role_id:+document.getElementById('u-tr').value||null,is_oncall:document.getElementById('u-on').value==='1'};
-  if(id){body.id=id; const r=await fetch('/api/admin/users',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}); if(!r.ok){alert(await r.text());return;}}
-  else{const r=await fetch('/api/admin/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}); if(!r.ok){alert(await r.text());return;}}
-  resetUserForm(); loadAll();
-}
+function resetUserForm(){document.getElementById('u-id').value='';['u-user','u-pass','u-name'].forEach(id=>document.getElementById(id).value='');document.getElementById('u-role').value='user';document.getElementById('u-tr').value='';document.getElementById('u-on').value='1';document.getElementById('u-save').innerText='Додати';document.getElementById('u-cancel').style.display='none'}
+function editUser(id){const x=users.find(u=>u.id===id);if(!x)return;document.getElementById('u-id').value=x.id;document.getElementById('u-user').value=x.username||'';document.getElementById('u-pass').value='';document.getElementById('u-name').value=x.name||'';document.getElementById('u-role').value=x.role||'user';document.getElementById('u-tr').value=x.team_role_id||'';document.getElementById('u-on').value=x.is_oncall?'1':'0';document.getElementById('u-save').innerText='Зберегти';document.getElementById('u-cancel').style.display=''}
+async function saveUser(){const id=+document.getElementById('u-id').value||0;const body={username:document.getElementById('u-user').value,password:document.getElementById('u-pass').value,name:document.getElementById('u-name').value,role:document.getElementById('u-role').value,team_role_id:+document.getElementById('u-tr').value||null,is_oncall:document.getElementById('u-on').value==='1'};if(id){body.id=id;await fetch('/api/admin/users',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})}else await fetch('/api/admin/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});resetUserForm();loadAll()}
 async function delUser(id){if(confirm('Видалити?')){await fetch('/api/admin/users?id='+id,{method:'DELETE'});loadAll()}}
 
-function resetRoleForm(){document.getElementById('r-id').value='';document.getElementById('r-name').value='';document.getElementById('r-save').innerText='Додати';document.getElementById('r-cancel').style.display='none';}
-function editRole(id){const x=(roles||[]).find(r=>r.id===id);if(!x)return;document.getElementById('r-id').value=id;document.getElementById('r-name').value=x.name;document.getElementById('r-save').innerText='Зберегти';document.getElementById('r-cancel').style.display='';}
-async function saveRole(){
-  const id=+document.getElementById('r-id').value||0, name=document.getElementById('r-name').value.trim();
-  if(!name){alert('Вкажіть назву');return;}
-  if(id) await fetch('/api/admin/roles',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,name})});
-  else await fetch('/api/admin/roles',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})});
-  resetRoleForm(); loadAll();
-}
+function resetRoleForm(){document.getElementById('r-id').value='';document.getElementById('r-name').value='';document.getElementById('r-save').innerText='Додати';document.getElementById('r-cancel').style.display='none'}
+function editRole(id){const x=roles.find(r=>r.id===id);if(!x)return;document.getElementById('r-id').value=id;document.getElementById('r-name').value=x.name;document.getElementById('r-save').innerText='Зберегти';document.getElementById('r-cancel').style.display=''}
+async function saveRole(){const id=+document.getElementById('r-id').value||0,name=document.getElementById('r-name').value.trim();if(!name)return;if(id)await fetch('/api/admin/roles',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,name})});else await fetch('/api/admin/roles',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})});resetRoleForm();loadAll()}
 async function delRole(id){if(confirm('Видалити?')){await fetch('/api/admin/roles?id='+id,{method:'DELETE'});loadAll()}}
 
-function resetTypeForm(){document.getElementById('t-id').value='';document.getElementById('t-name').value='';document.getElementById('t-code').value='';document.getElementById('t-color').value='#f59e0b';document.getElementById('t-save').innerText='Додати';document.getElementById('t-cancel').style.display='none';}
-function editType(id){const x=(window._atypes||[]).find(t=>t.id===id);if(!x)return;document.getElementById('t-id').value=id;document.getElementById('t-name').value=x.name||'';document.getElementById('t-code').value=x.code||'';document.getElementById('t-color').value=x.color||'#f59e0b';document.getElementById('t-save').innerText='Зберегти';document.getElementById('t-cancel').style.display='';}
-async function saveType(){
-  const id=+document.getElementById('t-id').value||0,name=document.getElementById('t-name').value.trim(),code=document.getElementById('t-code').value.trim(),color=document.getElementById('t-color').value||'#f59e0b';
-  if(!name){alert('Вкажіть назву');return;}
-  if(id) await fetch('/api/admin/absence-types',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,name,code,color})});
-  else await fetch('/api/admin/absence-types',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,code,color})});
-  resetTypeForm(); loadAll();
-}
+function resetTypeForm(){document.getElementById('t-id').value='';document.getElementById('t-name').value='';document.getElementById('t-code').value='';document.getElementById('t-color').value='#f59e0b';document.getElementById('t-save').innerText='Додати';document.getElementById('t-cancel').style.display='none'}
+function editType(id){const x=(window._atypes||[]).find(t=>t.id===id);if(!x)return;document.getElementById('t-id').value=id;document.getElementById('t-name').value=x.name||'';document.getElementById('t-code').value=x.code||'';document.getElementById('t-color').value=x.color||'#f59e0b';document.getElementById('t-save').innerText='Зберегти';document.getElementById('t-cancel').style.display=''}
+async function saveType(){const id=+document.getElementById('t-id').value||0,name=document.getElementById('t-name').value.trim(),code=document.getElementById('t-code').value.trim(),color=document.getElementById('t-color').value;if(!name)return;if(id)await fetch('/api/admin/absence-types',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,name,code,color})});else await fetch('/api/admin/absence-types',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,code,color})});resetTypeForm();loadAll()}
 async function delType(id){if(confirm('Видалити?')){await fetch('/api/admin/absence-types?id='+id,{method:'DELETE'});loadAll()}}
 
-async function loadReqs(){
-  const d=await fetch('/api/admin/requests').then(r=>r.json());
-  document.getElementById('req-tb').innerHTML=(d||[]).map(x=>`<tr>
-    <td>${x.id}</td><td>${esc(x.user_name)}</td><td>${esc(x.type)}</td><td>${x.start_date}</td><td>${x.end_date}</td><td>${x.status}</td>
-    <td>${x.status==='Pending'?`<button class="btn btn-p" onclick="setSt(${x.id},'Approved')">OK</button>
-    <button class="btn btn-d" onclick="setSt(${x.id},'Rejected')">✕</button>`:'—'}</td></tr>`).join('')||'<tr><td colspan="7">Немає</td></tr>';
+async function loadIPrios(){
+  _iprios=await fetch('/api/admin/incident-priorities').then(r=>r.json());
+  document.getElementById('ip-tb').innerHTML=(_iprios||[]).map(x=>`<tr><td>${x.id}</td><td>${esc(x.name)}</td><td>${esc(x.code)}</td><td><span class="swatch" style="background:${x.color}"></span></td><td>${x.sort_order}</td><td>${x.is_default?'★':''}</td>
+    <td><button class="btn btn-e" style="padding:2px 8px" onclick="editIPrio(${x.id})">✎</button> <button class="btn btn-d" style="padding:2px 8px" onclick="delIPrio(${x.id})">✕</button></td></tr>`).join('')||'<tr><td colspan="7">—</td></tr>';
 }
+function resetIPrio(){document.getElementById('ip-id').value='';document.getElementById('ip-name').value='';document.getElementById('ip-code').value='';document.getElementById('ip-color').value='#3b82f6';document.getElementById('ip-sort').value=30;document.getElementById('ip-def').value='0';document.getElementById('ip-save').innerText='Додати';document.getElementById('ip-cancel').style.display='none'}
+function editIPrio(id){const x=_iprios.find(p=>p.id===id);if(!x)return;document.getElementById('ip-id').value=id;document.getElementById('ip-name').value=x.name;document.getElementById('ip-code').value=x.code||'';document.getElementById('ip-color').value=x.color||'#3b82f6';document.getElementById('ip-sort').value=x.sort_order||0;document.getElementById('ip-def').value=x.is_default?'1':'0';document.getElementById('ip-save').innerText='Зберегти';document.getElementById('ip-cancel').style.display=''}
+async function saveIPrio(){const id=+document.getElementById('ip-id').value||0;const body={name:document.getElementById('ip-name').value.trim(),code:document.getElementById('ip-code').value.trim(),color:document.getElementById('ip-color').value,sort_order:+document.getElementById('ip-sort').value||0,is_default:document.getElementById('ip-def').value==='1'};if(!body.name)return;if(id){body.id=id;await fetch('/api/admin/incident-priorities',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})}else await fetch('/api/admin/incident-priorities',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});resetIPrio();loadIPrios()}
+async function delIPrio(id){if(confirm('Видалити?')){await fetch('/api/admin/incident-priorities?id='+id,{method:'DELETE'});loadIPrios()}}
+
+async function loadReqs(){const d=await fetch('/api/admin/requests').then(r=>r.json());document.getElementById('req-tb').innerHTML=(d||[]).map(x=>`<tr><td>${x.id}</td><td>${esc(x.user_name)}</td><td>${esc(x.type)}</td><td>${x.start_date}</td><td>${x.end_date}</td><td>${x.status}</td>
+<td>${x.status==='Pending'?`<button class="btn btn-p" onclick="setSt(${x.id},'Approved')">OK</button> <button class="btn btn-d" onclick="setSt(${x.id},'Rejected')">✕</button>`:'—'}</td></tr>`).join('')||'<tr><td colspan="7">Немає</td></tr>'}
 async function setSt(id,status){await fetch('/api/admin/requests',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,status})});loadReqs()}
 
-function resetTaskForm(){
-  document.getElementById('nt-id').value='';
-  document.getElementById('nt-desc').value='';
-  document.getElementById('nt-due').value='';
-  document.getElementById('nt-est').value='0';
-  document.getElementById('nt-status').value='Нова';
-  document.getElementById('nt-prio').value='Базова';
-  document.getElementById('nt-date').value=today();
-  document.getElementById('nt-vis').value=today();
-  fillTaskSelects();
-  document.getElementById('task-edit-title').innerText='Створити задачу';
-  document.getElementById('nt-save').innerText='Створити задачу';
-  document.getElementById('nt-cancel').style.display='none';
+async function loadIncs(){
+  const d=await fetch('/api/admin/incidents').then(r=>r.json());
+  document.getElementById('inc-tb').innerHTML=(d||[]).map(x=>`<tr>
+    <td>${x.id}</td><td>${esc(x.user_name||'—')}</td><td>${x.date}</td><td>${esc(x.priority)}</td><td>${esc(x.source)}</td><td>${esc(x.status)}</td><td>${esc(x.description)}</td>
+    <td style="white-space:nowrap">
+      ${x.status!=='Вирішено'&&x.status!=='Архів'?`<button class="btn btn-p" style="padding:2px 8px" onclick="toTask(${x.id})">→ задача</button>`:''}
+      <button class="btn btn-d" style="padding:2px 6px" onclick="delInc(${x.id})">✕</button>
+    </td></tr>`).join('')||'<tr><td colspan="8">Немає</td></tr>';
 }
-function editTask(id){
-  const x=_tasksCache.find(t=>t.id===id); if(!x){alert('Не знайдено');return;}
-  document.getElementById('nt-id').value=x.id;
-  document.getElementById('nt-user').innerHTML=memberOpts(x.user_name||'',true);
-  document.getElementById('nt-resp').innerHTML='<option value="">—</option>'+(users||[]).map(u=>`<option value="${esc(u.name)}" ${u.name===x.responsible?'selected':''}>${esc(u.name)}</option>`).join('');
-  document.getElementById('nt-date').value=x.date||'';
-  document.getElementById('nt-vis').value=x.visible_from||x.date||'';
-  document.getElementById('nt-due').value=x.due_date||'';
-  document.getElementById('nt-est').value=x.estimated_minutes||0;
-  document.getElementById('nt-status').value=x.status||'Нова';
-  document.getElementById('nt-prio').value=x.priority||'Базова';
-  document.getElementById('nt-desc').value=x.task_description||'';
-  document.getElementById('task-edit-title').innerText='Редагувати задачу #'+x.id;
-  document.getElementById('nt-save').innerText='Зберегти';
-  document.getElementById('nt-cancel').style.display='';
-  document.getElementById('task-edit-card').scrollIntoView({behavior:'smooth'});
-}
-async function saveTask(){
-  const id=+document.getElementById('nt-id').value||0;
-  const desc=document.getElementById('nt-desc').value.trim();
-  const date=document.getElementById('nt-date').value;
-  if(!desc||!date){alert('Потрібні дата та опис');return;}
-  const body={
-    user_name:document.getElementById('nt-user').value||'',
-    responsible:document.getElementById('nt-resp').value||'',
-    date:date,
-    visible_from:document.getElementById('nt-vis').value||date,
-    due_date:document.getElementById('nt-due').value||'',
-    estimated_minutes:+document.getElementById('nt-est').value||0,
-    task_description:desc,
-    status:document.getElementById('nt-status').value||'Нова',
-    priority:document.getElementById('nt-prio').value||'Базова',
-    created_by:'admin', role:'admin'
-  };
-  if(id){
-    body.id=id;
-    const r=await fetch('/api/admin/tasks',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-    if(!r.ok){alert(await r.text()||'Помилка');return;}
-  } else {
-    const r=await fetch('/api/daily-tasks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-    if(!r.ok){alert(await r.text()||'Помилка створення');return;}
-  }
-  resetTaskForm(); loadTasks();
-}
+async function toTask(id){if(!confirm('Перевести звернення #'+id+' у задачу з дейлі?'))return;const r=await fetch('/api/admin/incidents/to-task',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});if(!r.ok){alert(await r.text());return}alert('Створено задачу');loadIncs()}
+async function delInc(id){if(confirm('Видалити?')){await fetch('/api/admin/incidents?id='+id,{method:'DELETE'});loadIncs()}}
 
-async function loadTasks(){
-  const u=document.getElementById('tf-user').value,s=document.getElementById('tf-status').value;
-  const pr=document.getElementById('tf-prio').value,q=document.getElementById('tf-q').value.trim();
-  const mode=document.getElementById('tf-mode').value;
-  const p=new URLSearchParams();
-  if(u)p.set('user',u);if(s)p.set('status',s);if(pr)p.set('priority',pr);if(q)p.set('q',q);
-  if(mode==='archive') p.set('archive','1');
-  else {
-    const m=document.getElementById('tf-month').value; // YYYY-MM
-    if(m){const [yy,mm]=m.split('-'); p.set('year',yy); p.set('month',String(+mm));}
-  }
-  const d=await fetch('/api/admin/tasks?'+p).then(r=>r.json());
-  _tasksCache=d||[];
-  document.getElementById('task-tb').innerHTML=_tasksCache.map(x=>{
-    const flag=dueFlag(x.due_date);
-    const rowClass=flag==='over'?'row-due-over':(flag==='soon'?'row-due-soon':'');
-    let dueBadge='';
-    if(flag==='over') dueBadge='<span class="badge-due">прострочено</span>';
-    else if(flag==='soon') dueBadge='<span class="badge-due badge-due-soon">переддень</span>';
-    const st=STATUSES.map(v=>`<option ${v===x.status?'selected':''}>${v}</option>`).join('');
-    const pri=PRIOS.map(v=>`<option ${v===x.priority?'selected':''}>${v}</option>`).join('');
-    const execSel=`<select onchange="updTask(${x.id},'user_name',this.value)">${memberOpts(x.user_name||'',true)}</select>`;
-    const dueInp=`<input type="date" value="${x.due_date||''}" style="width:130px" onchange="updTask(${x.id},'due_date',this.value)">`;
-    return `<tr class="${rowClass}"><td>${x.id}</td><td>${execSel}</td><td>${esc(x.responsible||'—')}</td>
-      <td>${x.date}</td><td>${dueInp}${dueBadge}</td>
-      <td>${esc(x.task_description)}</td>
-      <td><select onchange="updTask(${x.id},'status',this.value)">${st}</select></td>
-      <td><select onchange="updTask(${x.id},'priority',this.value)">${pri}</select></td>
-      <td>${x.estimated_minutes||0}/${x.total_minutes||0}</td>
-      <td style="white-space:nowrap">
-        <button class="btn btn-e" style="padding:2px 6px" onclick="editTask(${x.id})">✎</button>
-        <button class="btn btn-d" style="padding:2px 6px" onclick="delTask(${x.id})">✕</button>
-      </td></tr>`;
-  }).join('')||'<tr><td colspan="10">Немає задач</td></tr>';
-}
-async function updTask(id,field,val){
-  const body={id,role:'admin'}; body[field]=val;
-  const r=await fetch('/api/admin/tasks',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-  if(!r.ok)alert(await r.text()||'Помилка');
-  loadTasks();
-}
+function resetTaskForm(){document.getElementById('nt-id').value='';document.getElementById('nt-desc').value='';document.getElementById('nt-due').value='';document.getElementById('nt-est').value='0';document.getElementById('nt-status').value='Нова';document.getElementById('nt-prio').value='Базова';document.getElementById('nt-date').value=today();document.getElementById('nt-vis').value=today();fillTaskSelects();document.getElementById('task-edit-title').innerText='Створити задачу';document.getElementById('nt-save').innerText='Створити';document.getElementById('nt-cancel').style.display='none'}
+function editTask(id){const x=_tasksCache.find(t=>t.id===id);if(!x)return;document.getElementById('nt-id').value=x.id;document.getElementById('nt-user').innerHTML=memberOpts(x.user_name||'',true);document.getElementById('nt-resp').innerHTML='<option value="">—</option>'+(users||[]).map(u=>`<option value="${esc(u.name)}" ${u.name===x.responsible?'selected':''}>${esc(u.name)}</option>`).join('');document.getElementById('nt-date').value=x.date||'';document.getElementById('nt-vis').value=x.visible_from||x.date||'';document.getElementById('nt-due').value=x.due_date||'';document.getElementById('nt-est').value=x.estimated_minutes||0;document.getElementById('nt-status').value=x.status||'Нова';document.getElementById('nt-prio').value=x.priority||'Базова';document.getElementById('nt-desc').value=x.task_description||'';document.getElementById('task-edit-title').innerText='Редагувати #'+x.id;document.getElementById('nt-save').innerText='Зберегти';document.getElementById('nt-cancel').style.display='';document.getElementById('task-edit-card').scrollIntoView({behavior:'smooth'})}
+async function saveTask(){const id=+document.getElementById('nt-id').value||0;const desc=document.getElementById('nt-desc').value.trim(),date=document.getElementById('nt-date').value;if(!desc||!date){alert('Потрібні дата та опис');return}const body={user_name:document.getElementById('nt-user').value||'',responsible:document.getElementById('nt-resp').value||'',date,visible_from:document.getElementById('nt-vis').value||date,due_date:document.getElementById('nt-due').value||'',estimated_minutes:+document.getElementById('nt-est').value||0,task_description:desc,status:document.getElementById('nt-status').value,priority:document.getElementById('nt-prio').value,created_by:'admin',role:'admin'};if(id){body.id=id;const r=await fetch('/api/admin/tasks',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});if(!r.ok){alert(await r.text());return}}else{const r=await fetch('/api/daily-tasks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});if(!r.ok){alert(await r.text());return}}resetTaskForm();loadTasks()}
+async function loadTasks(){const u=document.getElementById('tf-user').value,s=document.getElementById('tf-status').value,q=document.getElementById('tf-q').value.trim(),mode=document.getElementById('tf-mode').value;const p=new URLSearchParams();if(u)p.set('user',u);if(s)p.set('status',s);if(q)p.set('q',q);if(mode==='archive')p.set('archive','1');else{const m=document.getElementById('tf-month').value;if(m){const[yy,mm]=m.split('-');p.set('year',yy);p.set('month',String(+mm))}}const d=await fetch('/api/admin/tasks?'+p).then(r=>r.json());_tasksCache=d||[];document.getElementById('task-tb').innerHTML=_tasksCache.map(x=>{const flag=dueFlag(x.due_date);const row=flag==='over'?'row-due-over':(flag==='soon'?'row-due-soon':'');let badge='';if(flag==='over')badge='<span class="badge-due">прострочено</span>';else if(flag==='soon')badge='<span class="badge-due badge-due-soon">переддень</span>';const st=STATUSES.map(v=>`<option ${v===x.status?'selected':''}>${v}</option>`).join('');const pri=PRIOS.map(v=>`<option ${v===x.priority?'selected':''}>${v}</option>`).join('');return `<tr class="${row}"><td>${x.id}</td><td><select onchange="updTask(${x.id},'user_name',this.value)">${memberOpts(x.user_name||'',true)}</select></td><td>${esc(x.responsible||'—')}</td><td>${x.date}</td><td><input type="date" value="${x.due_date||''}" style="width:130px" onchange="updTask(${x.id},'due_date',this.value)">${badge}</td><td>${esc(x.task_description)}</td><td><select onchange="updTask(${x.id},'status',this.value)">${st}</select></td><td><select onchange="updTask(${x.id},'priority',this.value)">${pri}</select></td><td>${formatDuration(x.estimated_minutes)}/${formatDuration(x.total_minutes)}</td><td><button class="btn btn-e" style="padding:2px 6px" onclick="editTask(${x.id})">✎</button> <button class="btn btn-d" style="padding:2px 6px" onclick="delTask(${x.id})">✕</button></td></tr>`}).join('')||'<tr><td colspan="10">Немає</td></tr>'}
+async function updTask(id,field,val){const body={id,role:'admin'};body[field]=val;const r=await fetch('/api/admin/tasks',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});if(!r.ok)alert(await r.text());loadTasks()}
 async function delTask(id){if(confirm('Видалити?')){await fetch('/api/admin/tasks?id='+id,{method:'DELETE'});loadTasks()}}
-
-async function loadLogs(){
-  const d=await fetch('/api/admin/logs').then(r=>r.json());
-  document.getElementById('log-tb').innerHTML=(d||[]).map(x=>`<tr>
-    <td>${x.timestamp||''}</td><td>${esc(x.user_name)}</td><td>${esc(x.action)}</td><td>${x.ip||''}</td><td>${esc(x.details||'')}</td></tr>`).join('')||'<tr><td colspan="5">Порожньо</td></tr>';
-}
+async function loadLogs(){const d=await fetch('/api/admin/logs').then(r=>r.json());document.getElementById('log-tb').innerHTML=(d||[]).map(x=>`<tr><td>${x.timestamp||''}</td><td>${esc(x.user_name)}</td><td>${esc(x.action)}</td><td>${x.ip||''}</td><td>${esc(x.details||'')}</td></tr>`).join('')||'<tr><td colspan="5">—</td></tr>'}
 
 loadAll();
 </script></body></html>
