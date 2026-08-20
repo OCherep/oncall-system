@@ -9,8 +9,6 @@ import (
 	"strings"
 )
 
-// dbAdminPassword returns the secondary password required for DB tools.
-// Set via env DB_ADMIN_PASSWORD (default: "db-admin-change-me").
 func dbAdminPassword() string {
 	p := os.Getenv("DB_ADMIN_PASSWORD")
 	if p == "" {
@@ -162,13 +160,13 @@ func handleAdminAbsenceTypes(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	switch r.Method {
 	case http.MethodGet:
-		rows, _ := db.Query(`SELECT id, name, code FROM absence_types ORDER BY id`)
+		rows, _ := db.Query(`SELECT id, name, code, COALESCE(color,'') FROM absence_types ORDER BY id`)
 		var list []AbsenceType
 		if rows != nil {
 			defer rows.Close()
 			for rows.Next() {
 				var t AbsenceType
-				rows.Scan(&t.ID, &t.Name, &t.Code)
+				rows.Scan(&t.ID, &t.Name, &t.Code, &t.Color)
 				list = append(list, t)
 			}
 		}
@@ -176,7 +174,7 @@ func handleAdminAbsenceTypes(w http.ResponseWriter, r *http.Request) {
 	case http.MethodPost:
 		var t AbsenceType
 		json.NewDecoder(r.Body).Decode(&t)
-		res, err := db.Exec(`INSERT INTO absence_types (name, code) VALUES (?,?)`, t.Name, t.Code)
+		res, err := db.Exec(`INSERT INTO absence_types (name, code, color) VALUES (?,?,?)`, t.Name, t.Code, t.Color)
 		if err != nil {
 			http.Error(w, err.Error(), 500)
 			return
@@ -188,7 +186,7 @@ func handleAdminAbsenceTypes(w http.ResponseWriter, r *http.Request) {
 	case http.MethodPut:
 		var t AbsenceType
 		json.NewDecoder(r.Body).Decode(&t)
-		db.Exec(`UPDATE absence_types SET name=?, code=? WHERE id=?`, t.Name, t.Code, t.ID)
+		db.Exec(`UPDATE absence_types SET name=?, code=?, color=? WHERE id=?`, t.Name, t.Code, t.Color, t.ID)
 		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 	case http.MethodDelete:
 		db.Exec("DELETE FROM absence_types WHERE id=?", r.URL.Query().Get("id"))
@@ -220,6 +218,10 @@ func handleAdminRequests(w http.ResponseWriter, r *http.Request) {
 		}
 		json.NewDecoder(r.Body).Decode(&req)
 		db.Exec(`UPDATE absences SET status=? WHERE id=?`, req.Status, req.ID)
+		// після approve — скинути shifts, щоб графік перерахувався без відсутніх
+		if req.Status == "Approved" || req.Status == "Rejected" {
+			db.Exec(`DELETE FROM shifts`)
+		}
 		logAudit("admin", "UPDATE_REQUEST", r.RemoteAddr, fmt.Sprintf("id=%d status=%s", req.ID, req.Status))
 		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 	default:
@@ -355,12 +357,16 @@ func handleAdminTasks(w http.ResponseWriter, r *http.Request) {
 		} else {
 			workArg = workStarted
 		}
-		userName := t.UserName
-		if userName == "" {
-			userName = cur.UserName
+		userName := cur.UserName
+		if _, ok := raw["user_name"]; ok {
+			userName = t.UserName
 		}
-		db.Exec(`UPDATE daily_tasks SET status=?, priority=?, work_started_at=?, total_minutes=?, user_name=? WHERE id=?`,
-			newStatus, newPriority, workArg, total, userName, t.ID)
+		resp := cur.Responsible
+		if _, ok := raw["responsible"]; ok {
+			resp = t.Responsible
+		}
+		db.Exec(`UPDATE daily_tasks SET status=?, priority=?, work_started_at=?, total_minutes=?, user_name=?, responsible=? WHERE id=?`,
+			newStatus, newPriority, workArg, total, userName, resp, t.ID)
 		_ = b
 		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 	case http.MethodDelete:
