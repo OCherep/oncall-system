@@ -57,15 +57,44 @@ type UserStat struct {
 	IncidentMinutes int    `json:"incident_minutes"`
 }
 
+// IncidentReport — звернення (розширена модель)
 type IncidentReport struct {
 	ID              int    `json:"id,omitempty"`
-	UserName        string `json:"user_name"`
+	UserName        string `json:"user_name"` // виконавець / на кого
 	Date            string `json:"date"`
 	Type            string `json:"type"`
-	DurationMinutes int    `json:"duration_minutes"`
+	DurationMinutes int    `json:"duration_minutes"` // legacy / manual duration
 	Description     string `json:"description"`
 	CreatedAt       string `json:"created_at,omitempty"`
-	Role            string `json:"role,omitempty"`
+	Role            string `json:"role,omitempty"` // hint from client
+	Status          string `json:"status,omitempty"`
+	Priority        string `json:"priority,omitempty"`
+	Source          string `json:"source,omitempty"` // self | team_lead | monitoring | external | manual
+	Responsible     string `json:"responsible,omitempty"`
+	CreatedBy       string `json:"created_by,omitempty"`
+	WorkStartedAt   string `json:"work_started_at,omitempty"`
+	TotalMinutes    int    `json:"total_minutes,omitempty"`
+	DueDate         string `json:"due_date,omitempty"`
+	ReportedFor     string `json:"reported_for,omitempty"` // чиє звернення (якщо фіксує тімлід)
+}
+
+type IncidentPriority struct {
+	ID        int    `json:"id"`
+	Name      string `json:"name"`
+	Code      string `json:"code"`
+	Color     string `json:"color"`
+	SortOrder int    `json:"sort_order"`
+	IsDefault bool   `json:"is_default"`
+}
+
+type Comment struct {
+	ID         int    `json:"id,omitempty"`
+	EntityType string `json:"entity_type"` // task | incident
+	EntityID   int    `json:"entity_id"`
+	AuthorName string `json:"author_name"`
+	Body       string `json:"body"`
+	IsSystem   bool   `json:"is_system"`
+	CreatedAt  string `json:"created_at,omitempty"`
 }
 
 type DailyTask struct {
@@ -82,7 +111,8 @@ type DailyTask struct {
 	DueDate          string `json:"due_date,omitempty"`
 	CreatedBy        string `json:"created_by,omitempty"`
 	Responsible      string `json:"responsible,omitempty"`
-	EstimatedMinutes int    `json:"estimated_minutes,omitempty"` // планований час виконання (хв)
+	EstimatedMinutes int    `json:"estimated_minutes,omitempty"`
+	IncidentID       int    `json:"incident_id,omitempty"`
 }
 
 type TableStat struct {
@@ -160,8 +190,34 @@ func initDB() {
 			user_name TEXT,
 			date TEXT,
 			type TEXT,
-			duration_minutes INTEGER,
+			duration_minutes INTEGER DEFAULT 0,
 			description TEXT,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			status TEXT DEFAULT 'Нове',
+			priority TEXT DEFAULT 'Звичайний',
+			source TEXT DEFAULT 'self',
+			responsible TEXT,
+			created_by TEXT,
+			work_started_at TEXT,
+			total_minutes INTEGER DEFAULT 0,
+			due_date TEXT,
+			reported_for TEXT
+		)`,
+		`CREATE TABLE IF NOT EXISTS incident_priorities (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			name TEXT UNIQUE NOT NULL,
+			code TEXT,
+			color TEXT,
+			sort_order INTEGER DEFAULT 0,
+			is_default INTEGER DEFAULT 0
+		)`,
+		`CREATE TABLE IF NOT EXISTS comments (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			entity_type TEXT NOT NULL,
+			entity_id INTEGER NOT NULL,
+			author_name TEXT,
+			body TEXT,
+			is_system INTEGER DEFAULT 0,
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)`,
 		`CREATE TABLE IF NOT EXISTS daily_tasks (
@@ -178,7 +234,8 @@ func initDB() {
 			due_date TEXT,
 			created_by TEXT,
 			responsible TEXT,
-			estimated_minutes INTEGER DEFAULT 0
+			estimated_minutes INTEGER DEFAULT 0,
+			incident_id INTEGER DEFAULT 0
 		)`,
 		`CREATE TABLE IF NOT EXISTS audit_logs (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -207,7 +264,17 @@ func initDB() {
 		}
 	}
 
+	// migrations for existing DBs
 	db.Exec("ALTER TABLE incidents ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP")
+	db.Exec("ALTER TABLE incidents ADD COLUMN status TEXT DEFAULT 'Нове'")
+	db.Exec("ALTER TABLE incidents ADD COLUMN priority TEXT DEFAULT 'Звичайний'")
+	db.Exec("ALTER TABLE incidents ADD COLUMN source TEXT DEFAULT 'self'")
+	db.Exec("ALTER TABLE incidents ADD COLUMN responsible TEXT")
+	db.Exec("ALTER TABLE incidents ADD COLUMN created_by TEXT")
+	db.Exec("ALTER TABLE incidents ADD COLUMN work_started_at TEXT")
+	db.Exec("ALTER TABLE incidents ADD COLUMN total_minutes INTEGER DEFAULT 0")
+	db.Exec("ALTER TABLE incidents ADD COLUMN due_date TEXT")
+	db.Exec("ALTER TABLE incidents ADD COLUMN reported_for TEXT")
 	db.Exec("ALTER TABLE daily_tasks ADD COLUMN status TEXT DEFAULT 'Нова'")
 	db.Exec("ALTER TABLE daily_tasks ADD COLUMN priority TEXT DEFAULT 'Базова'")
 	db.Exec("ALTER TABLE daily_tasks ADD COLUMN work_started_at TEXT")
@@ -218,6 +285,7 @@ func initDB() {
 	db.Exec("ALTER TABLE daily_tasks ADD COLUMN created_by TEXT")
 	db.Exec("ALTER TABLE daily_tasks ADD COLUMN responsible TEXT")
 	db.Exec("ALTER TABLE daily_tasks ADD COLUMN estimated_minutes INTEGER DEFAULT 0")
+	db.Exec("ALTER TABLE daily_tasks ADD COLUMN incident_id INTEGER DEFAULT 0")
 	db.Exec("ALTER TABLE users ADD COLUMN is_oncall INTEGER DEFAULT 1")
 	db.Exec("ALTER TABLE absence_types ADD COLUMN color TEXT")
 
@@ -225,7 +293,7 @@ func initDB() {
 	db.Exec(`UPDATE absence_types SET color='#ef4444' WHERE (code='sick' OR name LIKE '%ікарн%') AND (color IS NULL OR color='')`)
 	db.Exec(`UPDATE absence_types SET color='#94a3b8' WHERE (code='dayoff' OR name LIKE '%ихідн%') AND (color IS NULL OR color='')`)
 
-	tables := []string{"users", "team_roles", "absence_types", "shifts", "absences", "incidents", "daily_tasks", "audit_logs", "app_logs"}
+	tables := []string{"users", "team_roles", "absence_types", "shifts", "absences", "incidents", "daily_tasks", "audit_logs", "app_logs", "incident_priorities", "comments"}
 	for _, t := range tables {
 		db.Exec("INSERT OR IGNORE INTO table_tracker (table_name, last_action, last_update) VALUES (?, 'INIT', CURRENT_TIMESTAMP)", t)
 		for _, act := range []string{"INSERT", "UPDATE", "DELETE"} {
@@ -247,6 +315,17 @@ func initDB() {
 			('Вихідний', 'dayoff', '#94a3b8')`)
 		log.Println("seeded default admin / admin")
 	}
+
+	var pc int
+	db.QueryRow("SELECT COUNT(*) FROM incident_priorities").Scan(&pc)
+	if pc == 0 {
+		db.Exec(`INSERT INTO incident_priorities (name, code, color, sort_order, is_default) VALUES
+			('Критичний', 'critical', '#ef4444', 10, 0),
+			('Високий', 'high', '#f59e0b', 20, 0),
+			('Звичайний', 'normal', '#3b82f6', 30, 1),
+			('Низький', 'low', '#94a3b8', 40, 0)`)
+		log.Println("seeded incident priorities")
+	}
 }
 
 func main() {
@@ -258,13 +337,18 @@ func main() {
 	http.HandleFunc("/api/request-absence", handleRequestAbsence)
 	http.HandleFunc("/api/incidents", handleIncidents)
 	http.HandleFunc("/api/daily-tasks", handleDailyTasks)
+	http.HandleFunc("/api/comments", handleComments)
+	http.HandleFunc("/api/incident-priorities", handleIncidentPrioritiesPublic)
 
 	http.HandleFunc("/api/admin/users", handleAdminUsers)
 	http.HandleFunc("/api/admin/roles", handleAdminRoles)
 	http.HandleFunc("/api/admin/absence-types", handleAdminAbsenceTypes)
+	http.HandleFunc("/api/admin/incident-priorities", handleAdminIncidentPriorities)
 	http.HandleFunc("/api/admin/requests", handleAdminRequests)
 	http.HandleFunc("/api/admin/logs", handleAdminLogs)
 	http.HandleFunc("/api/admin/tasks", handleAdminTasks)
+	http.HandleFunc("/api/admin/incidents", handleAdminIncidents)
+	http.HandleFunc("/api/admin/incidents/to-task", handleIncidentToTask)
 	http.HandleFunc("/api/admin/project/unlock", handleDBUnlock)
 	http.HandleFunc("/api/admin/project/db-stats", handleDBStats)
 	http.HandleFunc("/api/admin/project/query", handleReadOnlyQuery)
