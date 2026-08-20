@@ -136,7 +136,6 @@ textarea{min-height:60px;resize:vertical}
 
 <script>
 const STATUSES=['Нова','У роботі','На паузі','До перевірки','Виконана','Перевідкрита','Архів'];
-const INC_STATUSES=['Нове','В роботі','На паузі','Вирішено','Архів'];
 const PRIOS=['Надкритична','Термінова','Базова','Техборг','У шухляду'];
 let U=null,Y=new Date().getFullYear(),M=new Date().getMonth()+1,AT=[],IP=[],D={},_day='',_sw=null,_colKind='',_colName='';
 
@@ -145,7 +144,7 @@ function isAdmin(){return U&&U.role==='admin'}
 function canOpenCol(name){
   if(!U) return false;
   if(isAdmin()) return true;
-  if(name==='(без виконавця)') return false;
+  if(name==='(без виконавця)'||name==='(на розгляді)') return false;
   return name===U.name;
 }
 function formatDuration(mins){
@@ -175,9 +174,7 @@ function sess(){
     i.innerText=U.name+(U.role==='admin'?' (admin)':'');a.innerText='Вийти';
     ['btn-abs','btn-inc','btn-task'].forEach(id=>document.getElementById(id).style.display='');
     document.getElementById('btn-adm').style.display=isAdmin()?'':'none';
-    pushBtn.style.display='inline-block';
-    updatePushBtn();
-    setupPush();
+    pushBtn.style.display='inline-block'; updatePushBtn(); setupPush();
   } else {
     i.innerText='';a.innerText='Увійти';
     ['btn-abs','btn-inc','btn-task','btn-adm'].forEach(id=>document.getElementById(id).style.display='none');
@@ -200,17 +197,13 @@ function updatePushBtn(){
 }
 async function setupPush(){
   if(!('serviceWorker' in navigator)) return;
-  try{_sw=await navigator.serviceWorker.register('/sw.js')}catch(e){console.warn(e)}
+  try{_sw=await navigator.serviceWorker.register('/sw.js')}catch(e){}
   updatePushBtn();
 }
 async function enablePush(){
   if(!('Notification' in window)){alert('Браузер не підтримує сповіщення');return}
-  if(Notification.permission==='denied'){
-    alert('Сповіщення заблоковано в налаштуваннях браузера. Дозвольте їх для цього сайту.');
-    return;
-  }
-  const p=await Notification.requestPermission();
-  updatePushBtn();
+  if(Notification.permission==='denied'){alert('Сповіщення заблоковано в налаштуваннях браузера.');return}
+  const p=await Notification.requestPermission(); updatePushBtn();
   if(p==='granted'){await setupPush();maybeNotifyShift();maybeNotifyIncidents()}
   else alert('Дозвіл не надано');
 }
@@ -263,6 +256,30 @@ function renderAlerts(list){
 
 function membersList(){return (D.team_members||[]).filter(m=>m.role!=='admin'||m.is_oncall)}
 
+/* Усі дейлі-задачі, релевантні «сьогодні»:
+   - date === today
+   - due_date === today
+   - visible_from <= today і дата <= today, статус не фінальний (відкритий backlog)
+*/
+function collectTodayTasks(){
+  const td=D.today||today();
+  const done=new Set(['Виконана','Архів']);
+  const seen=new Set();
+  const out=[];
+  Object.values(D.daily_tasks||{}).forEach(list=>{(list||[]).forEach(t=>{
+    if(seen.has(t.id)) return;
+    const vis=t.visible_from||t.date||'';
+    const isTodayDate=t.date===td;
+    const isDueToday=t.due_date===td;
+    const isOpenBacklog=!done.has(t.status) && vis && vis<=td && t.date && t.date<=td;
+    if(isTodayDate||isDueToday||isOpenBacklog){
+      seen.add(t.id);
+      out.push(t);
+    }
+  })});
+  return out;
+}
+
 function renderTodayIncs(){
   const el=document.getElementById('today-incs');
   const td=D.today||today();
@@ -289,22 +306,27 @@ function renderTodayIncs(){
 function renderTodayTasks(){
   const el=document.getElementById('today-tasks');
   const td=D.today||today();
-  const tasks=(D.daily_tasks||{})[td]||[];
+  const tasks=collectTodayTasks();
   const by={'(на розгляді)':[]};
   membersList().forEach(m=>by[m.name]=[]);
-  tasks.forEach(t=>{const k=t.user_name||'(на розгляді)'; if(!by[k]) by[k]=[]; by[k].push(t)});
-  let h=`<h3 style="margin:0 0 8px;font-size:15px">Задачі сьогодні (${td})</h3><div class="board">`;
+  tasks.forEach(t=>{
+    const k=t.user_name||'(на розгляді)';
+    if(!by[k]) by[k]=[];
+    by[k].push(t);
+  });
+  let h=`<h3 style="margin:0 0 8px;font-size:15px">Задачі з дейлі на сьогодні (${td})</h3><div class="board">`;
   Object.keys(by).forEach(name=>{
-    const list=by[name], open=canOpenCol(name==='(на розгляді)'?'(без виконавця)':name) || (isAdmin()&&name==='(на розгляді)');
-    const openName=name==='(на розгляді)'?'(на розгляді)':name;
-    h+=`<div class="bcol ${open?'clickable':'locked'}" ${open?`onclick="openCol('task','${esc(openName)}')"`:''}>
+    const list=by[name];
+    const open=canOpenCol(name) || (isAdmin()&&name==='(на розгляді)');
+    h+=`<div class="bcol ${open?'clickable':'locked'}" ${open?`onclick="openCol('task','${esc(name)}')"`:''}>
       <h4>${esc(name)} (${list.length})${open?' ▸':''}</h4>`;
     if(!list.length) h+=`<div style="color:#cbd5e1;font-size:11px">—</div>`;
-    list.slice(0,4).forEach(t=>{
+    list.slice(0,5).forEach(t=>{
       const tone=taskTone(t);
-      h+=`<div class="bcard ${tone.row}" style="border-left-color:#7c3aed"><span class="st ${tone.badge}">${esc(t.status)}</span> ${esc(truncate(t.task_description,36))}<div class="meta">${esc(t.priority||'')}${t.due_date?' · до '+esc(t.due_date):''}</div></div>`;
+      const mark=t.date!==td?(t.due_date===td?' due':' backlog'):'';
+      h+=`<div class="bcard ${tone.row}" style="border-left-color:#7c3aed"><span class="st ${tone.badge}">${esc(t.status)}</span> ${esc(truncate(t.task_description,36))}<div class="meta">${esc(t.priority||'')}${t.due_date?' · до '+esc(t.due_date):''}${t.date&&t.date!==td?' · з '+esc(t.date):''}</div></div>`;
     });
-    if(list.length>4) h+=`<div class="meta">+${list.length-4} ще</div>`;
+    if(list.length>5) h+=`<div class="meta">+${list.length-5} ще</div>`;
     h+=`</div>`;
   });
   h+='</div>'; el.innerHTML=h;
@@ -314,7 +336,7 @@ async function openCol(kind, name){
   if(!canOpenCol(name) && !(isAdmin()&&(name==='(на розгляді)'||name==='(без виконавця)'))) return;
   _colKind=kind; _colName=name;
   const td=D.today||today();
-  document.getElementById('col-title').innerText=(kind==='inc'?'Звернення':'Задачі')+' · '+name+' · '+td;
+  document.getElementById('col-title').innerText=(kind==='inc'?'Звернення':'Задачі з дейлі')+' · '+name+' · '+td;
   const body=document.getElementById('col-body');
   if(kind==='inc'){
     let incs=((D.incidents||{})[td]||[]).filter(i=>(i.user_name||'(без виконавця)')===name);
@@ -339,22 +361,23 @@ async function openCol(kind, name){
     document.getElementById('m-col').style.display='flex';
     for(const i of incs) loadCmts('incident', i.id);
   } else {
-    let tasks=((D.daily_tasks||{})[td]||[]).filter(t=>{
+    let tasks=collectTodayTasks().filter(t=>{
       if(name==='(на розгляді)') return !t.user_name;
       return t.user_name===name;
     });
     if(!tasks.length){body.innerHTML='<p>Немає задач</p>'; document.getElementById('m-col').style.display='flex'; return}
-    let html='<div class="table-wrap"><table><thead><tr><th>Задача</th><th>Статус</th><th>Час</th></tr></thead><tbody>';
+    let html='<div class="table-wrap"><table><thead><tr><th>Задача</th><th>Дата</th><th>Статус</th><th>Час</th></tr></thead><tbody>';
     tasks.forEach(t=>{
       const tone=taskTone(t);
       const unassigned=!t.user_name;
       const canStatus=U && (isAdmin() || (!unassigned && t.user_name===U.name)) && (isAdmin() || t.status!=='Виконана');
       const allowed=nextStatuses(t.status);
       const stOpts=(allowed.length?allowed:[t.status]).map(x=>`<option ${x===t.status?'selected':''}>${x}</option>`).join('');
-      html+=`<tr class="${tone.row}"><td>${esc(t.task_description)}${t.due_date?' <small>до '+esc(t.due_date)+'</small>':''}</td>
+      html+=`<tr class="${tone.row}"><td>${esc(t.task_description)}${t.due_date?' <small>due '+esc(t.due_date)+'</small>':''}</td>
+        <td>${esc(t.date||'')}</td>
         <td>${canStatus?`<select onchange="updTask(${t.id},'status',this.value)">${stOpts}</select>`:`<span class="st ${tone.badge}">${esc(t.status)}</span>`}</td>
         <td>${formatDuration(t.total_minutes)}</td></tr>
-        <tr><td colspan="3" id="cmt-task-${t.id}"><em style="font-size:12px;color:#94a3b8">коментарі…</em>
+        <tr><td colspan="4" id="cmt-task-${t.id}"><em style="font-size:12px;color:#94a3b8">коментарі…</em>
           ${U?`<div style="display:flex;gap:6px;margin-top:4px"><input id="cmt-in-task-${t.id}" placeholder="Коментар" style="flex:1"><button class="btn" onclick="addCmt('task',${t.id})">+</button></div>`:''}
         </td></tr>`;
     });
@@ -375,23 +398,15 @@ async function updInc(id,status){
   await load(); openCol(_colKind,_colName);
 }
 async function loadCmts(etype,eid){
-  const el=document.getElementById('cmt-'+etype.slice(0,3==='inc'?3:4==='task'?4:3)+'-'+eid) || document.getElementById('cmt-inc-'+eid) || document.getElementById('cmt-task-'+eid);
-  // fix selector
-}
-async function loadCmts(etype,eid){
-  const el=document.getElementById('cmt-'+ (etype==='incident'?'inc':'task') +'-'+eid);
+  const el=document.getElementById('cmt-'+(etype==='incident'?'inc':'task')+'-'+eid);
   if(!el) return;
   try{
     const list=await fetch(`/api/comments?entity_type=${etype}&entity_id=${eid}`).then(r=>r.json());
     let h=(list||[]).map(c=>`<div class="comment ${c.is_system?'sys':''}"><span class="who">${esc(c.author_name||'system')} · ${esc(c.created_at||'')}</span><div>${esc(c.body)}</div></div>`).join('')||'<div style="font-size:12px;color:#94a3b8">Коментарів немає</div>';
-    const inp=el.querySelector('div[style]')||null;
-    // keep input if present
-    const keep=etype==='task'?el.querySelector('div[style*="display:flex"]'):null;
     if(etype==='incident'){
       el.innerHTML=h;
     } else {
-      const form=el.querySelector('div[style*="display:flex"]');
-      el.innerHTML=h+(form?form.outerHTML:`${U?`<div style="display:flex;gap:6px;margin-top:4px"><input id="cmt-in-task-${eid}" placeholder="Коментар" style="flex:1"><button class="btn" onclick="addCmt('task',${eid})">+</button></div>`:''}`);
+      el.innerHTML=h+(U?`<div style="display:flex;gap:6px;margin-top:4px"><input id="cmt-in-task-${eid}" placeholder="Коментар" style="flex:1"><button class="btn" onclick="addCmt('task',${eid})">+</button></div>`:'');
     }
   }catch(e){el.innerHTML='<span style="color:#ef4444">помилка коментарів</span>'}
 }
@@ -440,14 +455,14 @@ function showPerson(name){
   document.getElementById('person-title').innerText=name+' · '+ds;
   let abs=(D.absences||[]).filter(a=>a.user_name===name&&ds>=a.start_date&&ds<=a.end_date);
   abs.sort((a,b)=>absRank(b.type)-absRank(a.type));
-  const tasks=[]; Object.values(D.daily_tasks||{}).forEach(list=>(list||[]).forEach(t=>{if(t.date===ds&&(t.user_name===name||t.responsible===name||t.created_by===name))tasks.push(t)}));
+  const tasks=collectTodayTasks().filter(t=>t.user_name===name||t.responsible===name||t.created_by===name);
   const incs=((D.incidents||{})[ds]||[]).filter(i=>i.user_name===name||i.reported_for===name);
   const sh=D.shifts&&D.shifts[ds];
   let h='';
   if(sh&&(sh.primary_user===name||sh.backup_user===name))
     h+=`<p><b>Чергування:</b> ${sh.primary_user===name?'Основний':''}${sh.backup_user===name?(sh.primary_user===name?' · ':'')+'Дублюючий':''}</p>`;
   h+=`<h4>Відсутності</h4>`+(abs.length?abs.map(a=>`• <b>${esc(a.type)}</b> (${a.start_date}–${a.end_date})`).join('<br>'):'Немає');
-  h+=`<h4>Задачі</h4>`;
+  h+=`<h4>Задачі з дейлі</h4>`;
   if(tasks.length){h+='<div class="table-wrap"><table><thead><tr><th>Задача</th><th>Статус</th><th>Час</th></tr></thead><tbody>';
     tasks.forEach(t=>{const tone=taskTone(t);h+=`<tr class="${tone.row}"><td>${esc(t.task_description)}</td><td><span class="st ${tone.badge}">${esc(t.status)}</span></td><td>${formatDuration(t.total_minutes)}</td></tr>`});
     h+='</tbody></table></div>'} else h+='<p>Немає</p>';
