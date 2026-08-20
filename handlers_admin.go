@@ -197,6 +197,190 @@ func handleAdminAbsenceTypes(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func handleAdminIncidentPriorities(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	switch r.Method {
+	case http.MethodGet:
+		rows, _ := db.Query(`SELECT id, name, code, COALESCE(color,''), COALESCE(sort_order,0), COALESCE(is_default,0) FROM incident_priorities ORDER BY sort_order, id`)
+		var list []IncidentPriority
+		if rows != nil {
+			defer rows.Close()
+			for rows.Next() {
+				var p IncidentPriority
+				var def int
+				rows.Scan(&p.ID, &p.Name, &p.Code, &p.Color, &p.SortOrder, &def)
+				p.IsDefault = def == 1
+				list = append(list, p)
+			}
+		}
+		json.NewEncoder(w).Encode(list)
+	case http.MethodPost:
+		var p IncidentPriority
+		json.NewDecoder(r.Body).Decode(&p)
+		def := 0
+		if p.IsDefault {
+			def = 1
+			db.Exec(`UPDATE incident_priorities SET is_default=0`)
+		}
+		res, err := db.Exec(`INSERT INTO incident_priorities (name, code, color, sort_order, is_default) VALUES (?,?,?,?,?)`,
+			p.Name, p.Code, p.Color, p.SortOrder, def)
+		if err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
+		id, _ := res.LastInsertId()
+		p.ID = int(id)
+		w.WriteHeader(201)
+		json.NewEncoder(w).Encode(p)
+	case http.MethodPut:
+		var p IncidentPriority
+		json.NewDecoder(r.Body).Decode(&p)
+		def := 0
+		if p.IsDefault {
+			def = 1
+			db.Exec(`UPDATE incident_priorities SET is_default=0`)
+		}
+		db.Exec(`UPDATE incident_priorities SET name=?, code=?, color=?, sort_order=?, is_default=? WHERE id=?`,
+			p.Name, p.Code, p.Color, p.SortOrder, def, p.ID)
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	case http.MethodDelete:
+		db.Exec("DELETE FROM incident_priorities WHERE id=?", r.URL.Query().Get("id"))
+		json.NewEncoder(w).Encode(map[string]string{"status": "deleted"})
+	default:
+		http.Error(w, "Method not allowed", 405)
+	}
+}
+
+func handleAdminIncidents(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	switch r.Method {
+	case http.MethodGet:
+		q := incidentSelect + " WHERE 1=1"
+		args := []interface{}{}
+		if v := r.URL.Query().Get("status"); v != "" {
+			q += " AND status=?"
+			args = append(args, v)
+		}
+		if v := r.URL.Query().Get("date"); v != "" {
+			q += " AND date=?"
+			args = append(args, v)
+		}
+		q += " ORDER BY id DESC LIMIT 300"
+		rows, err := db.Query(q, args...)
+		if err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
+		defer rows.Close()
+		var list []IncidentReport
+		for rows.Next() {
+			inc, _ := scanIncident(rows)
+			list = append(list, inc)
+		}
+		json.NewEncoder(w).Encode(list)
+	case http.MethodPut:
+		// reuse client PUT via redirect body — same logic as handleIncidents PUT with admin role
+		var raw map[string]interface{}
+		json.NewDecoder(r.Body).Decode(&raw)
+		raw["role"] = "admin"
+		b, _ := json.Marshal(raw)
+		// minimal: update key fields
+		var inc IncidentReport
+		json.Unmarshal(b, &inc)
+		if inc.ID == 0 {
+			http.Error(w, "id required", 400)
+			return
+		}
+		rows, err := db.Query(incidentSelect+` WHERE id=?`, inc.ID)
+		if err != nil || !rows.Next() {
+			if rows != nil {
+				rows.Close()
+			}
+			http.Error(w, "not found", 404)
+			return
+		}
+		cur, _ := scanIncident(rows)
+		rows.Close()
+		st := cur.Status
+		if inc.Status != "" {
+			st = inc.Status
+		}
+		prio := cur.Priority
+		if _, ok := raw["priority"]; ok {
+			prio = inc.Priority
+		}
+		un := cur.UserName
+		if _, ok := raw["user_name"]; ok {
+			un = inc.UserName
+		}
+		resp := cur.Responsible
+		if _, ok := raw["responsible"]; ok {
+			resp = inc.Responsible
+		}
+		db.Exec(`UPDATE incidents SET status=?, priority=?, user_name=?, responsible=? WHERE id=?`, st, prio, un, resp, inc.ID)
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	case http.MethodDelete:
+		db.Exec("DELETE FROM incidents WHERE id=?", r.URL.Query().Get("id"))
+		json.NewEncoder(w).Encode(map[string]string{"status": "deleted"})
+	default:
+		http.Error(w, "Method not allowed", 405)
+	}
+}
+
+func handleIncidentToTask(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", 405)
+		return
+	}
+	var req struct {
+		ID int `json:"id"`
+	}
+	json.NewDecoder(r.Body).Decode(&req)
+	if req.ID == 0 {
+		http.Error(w, "id required", 400)
+		return
+	}
+	rows, err := db.Query(incidentSelect+` WHERE id=?`, req.ID)
+	if err != nil || !rows.Next() {
+		if rows != nil {
+			rows.Close()
+		}
+		http.Error(w, "not found", 404)
+		return
+	}
+	inc, _ := scanIncident(rows)
+	rows.Close()
+	desc := "[зі звернення #" + fmt.Sprintf("%d", inc.ID) + "] " + inc.Description
+	res, err := db.Exec(`INSERT INTO daily_tasks (user_name, date, task_description, status, priority, total_minutes, created_at, created_by, responsible, due_date, incident_id)
+		VALUES (?,?,?,'Нова',?,0,CURRENT_TIMESTAMP,?,?,?,?)`,
+		inc.UserName, inc.Date, desc, mapIncPrioToTask(inc.Priority), inc.CreatedBy, inc.Responsible, inc.DueDate, inc.ID)
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	tid, _ := res.LastInsertId()
+	db.Exec(`UPDATE incidents SET status='Вирішено' WHERE id=?`, inc.ID)
+	db.Exec(`INSERT INTO comments (entity_type, entity_id, author_name, body, is_system, created_at)
+		VALUES ('incident', ?, 'system', ?, 1, CURRENT_TIMESTAMP)`, inc.ID,
+		fmt.Sprintf("Переведено в задачу #%d", tid))
+	logAudit("admin", "INCIDENT_TO_TASK", r.RemoteAddr, fmt.Sprintf("incident=%d task=%d", inc.ID, tid))
+	json.NewEncoder(w).Encode(map[string]interface{}{"status": "ok", "task_id": tid})
+}
+
+func mapIncPrioToTask(p string) string {
+	switch strings.ToLower(p) {
+	case "критичний", "critical":
+		return "Надкритична"
+	case "високий", "high":
+		return "Термінова"
+	case "низький", "low":
+		return "У шухляду"
+	default:
+		return "Базова"
+	}
+}
+
 func handleAdminRequests(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	switch r.Method {
@@ -269,7 +453,6 @@ func handleAdminTasks(w http.ResponseWriter, r *http.Request) {
 		}
 		archive := r.URL.Query().Get("archive") == "1"
 		if !archive {
-			// поточний місяць: date АБО due_date потрапляє в місяць
 			year := time.Now().Year()
 			month := int(time.Now().Month())
 			if y := r.URL.Query().Get("year"); y != "" {
@@ -413,7 +596,7 @@ func handleAdminTasks(w http.ResponseWriter, r *http.Request) {
 		}
 		due := cur.DueDate
 		if _, ok := raw["due_date"]; ok {
-			due = t.DueDate // може бути "" — скинути due
+			due = t.DueDate
 		}
 		vis := cur.VisibleFrom
 		if _, ok := raw["visible_from"]; ok {
@@ -440,7 +623,7 @@ func handleAdminTasks(w http.ResponseWriter, r *http.Request) {
 func handleDBStats(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if !checkDBAdminPassword(r) {
-		http.Error(w, "Потрібен пароль доступу до бази (заголовок X-DB-Admin-Password)", 403)
+		http.Error(w, "Потрібен пароль доступу до бази", 403)
 		return
 	}
 	rows, _ := db.Query(`SELECT table_name, COALESCE(row_count,0), COALESCE(last_action,''), COALESCE(datetime(last_update,'localtime'),'') FROM table_tracker`)
@@ -466,7 +649,7 @@ func handleReadOnlyQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !checkDBAdminPassword(r) {
-		http.Error(w, "Потрібен пароль доступу до бази (заголовок X-DB-Admin-Password)", 403)
+		http.Error(w, "Потрібен пароль", 403)
 		return
 	}
 	var req struct {
@@ -515,9 +698,9 @@ func handleRegenerateShifts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !checkDBAdminPassword(r) {
-		http.Error(w, "Потрібен пароль доступу до бази", 403)
+		http.Error(w, "Потрібен пароль", 403)
 		return
 	}
 	db.Exec(`DELETE FROM shifts`)
-	json.NewEncoder(w).Encode(map[string]string{"status": "shifts cleared — reload calendar to regenerate"})
+	json.NewEncoder(w).Encode(map[string]string{"status": "shifts cleared"})
 }
