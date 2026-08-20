@@ -70,10 +70,11 @@ func generateShifts(year, month int, oncallUsers []string, absences []AbsenceReq
 		}
 		pIdx := rr % len(available)
 		primary := available[pIdx]
-		backup := primary
+		backup := ""
 		if len(available) > 1 {
 			backup = available[(pIdx+1)%len(available)]
 		}
+		// якщо лише один доступний — тільки один черговий (backup порожній)
 		rr++
 		shifts[dateStr] = Shift{Date: dateStr, PrimaryUser: primary, BackupUser: backup}
 	}
@@ -217,7 +218,21 @@ func handleGetData(w http.ResponseWriter, r *http.Request) {
 			oncallSet[n] = true
 		}
 		for _, s := range shifts {
-			if !oncallSet[s.PrimaryUser] || !oncallSet[s.BackupUser] {
+			// відсутній у графіку → треба перерахунок
+			if isAbsentOnDate(s.PrimaryUser, s.Date, absences) {
+				needRegen = true
+				break
+			}
+			if s.BackupUser != "" && isAbsentOnDate(s.BackupUser, s.Date, absences) {
+				needRegen = true
+				break
+			}
+			// primary не з пулу on-call
+			if !oncallSet[s.PrimaryUser] {
+				needRegen = true
+				break
+			}
+			if s.BackupUser != "" && !oncallSet[s.BackupUser] {
 				needRegen = true
 				break
 			}
@@ -226,7 +241,9 @@ func handleGetData(w http.ResponseWriter, r *http.Request) {
 			seen := map[string]bool{}
 			for _, s := range shifts {
 				seen[s.PrimaryUser] = true
-				seen[s.BackupUser] = true
+				if s.BackupUser != "" {
+					seen[s.BackupUser] = true
+				}
 			}
 			if len(seen) < len(oncallUsers) && len(oncallUsers) > 1 {
 				needRegen = true
@@ -267,10 +284,12 @@ func handleGetData(w http.ResponseWriter, r *http.Request) {
 		} else {
 			statsMap[s.PrimaryUser] = &UserStat{Name: s.PrimaryUser, PrimaryCount: 1}
 		}
-		if st, ok := statsMap[s.BackupUser]; ok {
-			st.BackupCount++
-		} else {
-			statsMap[s.BackupUser] = &UserStat{Name: s.BackupUser, BackupCount: 1}
+		if s.BackupUser != "" {
+			if st, ok := statsMap[s.BackupUser]; ok {
+				st.BackupCount++
+			} else {
+				statsMap[s.BackupUser] = &UserStat{Name: s.BackupUser, BackupCount: 1}
+			}
 		}
 	}
 	var stats []UserStat
@@ -290,13 +309,13 @@ func handleGetData(w http.ResponseWriter, r *http.Request) {
 			dailyTasks[t.Date] = append(dailyTasks[t.Date], t)
 		}
 	}
-	atRows, _ := db.Query(`SELECT id, name, code FROM absence_types ORDER BY name`)
+	atRows, _ := db.Query(`SELECT id, name, code, COALESCE(color,'') FROM absence_types ORDER BY name`)
 	var absenceTypes []AbsenceType
 	if atRows != nil {
 		defer atRows.Close()
 		for atRows.Next() {
 			var t AbsenceType
-			atRows.Scan(&t.ID, &t.Name, &t.Code)
+			atRows.Scan(&t.ID, &t.Name, &t.Code, &t.Color)
 			absenceTypes = append(absenceTypes, t)
 		}
 	}
@@ -421,7 +440,6 @@ func handleDailyTasks(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Потрібні date, task_description", http.StatusBadRequest)
 			return
 		}
-		// user_name may be empty → «на розгляді»
 		if t.Status == "" {
 			t.Status = "Нова"
 		}
@@ -500,9 +518,14 @@ func handleDailyTasks(w http.ResponseWriter, r *http.Request) {
 		if date == "" {
 			date = cur.Date
 		}
-		userName := t.UserName
-		if userName == "" {
-			userName = cur.UserName
+		// призначення виконавця: admin може змінити user_name (у т.ч. з порожнього)
+		userName := cur.UserName
+		if _, hasUser := raw["user_name"]; hasUser {
+			if roleHint != "admin" {
+				http.Error(w, "Призначати виконавця може лише admin", http.StatusForbidden)
+				return
+			}
+			userName = t.UserName // може бути "" → знову «на розгляді»
 		}
 		if newStatus == "Перевідкрита" {
 			if roleHint != "admin" {
@@ -515,8 +538,7 @@ func handleDailyTasks(w http.ResponseWriter, r *http.Request) {
 			}
 			newStatus = "Нова"
 		}
-		// unassigned executor («на розгляді») — only admin can change status / assign
-		if cur.UserName == "" && roleHint != "admin" {
+		if cur.UserName == "" && userName == "" && roleHint != "admin" {
 			http.Error(w, "Задача «на розгляді»: виконавця ще не призначено. Змінювати статус може лише admin", http.StatusForbidden)
 			return
 		}
@@ -557,19 +579,16 @@ func handleDailyTasks(w http.ResponseWriter, r *http.Request) {
 		if due == "" {
 			due = cur.DueDate
 		}
-		resp := t.Responsible
-		if resp == "" {
-			resp = cur.Responsible
-		}
-		if roleHint != "admin" && t.UserName == "" {
-			userName = cur.UserName
+		resp := cur.Responsible
+		if _, hasResp := raw["responsible"]; hasResp && roleHint == "admin" {
+			resp = t.Responsible
 		}
 		db.Exec(`UPDATE daily_tasks SET user_name=?, date=?, task_description=?, status=?, priority=?,
 			work_started_at=?, total_minutes=?, visible_from=?, due_date=?, responsible=? WHERE id=?`,
 			userName, date, desc, newStatus, newPriority, workArg, total, vis, due, resp, t.ID)
 		t.UserName, t.Date, t.TaskDescription = userName, date, desc
 		t.Status, t.Priority, t.TotalMinutes, t.WorkStartedAt = newStatus, newPriority, total, workStarted
-		logAudit(userName, "UPDATE_DAILY_TASK", r.RemoteAddr, fmt.Sprintf("id=%d status=%s priority=%s", t.ID, newStatus, newPriority))
+		logAudit(userName, "UPDATE_DAILY_TASK", r.RemoteAddr, fmt.Sprintf("id=%d status=%s priority=%s assignee=%s", t.ID, newStatus, newPriority, userName))
 		json.NewEncoder(w).Encode(t)
 
 	case http.MethodDelete:
