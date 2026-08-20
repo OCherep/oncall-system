@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -50,6 +51,21 @@ func isAbsentOnDate(userName, dateStr string, absences []AbsenceRequest) bool {
 	return false
 }
 
+// absenceRank: лікарняний > відпустка > вихідний > інше
+func absenceRank(typ string) int {
+	n := strings.ToLower(typ)
+	switch {
+	case strings.Contains(n, "ікарн"), strings.Contains(n, "sick"):
+		return 30
+	case strings.Contains(n, "ідпуст"), strings.Contains(n, "vacation"):
+		return 20
+	case strings.Contains(n, "ихідн"), strings.Contains(n, "dayoff"):
+		return 10
+	default:
+		return 5
+	}
+}
+
 func generateShifts(year, month int, oncallUsers []string, absences []AbsenceRequest) map[string]Shift {
 	shifts := make(map[string]Shift)
 	daysInMonth := time.Date(year, time.Month(month)+1, 0, 0, 0, 0, 0, time.UTC).Day()
@@ -74,7 +90,6 @@ func generateShifts(year, month int, oncallUsers []string, absences []AbsenceReq
 		if len(available) > 1 {
 			backup = available[(pIdx+1)%len(available)]
 		}
-		// якщо лише один доступний — тільки один черговий (backup порожній)
 		rr++
 		shifts[dateStr] = Shift{Date: dateStr, PrimaryUser: primary, BackupUser: backup}
 	}
@@ -84,7 +99,8 @@ func generateShifts(year, month int, oncallUsers []string, absences []AbsenceReq
 func scanDailyTask(scanner interface{ Scan(...interface{}) error }) (DailyTask, error) {
 	var t DailyTask
 	var workStarted, created, vis, due, cby, resp sql.NullString
-	err := scanner.Scan(&t.ID, &t.UserName, &t.Date, &t.TaskDescription, &t.Status, &t.Priority, &workStarted, &t.TotalMinutes, &created, &vis, &due, &cby, &resp)
+	var est sql.NullInt64
+	err := scanner.Scan(&t.ID, &t.UserName, &t.Date, &t.TaskDescription, &t.Status, &t.Priority, &workStarted, &t.TotalMinutes, &created, &vis, &due, &cby, &resp, &est)
 	if workStarted.Valid {
 		t.WorkStartedAt = workStarted.String
 	}
@@ -102,6 +118,9 @@ func scanDailyTask(scanner interface{ Scan(...interface{}) error }) (DailyTask, 
 	}
 	if resp.Valid {
 		t.Responsible = resp.String
+	}
+	if est.Valid {
+		t.EstimatedMinutes = int(est.Int64)
 	}
 	if t.Status == "" {
 		t.Status = "Нова"
@@ -201,63 +220,16 @@ func handleGetData(w http.ResponseWriter, r *http.Request) {
 			absences = append(absences, a)
 		}
 	}
-	shifts := make(map[string]Shift)
-	shRows, _ := db.Query(`SELECT date, primary_user, backup_user FROM shifts WHERE date LIKE ?`, fmt.Sprintf("%04d-%02d-%%", year, month))
-	if shRows != nil {
-		defer shRows.Close()
-		for shRows.Next() {
-			var s Shift
-			shRows.Scan(&s.Date, &s.PrimaryUser, &s.BackupUser)
-			shifts[s.Date] = s
-		}
+
+	// ЗАВЖДИ перераховуємо графік місяця з урахуванням актуальних відсутностей
+	monthLike := fmt.Sprintf("%04d-%02d-%%", year, month)
+	db.Exec(`DELETE FROM shifts WHERE date LIKE ?`, monthLike)
+	shifts := generateShifts(year, month, oncallUsers, absences)
+	for _, s := range shifts {
+		db.Exec(`INSERT OR REPLACE INTO shifts (date, primary_user, backup_user) VALUES (?, ?, ?)`, s.Date, s.PrimaryUser, s.BackupUser)
 	}
-	needRegen := len(shifts) == 0
-	if !needRegen && len(oncallUsers) > 0 {
-		oncallSet := map[string]bool{}
-		for _, n := range oncallUsers {
-			oncallSet[n] = true
-		}
-		for _, s := range shifts {
-			// відсутній у графіку → треба перерахунок
-			if isAbsentOnDate(s.PrimaryUser, s.Date, absences) {
-				needRegen = true
-				break
-			}
-			if s.BackupUser != "" && isAbsentOnDate(s.BackupUser, s.Date, absences) {
-				needRegen = true
-				break
-			}
-			// primary не з пулу on-call
-			if !oncallSet[s.PrimaryUser] {
-				needRegen = true
-				break
-			}
-			if s.BackupUser != "" && !oncallSet[s.BackupUser] {
-				needRegen = true
-				break
-			}
-		}
-		if !needRegen {
-			seen := map[string]bool{}
-			for _, s := range shifts {
-				seen[s.PrimaryUser] = true
-				if s.BackupUser != "" {
-					seen[s.BackupUser] = true
-				}
-			}
-			if len(seen) < len(oncallUsers) && len(oncallUsers) > 1 {
-				needRegen = true
-			}
-		}
-	}
-	if needRegen {
-		db.Exec(`DELETE FROM shifts WHERE date LIKE ?`, fmt.Sprintf("%04d-%02d-%%", year, month))
-		shifts = generateShifts(year, month, oncallUsers, absences)
-		for _, s := range shifts {
-			db.Exec(`INSERT OR REPLACE INTO shifts (date, primary_user, backup_user) VALUES (?, ?, ?)`, s.Date, s.PrimaryUser, s.BackupUser)
-		}
-	}
-	monthPattern := fmt.Sprintf("%04d-%02d-%%", year, month)
+
+	monthPattern := monthLike
 	incRows, err := db.Query(`SELECT id, user_name, date, type, duration_minutes, description,
 		COALESCE(datetime(created_at,'localtime'), datetime('now','localtime'))
 		FROM incidents WHERE date LIKE ? ORDER BY created_at ASC`, monthPattern)
@@ -281,7 +253,7 @@ func handleGetData(w http.ResponseWriter, r *http.Request) {
 	for _, s := range shifts {
 		if st, ok := statsMap[s.PrimaryUser]; ok {
 			st.PrimaryCount++
-		} else {
+		} else if s.PrimaryUser != "" {
 			statsMap[s.PrimaryUser] = &UserStat{Name: s.PrimaryUser, PrimaryCount: 1}
 		}
 		if s.BackupUser != "" {
@@ -299,7 +271,8 @@ func handleGetData(w http.ResponseWriter, r *http.Request) {
 	taskRows, _ := db.Query(`SELECT id, user_name, date, task_description,
 		COALESCE(status,'Нова'), COALESCE(priority,'Базова'), work_started_at,
 		COALESCE(total_minutes,0), COALESCE(datetime(created_at,'localtime'),''),
-		COALESCE(visible_from,''), COALESCE(due_date,''), COALESCE(created_by,''), COALESCE(responsible,'')
+		COALESCE(visible_from,''), COALESCE(due_date,''), COALESCE(created_by,''), COALESCE(responsible,''),
+		COALESCE(estimated_minutes,0)
 		FROM daily_tasks WHERE date LIKE ? ORDER BY id`, monthPattern)
 	dailyTasks := make(map[string][]DailyTask)
 	if taskRows != nil {
@@ -319,13 +292,47 @@ func handleGetData(w http.ResponseWriter, r *http.Request) {
 			absenceTypes = append(absenceTypes, t)
 		}
 	}
+
+	// сповіщення для admin: задачі на сьогодні з виконавцем у відсутності
+	today := time.Now().Format("2006-01-02")
+	var alerts []map[string]string
+	for _, t := range dailyTasks[today] {
+		if t.UserName == "" {
+			continue
+		}
+		if isAbsentOnDate(t.UserName, today, absences) {
+			alerts = append(alerts, map[string]string{
+				"level":   "warning",
+				"message": fmt.Sprintf("Задача #%d («%s») призначена відсутньому %s", t.ID, truncate(t.TaskDescription, 40), t.UserName),
+			})
+		}
+	}
+	// також: якщо на сьогодні немає жодного чергового при наявних on-call
+	if len(oncallUsers) > 0 {
+		if _, ok := shifts[today]; !ok {
+			alerts = append(alerts, map[string]string{
+				"level":   "error",
+				"message": "На сьогодні немає доступних чергових (усі on-call у відсутності)",
+			})
+		}
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"year": year, "month": month,
 		"team_members": team, "absence_types": absenceTypes,
 		"shifts": shifts, "absences": absences, "incidents": incidents, "stats": stats,
 		"daily_tasks": dailyTasks,
+		"alerts":      alerts,
 	})
+}
+
+func truncate(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n]) + "…"
 }
 
 func handleRequestAbsence(w http.ResponseWriter, r *http.Request) {
@@ -449,9 +456,9 @@ func handleDailyTasks(w http.ResponseWriter, r *http.Request) {
 		if t.VisibleFrom == "" {
 			t.VisibleFrom = t.Date
 		}
-		res, err := db.Exec(`INSERT INTO daily_tasks (user_name, date, task_description, status, priority, total_minutes, created_at, visible_from, due_date, created_by, responsible)
-			VALUES (?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP, ?, ?, ?, ?)`,
-			t.UserName, t.Date, t.TaskDescription, t.Status, t.Priority, t.VisibleFrom, t.DueDate, t.CreatedBy, t.Responsible)
+		res, err := db.Exec(`INSERT INTO daily_tasks (user_name, date, task_description, status, priority, total_minutes, created_at, visible_from, due_date, created_by, responsible, estimated_minutes)
+			VALUES (?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?)`,
+			t.UserName, t.Date, t.TaskDescription, t.Status, t.Priority, t.VisibleFrom, t.DueDate, t.CreatedBy, t.Responsible, t.EstimatedMinutes)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -481,11 +488,12 @@ func handleDailyTasks(w http.ResponseWriter, r *http.Request) {
 		}
 		var cur DailyTask
 		var ws, ca, visN, dueN, respN sql.NullString
+		var estN sql.NullInt64
 		err := db.QueryRow(`SELECT id, user_name, date, task_description, COALESCE(status,'Нова'), COALESCE(priority,'Базова'),
 			work_started_at, COALESCE(total_minutes,0), COALESCE(datetime(created_at,'localtime'),''),
-			COALESCE(visible_from,''), COALESCE(due_date,''), COALESCE(responsible,'')
+			COALESCE(visible_from,''), COALESCE(due_date,''), COALESCE(responsible,''), COALESCE(estimated_minutes,0)
 			FROM daily_tasks WHERE id=?`, t.ID).
-			Scan(&cur.ID, &cur.UserName, &cur.Date, &cur.TaskDescription, &cur.Status, &cur.Priority, &ws, &cur.TotalMinutes, &ca, &visN, &dueN, &respN)
+			Scan(&cur.ID, &cur.UserName, &cur.Date, &cur.TaskDescription, &cur.Status, &cur.Priority, &ws, &cur.TotalMinutes, &ca, &visN, &dueN, &respN, &estN)
 		if err != nil {
 			http.Error(w, "not found", http.StatusNotFound)
 			return
@@ -501,6 +509,9 @@ func handleDailyTasks(w http.ResponseWriter, r *http.Request) {
 		}
 		if respN.Valid {
 			cur.Responsible = respN.String
+		}
+		if estN.Valid {
+			cur.EstimatedMinutes = int(estN.Int64)
 		}
 		newStatus := t.Status
 		if newStatus == "" {
@@ -518,14 +529,13 @@ func handleDailyTasks(w http.ResponseWriter, r *http.Request) {
 		if date == "" {
 			date = cur.Date
 		}
-		// призначення виконавця: admin може змінити user_name (у т.ч. з порожнього)
 		userName := cur.UserName
 		if _, hasUser := raw["user_name"]; hasUser {
 			if roleHint != "admin" {
 				http.Error(w, "Призначати виконавця може лише admin", http.StatusForbidden)
 				return
 			}
-			userName = t.UserName // може бути "" → знову «на розгляді»
+			userName = t.UserName
 		}
 		if newStatus == "Перевідкрита" {
 			if roleHint != "admin" {
@@ -575,19 +585,24 @@ func handleDailyTasks(w http.ResponseWriter, r *http.Request) {
 		if vis == "" {
 			vis = cur.VisibleFrom
 		}
-		due := t.DueDate
-		if due == "" {
-			due = cur.DueDate
+		due := cur.DueDate
+		if _, hasDue := raw["due_date"]; hasDue && roleHint == "admin" {
+			due = t.DueDate
 		}
 		resp := cur.Responsible
 		if _, hasResp := raw["responsible"]; hasResp && roleHint == "admin" {
 			resp = t.Responsible
 		}
+		est := cur.EstimatedMinutes
+		if _, hasEst := raw["estimated_minutes"]; hasEst {
+			est = t.EstimatedMinutes
+		}
 		db.Exec(`UPDATE daily_tasks SET user_name=?, date=?, task_description=?, status=?, priority=?,
-			work_started_at=?, total_minutes=?, visible_from=?, due_date=?, responsible=? WHERE id=?`,
-			userName, date, desc, newStatus, newPriority, workArg, total, vis, due, resp, t.ID)
+			work_started_at=?, total_minutes=?, visible_from=?, due_date=?, responsible=?, estimated_minutes=? WHERE id=?`,
+			userName, date, desc, newStatus, newPriority, workArg, total, vis, due, resp, est, t.ID)
 		t.UserName, t.Date, t.TaskDescription = userName, date, desc
 		t.Status, t.Priority, t.TotalMinutes, t.WorkStartedAt = newStatus, newPriority, total, workStarted
+		t.EstimatedMinutes = est
 		logAudit(userName, "UPDATE_DAILY_TASK", r.RemoteAddr, fmt.Sprintf("id=%d status=%s priority=%s assignee=%s", t.ID, newStatus, newPriority, userName))
 		json.NewEncoder(w).Encode(t)
 
