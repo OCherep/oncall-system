@@ -1,1 +1,567 @@
-RESTORE_FROM_FIXED_FILE
+<!DOCTYPE html>
+<html lang="uk"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>On-Call Schedule</title>
+<style>
+:root{--p:#2563eb;--bg:#f8fafc;--t:#0f172a;--b:#e2e8f0}
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,sans-serif;background:var(--bg);color:var(--t);-webkit-text-size-adjust:100%}
+.navbar{position:fixed;top:0;left:0;right:0;min-height:56px;background:#fff;border-bottom:1px solid var(--b);display:flex;align-items:center;justify-content:space-between;padding:8px 12px;z-index:100;flex-wrap:wrap;gap:8px}
+.nav-l{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.nav-r{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.btn{background:var(--p);color:#fff;border:none;padding:8px 12px;border-radius:6px;cursor:pointer;font-size:13px;white-space:nowrap}
+.btn:hover{opacity:.9}.btn-d{background:#ef4444}.btn-s{background:#64748b}
+.btn-push{background:#fff;color:#0f766e;border:2px solid #14b8a6;font-weight:600}
+.btn-push.on{background:#ccfbf1;border-color:#0d9488}
+.main{margin-top:72px;padding:12px;max-width:1200px;margin-left:auto;margin-right:auto}
+.roster{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px}
+.chip{background:#fff;border:1px solid var(--b);padding:6px 12px;border-radius:20px;font-size:13px;cursor:pointer;transition:box-shadow .15s}
+.chip:hover{box-shadow:0 0 0 2px var(--p)}.chip.on{border-color:var(--p);background:#eff6ff}.chip.off{opacity:.55;text-decoration:line-through}
+.chip.me{background:#dcfce7;border-color:#86efac;color:#166534;font-weight:600}
+.chip.duty-primary{background:#fee2e2;border-color:#f87171;color:#991b1b;font-weight:700}
+.chip.duty-backup{background:#fef9c3;border-color:#facc15;color:#854d0e;font-weight:600}
+.cal-h{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;gap:8px}
+#cal{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px}
+.dh{text-align:center;font-weight:600;font-size:11px;color:#64748b;padding:4px}.dh.we{color:#94a3b8}
+.dc{background:#fff;border:1px solid var(--b);border-radius:8px;min-height:72px;padding:4px;cursor:pointer;font-size:11px;overflow:hidden}
+.dc:hover{border-color:var(--p)}.dc.weekend{background:#f1f5f9}.dc.today{border:2px solid var(--p);background:#dbeafe}
+.dn{font-weight:700;margin-bottom:2px}
+.ba{font-size:10px;padding:1px 3px;border-radius:3px;margin:1px 0;display:inline-block}.sc{color:#1e40af;font-size:10px;line-height:1.25}.bt{color:#7c3aed;font-size:10px}.bi{color:#dc2626;font-size:10px}
+table{width:100%;border-collapse:collapse;background:#fff;border:1px solid var(--b);border-radius:8px;margin-top:8px;font-size:13px}
+th,td{padding:8px 10px;border-bottom:1px solid var(--b);text-align:left}th{background:#f1f5f9;font-weight:600}
+.modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:2000;align-items:center;justify-content:center;padding:12px}
+.mc{background:#fff;border-radius:12px;padding:16px;max-width:760px;width:100%;max-height:90vh;overflow:auto}
+.mc h3{margin:0 0 12px}.fg{margin-bottom:10px}label{display:block;font-size:12px;color:#64748b;margin-bottom:3px}
+input,select,textarea{width:100%;padding:8px;border:1px solid var(--b);border-radius:6px;font-size:13px}
+textarea{min-height:60px;resize:vertical}
+.st{padding:2px 6px;border-radius:4px;font-size:11px}.prio{padding:2px 6px;border-radius:4px;background:#fef3c7;font-size:11px}
+#alerts{margin-bottom:12px}.alert{padding:10px 14px;border-radius:8px;margin-bottom:8px;font-size:13px}
+.alert-warning{background:#fef3c7;border:1px solid #f59e0b;color:#92400e}
+.alert-error{background:#fee2e2;border:1px solid #ef4444;color:#991b1b}
+.alert-info{background:#ecfeff;border:1px solid #22d3ee;color:#0e7490}
+.task-row-new{background:#f1f5f9}.task-row-ok{background:#f0fdf4}.task-row-pause{background:#eff6ff}.task-row-urgent{background:#fef2f2}.task-row-done{opacity:.65}.task-row-due-soon{background:#fff7ed}
+.badge-new{background:#94a3b8;color:#fff}.badge-work{background:#22c55e;color:#fff}.badge-pause{background:#3b82f6;color:#fff}.badge-check{background:#eab308;color:#fff}.badge-done{background:#64748b;color:#fff}.badge-urgent{background:#ef4444;color:#fff}
+.board-sec{margin-bottom:18px}
+.board{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px}
+.bcol{background:#fff;border:1px solid var(--b);border-radius:8px;padding:8px;min-height:64px;transition:box-shadow .15s,border-color .15s}
+.bcol.clickable{cursor:pointer}.bcol.clickable:hover{border-color:var(--p);box-shadow:0 0 0 2px #bfdbfe}
+.bcol.locked{opacity:.75;cursor:default}
+.bcol h4{margin:0 0 6px;font-size:12px;color:#64748b;word-break:break-word}
+.bcard{font-size:11px;padding:6px;border-radius:6px;margin-bottom:4px;border-left:3px solid #94a3b8;background:#f8fafc}
+.bcard .meta{color:#94a3b8;font-size:10px}
+.table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.comment{font-size:12px;padding:6px 8px;border-bottom:1px solid var(--b)}
+.comment .who{font-weight:600;color:#64748b;font-size:11px}
+.comment.sys{background:#f8fafc;color:#64748b;font-style:italic}
+@media (max-width:720px){
+  .navbar{padding:8px}.nav-r .btn{padding:6px 10px;font-size:12px}
+  .main{margin-top:88px;padding:8px}
+  #cal{gap:3px}.dc{min-height:56px;padding:3px;font-size:10px}
+  .board{grid-template-columns:repeat(auto-fill,minmax(120px,1fr))}
+  table{font-size:12px}th,td{padding:6px 8px}
+}
+</style></head><body>
+<div class="navbar"><div class="nav-l"><strong>On-Call</strong><span id="user-info" style="color:#64748b;font-size:13px"></span></div>
+<div class="nav-r">
+<button class="btn btn-push" id="btn-push" style="display:none" onclick="enablePush()">🔔 Сповіщення</button>
+<button class="btn" id="btn-abs" style="display:none" onclick="openAbs()">Відсутність</button>
+<button class="btn" id="btn-inc" style="display:none" onclick="openInc()">Звернення</button>
+<button class="btn" id="btn-task" style="display:none" onclick="openTask()">Задача</button>
+<button class="btn btn-s" id="btn-adm" style="display:none" onclick="location.href='/admin.html'">Адмін</button>
+<button class="btn btn-s" id="btn-auth" onclick="toggleAuth()">Увійти</button>
+</div></div>
+
+<div class="main">
+<div id="alerts"></div>
+<div class="roster" id="roster"></div>
+<div id="today-incs" class="board-sec"></div>
+<div id="today-tasks" class="board-sec"></div>
+<div class="cal-h"><button class="btn btn-s" onclick="chg(-1)">◀</button><h2 id="mt" style="margin:0;font-size:clamp(16px,4vw,22px);text-align:center"></h2><button class="btn btn-s" onclick="chg(1)">▶</button></div>
+<div id="cal"><div class="dh">Пн</div><div class="dh">Вт</div><div class="dh">Ср</div><div class="dh">Чт</div><div class="dh">Пт</div><div class="dh we">Сб</div><div class="dh we">Нд</div></div>
+<h3 style="margin-top:24px">Статистика</h3>
+<div class="table-wrap"><table><thead><tr><th>Ім'я</th><th>Primary</th><th>Backup</th><th>Час звернень</th></tr></thead><tbody id="stats"></tbody></table></div>
+</div>
+
+<div class="modal" id="m-login"><div class="mc" style="max-width:400px"><h3>Вхід</h3>
+<div class="fg"><label>Логін</label><input id="lu" autocomplete="username"></div>
+<div class="fg"><label>Пароль</label><input id="lp" type="password" autocomplete="current-password"></div>
+<button class="btn" onclick="doLogin()">Увійти</button>
+<button class="btn btn-s" onclick="cl('m-login')">Скасувати</button></div></div>
+
+<div class="modal" id="m-abs"><div class="mc" style="max-width:400px"><h3>Відсутність</h3>
+<div class="fg"><label>Тип</label><select id="at"></select></div>
+<div class="fg"><label>З</label><input type="date" id="as"></div>
+<div class="fg"><label>По</label><input type="date" id="ae"></div>
+<button class="btn" onclick="subAbs()">Надіслати</button>
+<button class="btn btn-s" onclick="cl('m-abs')">Скасувати</button></div></div>
+
+<div class="modal" id="m-inc"><div class="mc" style="max-width:440px"><h3>Звернення</h3>
+<div class="fg" id="inc-who-wrap" style="display:none"><label>Чиє звернення / виконавець</label><select id="iuser"></select></div>
+<div class="fg"><label>Дата</label><input type="date" id="id"></div>
+<div class="fg"><label>Тип</label><select id="it"><option>Звернення</option><option>Інцидент</option><option>Консультація</option></select></div>
+<div class="fg"><label>Пріоритет</label><select id="iprio"></select></div>
+<div class="fg" id="inc-src-wrap" style="display:none"><label>Джерело</label>
+<select id="isrc"><option value="self">self</option><option value="team_lead">team_lead</option><option value="monitoring">monitoring</option><option value="external">external</option><option value="manual">manual</option></select></div>
+<div class="fg"><label>Тривалість (хв)</label><input type="number" id="im" min="0" value="15"></div>
+<div class="fg"><label>Опис</label><textarea id="idesc"></textarea></div>
+<p id="inc-hint" style="font-size:12px;color:#64748b"></p>
+<button class="btn" onclick="subInc()">Зафіксувати</button>
+<button class="btn btn-s" onclick="cl('m-inc')">Скасувати</button></div></div>
+
+<div class="modal" id="m-task"><div class="mc" style="max-width:480px"><h3>Задача з дейлі</h3>
+<div class="fg" id="task-assignee-wrap" style="display:none"><label>Виконавець</label><select id="tuser"></select></div>
+<div class="fg" id="task-resp-wrap" style="display:none"><label>Відповідальна</label><select id="tresp"></select></div>
+<div class="fg"><label>Дата</label><input type="date" id="td"></div>
+<div class="fg" id="task-due-wrap" style="display:none"><label>Due</label><input type="date" id="tdue"></div>
+<div class="fg"><label>План (хв)</label><input type="number" id="test" min="0" value="30"></div>
+<div class="fg"><label>Опис</label><textarea id="tdesc"></textarea></div>
+<div class="fg"><label>Пріоритет</label><select id="tprio"><option>Базова</option><option>Надкритична</option><option>Термінова</option><option>Техборг</option><option>У шухляду</option></select></div>
+<button class="btn" onclick="subTask()">Створити</button>
+<button class="btn btn-s" onclick="cl('m-task')">Скасувати</button></div></div>
+
+<div class="modal" id="m-day"><div class="mc"><h3 id="dt">День</h3>
+<div id="ds"></div><h4>Відсутності</h4><div id="da"></div>
+<h4>Задачі</h4><div class="table-wrap" id="dtasks"></div>
+<h4>Звернення</h4>
+<div class="fg" style="max-width:220px"><label>Фільтр</label><select id="inc-filter" onchange="renderDayIncs()"><option value="">Усі</option></select></div>
+<div class="table-wrap" id="di"></div>
+<button class="btn" style="margin-top:12px" onclick="cl('m-day')">Закрити</button></div></div>
+
+<div class="modal" id="m-person"><div class="mc"><h3 id="person-title">Особа</h3>
+<div id="person-body"></div>
+<button class="btn" style="margin-top:12px" onclick="cl('m-person')">Закрити</button></div></div>
+
+<div class="modal" id="m-col"><div class="mc"><h3 id="col-title">Колонка</h3>
+<div id="col-body"></div>
+<button class="btn" style="margin-top:12px" onclick="cl('m-col')">Закрити</button></div></div>
+
+<script>
+const STATUSES=['Нова','У роботі','На паузі','До перевірки','Виконана','Перевідкрита','Архів'];
+const PRIOS=['Надкритична','Термінова','Базова','Техборг','У шухляду'];
+let U=null,Y=new Date().getFullYear(),M=new Date().getMonth()+1,AT=[],IP=[],D={},_day='',_sw=null,_colKind='',_colName='';
+
+function today(){return new Date().toISOString().slice(0,10)}
+function isAdmin(){return U&&U.role==='admin'}
+function canOpenCol(name){
+  if(!U) return false;
+  if(isAdmin()) return true;
+  if(name==='(без виконавця)'||name==='(на розгляді)') return false;
+  return name===U.name;
+}
+function formatDuration(mins){
+  mins=Math.max(0,Math.floor(+mins||0));
+  if(mins<60) return mins+' хв';
+  const h=Math.floor(mins/60),m=mins%60;
+  if(mins<24*60) return m?h+' год '+m+' хв':h+' год';
+  const d=Math.floor(mins/(24*60)),rh=Math.floor((mins%(24*60))/60);
+  if(d<7) return rh?d+' д '+rh+' год':d+' д';
+  const w=Math.floor(d/7),rd=d%7; return rd?w+' тиж '+rd+' д':w+' тиж';
+}
+function dueFlag(due){
+  if(!due) return null; const t=today();
+  if(t>due) return 'over';
+  const d=new Date(due+'T12:00:00'); d.setDate(d.getDate()-1);
+  if(t>=d.toISOString().slice(0,10)) return 'soon'; return null;
+}
+function truncate(s,n){const r=[...((s||''))];return r.length<=n?s:r.slice(0,n).join('')+'…'}
+function esc(s){const d=document.createElement('div');d.textContent=s||'';return d.innerHTML}
+function cl(id){document.getElementById(id).style.display='none'}
+
+function sess(){
+  try{U=JSON.parse(localStorage.getItem('u'))}catch(e){U=null}
+  const i=document.getElementById('user-info'),a=document.getElementById('btn-auth');
+  const pushBtn=document.getElementById('btn-push');
+  if(U){
+    i.innerText=U.name+(U.role==='admin'?' (admin)':'');a.innerText='Вийти';
+    ['btn-abs','btn-inc','btn-task'].forEach(id=>document.getElementById(id).style.display='');
+    document.getElementById('btn-adm').style.display=isAdmin()?'':'none';
+    pushBtn.style.display='inline-block'; updatePushBtn(); setupPush();
+  } else {
+    i.innerText='';a.innerText='Увійти';
+    ['btn-abs','btn-inc','btn-task','btn-adm'].forEach(id=>document.getElementById(id).style.display='none');
+    pushBtn.style.display='none';
+  }
+}
+function toggleAuth(){if(U){U=null;localStorage.removeItem('u');sess();load()}else document.getElementById('m-login').style.display='flex'}
+async function doLogin(){
+  const r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({username:document.getElementById('lu').value,password:document.getElementById('lp').value})});
+  if(r.ok){U=await r.json();localStorage.setItem('u',JSON.stringify(U));cl('m-login');sess();load()}else alert('Помилка входу');
+}
+
+function updatePushBtn(){
+  const b=document.getElementById('btn-push');
+  if(!('Notification' in window)){b.innerText='🔔 Не підтримується';b.disabled=true;return}
+  if(Notification.permission==='granted'){b.innerText='🔔 Увімкнено';b.classList.add('on')}
+  else if(Notification.permission==='denied'){b.innerText='🔔 Заблоковано';b.classList.remove('on')}
+  else{b.innerText='🔔 Увімкнути сповіщення';b.classList.remove('on')}
+}
+async function setupPush(){
+  if(!('serviceWorker' in navigator)) return;
+  try{_sw=await navigator.serviceWorker.register('/sw.js')}catch(e){}
+  updatePushBtn();
+}
+async function enablePush(){
+  if(!('Notification' in window)){alert('Браузер не підтримує сповіщення');return}
+  if(Notification.permission==='denied'){alert('Сповіщення заблоковано в налаштуваннях браузера.');return}
+  const p=await Notification.requestPermission(); updatePushBtn();
+  if(p==='granted'){await setupPush();maybeNotifyShift();maybeNotifyIncidents()}
+  else alert('Дозвіл не надано');
+}
+function canNotify(){return 'Notification' in window && Notification.permission==='granted'}
+function notify(title,body,tag){
+  if(!canNotify()||!U) return;
+  const key='notif:'+(tag||title)+':'+today();
+  if(sessionStorage.getItem(key)) return;
+  sessionStorage.setItem(key,'1');
+  if(_sw&&_sw.active)_sw.active.postMessage({type:'notify',title,body,tag:tag||'oncall'});
+  else try{new Notification(title,{body,tag:tag||'oncall'})}catch(e){}
+}
+function maybeNotifyShift(){
+  if(!U||!D.shifts) return;
+  const sh=D.shifts[D.today||today()]; if(!sh) return;
+  if(sh.primary_user===U.name) notify('Ви — основний черговий','Сьогодні ви primary.','shift-primary');
+  else if(sh.backup_user===U.name) notify('Ви — дублюючий черговий','Сьогодні ви backup.','shift-backup');
+}
+function maybeNotifyIncidents(){
+  if(!U||!D.incidents) return;
+  const incs=((D.incidents[D.today||today()])||[]).filter(i=>{
+    if(i.status==='Вирішено'||i.status==='Архів') return false;
+    if(!(i.user_name===U.name||i.responsible===U.name)) return false;
+    if(i.source==='self'&&i.created_by===U.name&&i.user_name===U.name) return false;
+    return true;
+  });
+  if(incs.length) notify('Нові звернення','На вас: '+incs.length+' звернення(нь).','inc-'+incs.length);
+}
+
+async function load(){
+  const v=U?encodeURIComponent(U.name):'';
+  const r=await fetch(`/api/data?year=${Y}&month=${M}&viewer=${v}`);D=await r.json();AT=D.absence_types||[];IP=D.incident_priorities||[];
+  renderAlerts(D.alerts||[]);
+  roster(D.team_members||[],D.absences||[]);
+  renderTodayIncs();
+  renderTodayTasks();
+  cal(D.year,D.month,D.shifts||{},D.absences||[],D.incidents||{},D.daily_tasks||{});
+  stats(D.stats||[]);
+  maybeNotifyShift(); maybeNotifyIncidents();
+}
+function renderAlerts(list){
+  const el=document.getElementById('alerts');
+  let html='';
+  if(U && 'Notification' in window && Notification.permission==='default'){
+    html+=`<div class="alert alert-info">Увімкніть сповіщення кнопкою <b>🔔 Увімкнути сповіщення</b> у верхній панелі — про чергування та звернення.</div>`;
+  }
+  if(U&&list.length) html+=list.map(a=>`<div class="alert alert-${a.level||'warning'}">${esc(a.message)}</div>`).join('');
+  el.innerHTML=html;
+}
+
+function membersList(){return (D.team_members||[]).filter(m=>m.role!=='admin'||m.is_oncall)}
+
+/* Усі дейлі-задачі, релевантні «сьогодні»:
+   - date === today
+   - due_date === today
+   - visible_from <= today і дата <= today, статус не фінальний (відкритий backlog)
+*/
+function collectTodayTasks(){
+  const td=D.today||today();
+  const done=new Set(['Виконана','Архів']);
+  const seen=new Set();
+  const out=[];
+  Object.values(D.daily_tasks||{}).forEach(list=>{(list||[]).forEach(t=>{
+    if(seen.has(t.id)) return;
+    const vis=t.visible_from||t.date||'';
+    const isTodayDate=t.date===td;
+    const isDueToday=t.due_date===td;
+    const isOpenBacklog=!done.has(t.status) && vis && vis<=td && t.date && t.date<=td;
+    if(isTodayDate||isDueToday||isOpenBacklog){
+      seen.add(t.id);
+      out.push(t);
+    }
+  })});
+  return out;
+}
+
+function renderTodayIncs(){
+  const el=document.getElementById('today-incs');
+  const td=D.today||today();
+  const incs=(D.incidents||{})[td]||[];
+  const by={'(без виконавця)':[]};
+  membersList().forEach(m=>by[m.name]=[]);
+  incs.forEach(i=>{const k=i.user_name||'(без виконавця)'; if(!by[k]) by[k]=[]; by[k].push(i)});
+  let h=`<h3 style="margin:0 0 8px;font-size:15px">Звернення сьогодні (${td})</h3><div class="board">`;
+  Object.keys(by).forEach(name=>{
+    const list=by[name], open=canOpenCol(name);
+    h+=`<div class="bcol ${open?'clickable':'locked'}" ${open?`onclick="openCol('inc','${esc(name)}')"`:''}>
+      <h4>${esc(name)} (${list.length})${open?' ▸':''}</h4>`;
+    if(!list.length) h+=`<div style="color:#cbd5e1;font-size:11px">—</div>`;
+    list.slice(0,4).forEach(i=>{
+      const col=(IP.find(p=>p.name===i.priority)||{}).color||'#94a3b8';
+      h+=`<div class="bcard" style="border-left-color:${col}"><b>${esc(i.priority||'')}</b> ${esc(truncate(i.description,36))}<div class="meta">${esc(i.source||'self')} · ${esc(i.status||'Нове')}</div></div>`;
+    });
+    if(list.length>4) h+=`<div class="meta">+${list.length-4} ще</div>`;
+    h+=`</div>`;
+  });
+  h+='</div>'; el.innerHTML=h;
+}
+
+function renderTodayTasks(){
+  const el=document.getElementById('today-tasks');
+  const td=D.today||today();
+  const tasks=collectTodayTasks();
+  const by={'(на розгляді)':[]};
+  membersList().forEach(m=>by[m.name]=[]);
+  tasks.forEach(t=>{
+    const k=t.user_name||'(на розгляді)';
+    if(!by[k]) by[k]=[];
+    by[k].push(t);
+  });
+  let h=`<h3 style="margin:0 0 8px;font-size:15px">Задачі з дейлі на сьогодні (${td})</h3><div class="board">`;
+  Object.keys(by).forEach(name=>{
+    const list=by[name];
+    const open=canOpenCol(name) || (isAdmin()&&name==='(на розгляді)');
+    h+=`<div class="bcol ${open?'clickable':'locked'}" ${open?`onclick="openCol('task','${esc(name)}')"`:''}>
+      <h4>${esc(name)} (${list.length})${open?' ▸':''}</h4>`;
+    if(!list.length) h+=`<div style="color:#cbd5e1;font-size:11px">—</div>`;
+    list.slice(0,5).forEach(t=>{
+      const tone=taskTone(t);
+      const mark=t.date!==td?(t.due_date===td?' due':' backlog'):'';
+      h+=`<div class="bcard ${tone.row}" style="border-left-color:#7c3aed"><span class="st ${tone.badge}">${esc(t.status)}</span> ${esc(truncate(t.task_description,36))}<div class="meta">${esc(t.priority||'')}${t.due_date?' · до '+esc(t.due_date):''}${t.date&&t.date!==td?' · з '+esc(t.date):''}</div></div>`;
+    });
+    if(list.length>5) h+=`<div class="meta">+${list.length-5} ще</div>`;
+    h+=`</div>`;
+  });
+  h+='</div>'; el.innerHTML=h;
+}
+
+async function openCol(kind, name){
+  if(!canOpenCol(name) && !(isAdmin()&&(name==='(на розгляді)'||name==='(без виконавця)'))) return;
+  _colKind=kind; _colName=name;
+  const td=D.today||today();
+  document.getElementById('col-title').innerText=(kind==='inc'?'Звернення':'Задачі з дейлі')+' · '+name+' · '+td;
+  const body=document.getElementById('col-body');
+  if(kind==='inc'){
+    let incs=((D.incidents||{})[td]||[]).filter(i=>(i.user_name||'(без виконавця)')===name);
+    if(!incs.length){body.innerHTML='<p>Немає звернень</p>'; document.getElementById('m-col').style.display='flex'; return}
+    let html='';
+    for(const i of incs){
+      const allowed=incNext(i.status);
+      const stOpts=allowed.map(s=>`<option ${s===i.status?'selected':''}>${s}</option>`).join('');
+      const canSt=U && (isAdmin() || i.user_name===U.name);
+      html+=`<div style="border:1px solid var(--b);border-radius:8px;padding:10px;margin-bottom:10px">
+        <div><b>#${i.id}</b> ${esc(i.description)}</div>
+        <div style="font-size:12px;color:#64748b;margin:4px 0">${esc(i.priority)} · ${esc(i.source)} · ${formatDuration(i.total_minutes||i.duration_minutes)}</div>
+        <div class="fg" style="max-width:200px"><label>Статус</label>
+          ${canSt?`<select onchange="updInc(${i.id},this.value)">${stOpts}</select>`:`<span class="st">${esc(i.status)}</span>`}
+        </div>
+        <div id="cmt-inc-${i.id}"><em style="font-size:12px;color:#94a3b8">Завантаження коментарів…</em></div>
+      </div>`;
+    }
+    body.innerHTML=html;
+    document.getElementById('m-col').style.display='flex';
+    for(const i of incs) loadCmts('incident', i.id);
+  } else {
+    let tasks=collectTodayTasks().filter(t=>{
+      if(name==='(на розгляді)') return !t.user_name;
+      return t.user_name===name;
+    });
+    if(!tasks.length){body.innerHTML='<p>Немає задач</p>'; document.getElementById('m-col').style.display='flex'; return}
+    let html='<div class="table-wrap"><table><thead><tr><th>Задача</th><th>Дата</th><th>Статус</th><th>Час</th></tr></thead><tbody>';
+    tasks.forEach(t=>{
+      const tone=taskTone(t);
+      const unassigned=!t.user_name;
+      const canStatus=U && (isAdmin() || (!unassigned && t.user_name===U.name)) && (isAdmin() || t.status!=='Виконана');
+      const allowed=nextStatuses(t.status);
+      const stOpts=(allowed.length?allowed:[t.status]).map(x=>`<option ${x===t.status?'selected':''}>${x}</option>`).join('');
+      html+=`<tr class="${tone.row}"><td>${esc(t.task_description)}${t.due_date?' <small>due '+esc(t.due_date)+'</small>':''}</td>
+        <td>${esc(t.date||'')}</td>
+        <td>${canStatus?`<select onchange="updTask(${t.id},'status',this.value)">${stOpts}</select>`:`<span class="st ${tone.badge}">${esc(t.status)}</span>`}</td>
+        <td>${formatDuration(t.total_minutes)}</td></tr>
+        <tr><td colspan="4" id="cmt-task-${t.id}"><em style="font-size:12px;color:#94a3b8">коментарі…</em></td></tr>`;
+    });
+    html+='</tbody></table></div>';
+    body.innerHTML=html;
+    document.getElementById('m-col').style.display='flex';
+    tasks.forEach(t=>loadCmts('task', t.id));
+  }
+}
+
+function incNext(cur){
+  const map={'Нове':['Нове','В роботі'],'В роботі':['В роботі','На паузі','Вирішено'],'На паузі':['На паузі','В роботі'],'Вирішено':isAdmin()?['Вирішено','Архів','Нове']:[],'Архів':isAdmin()?['Архів','Нове']:[]};
+  return map[cur]||['Нове','В роботі'];
+}
+async function updInc(id,status){
+  const r=await fetch('/api/incidents',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,status,role:U&&U.role||'user'})});
+  if(!r.ok) alert(await r.text()||'Помилка');
+  await load(); openCol(_colKind,_colName);
+}
+function cmtFormHtml(etype,eid){
+  const idPref=etype==='incident'?'inc':'task';
+  const nameField=U?'':`<input id="cmt-name-${idPref}-${eid}" placeholder="Ваше імʼя" style="width:120px;margin-right:4px">`;
+  return `<div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;align-items:center">${nameField}<input id="cmt-in-${idPref}-${eid}" placeholder="Коментар" style="flex:1;min-width:120px"><button class="btn" onclick="addCmt('${etype}',${eid})">+</button></div>`;
+}
+async function loadCmts(etype,eid){
+  const el=document.getElementById('cmt-'+(etype==='incident'?'inc':'task')+'-'+eid);
+  if(!el) return;
+  try{
+    const list=await fetch(`/api/comments?entity_type=${etype}&entity_id=${eid}`).then(r=>r.json());
+    let h=(list||[]).map(c=>`<div class="comment ${c.is_system?'sys':''}"><span class="who">${esc(c.author_name||'system')} · ${esc(c.created_at||'')}</span><div>${esc(c.body)}</div></div>`).join('')||'<div style="font-size:12px;color:#94a3b8">Коментарів немає</div>';
+    el.innerHTML=h+cmtFormHtml(etype,eid);
+  }catch(e){el.innerHTML='<span style="color:#ef4444">помилка коментарів</span>'+cmtFormHtml(etype,eid)}
+}
+async function addCmt(etype,eid){
+  const idPref=etype==='incident'?'inc':'task';
+  const inp=document.getElementById('cmt-in-'+idPref+'-'+eid);
+  const nameInp=document.getElementById('cmt-name-'+idPref+'-'+eid);
+  const body=(inp&&inp.value||'').trim();
+  if(!body) return;
+  const author=U?U.name:((nameInp&&nameInp.value||'').trim()||'гість');
+  if(!U && (!nameInp||!nameInp.value.trim())){alert('Вкажіть імʼя');return}
+  const r=await fetch('/api/comments',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({entity_type:etype,entity_id:eid,author_name:author,body})});
+  if(!r.ok){alert(await r.text());return}
+  if(inp) inp.value='';
+  loadCmts(etype,eid);
+}
+
+function chg(n){M+=n;if(M<1){M=12;Y--}if(M>12){M=1;Y++}load()}
+function inact(n,ds,abs){for(const a of abs||[])if(a.user_name===n&&ds>=a.start_date&&ds<=a.end_date)return true;return false}
+function absRank(typeName){const n=(typeName||'').toLowerCase();if(n.includes('ікарн')||n.includes('sick'))return 30;if(n.includes('ідпуст')||n.includes('vacation'))return 20;if(n.includes('ихідн')||n.includes('dayoff'))return 10;return 5}
+function absColor(typeName){const t=(AT||[]).find(x=>x.name===typeName);if(t&&t.color)return t.color;const n=(typeName||'').toLowerCase();if(n.includes('ідпуст')||n.includes('vacation'))return '#3b82f6';if(n.includes('ікарн')||n.includes('sick'))return '#ef4444';if(n.includes('ихідн')||n.includes('dayoff'))return '#94a3b8';return '#f59e0b'}
+function taskTone(t){
+  const flag=dueFlag(t.due_date);
+  if(t.status==='Виконана'||t.status==='Архів') return {row:'task-row-done',badge:'badge-done'};
+  if(flag==='over'||t.priority==='Надкритична'||t.priority==='Термінова') return {row:'task-row-urgent',badge:'badge-urgent'};
+  if(flag==='soon') return {row:'task-row-due-soon',badge:'badge-urgent'};
+  if(t.status==='На паузі') return {row:'task-row-pause',badge:'badge-pause'};
+  if(t.status==='Нова') return {row:'task-row-new',badge:'badge-new'};
+  if(t.status==='До перевірки') return {row:'task-row-ok',badge:'badge-check'};
+  if(t.status==='У роботі') return {row:'task-row-ok',badge:'badge-work'};
+  return {row:'',badge:'badge-new'};
+}
+function roster(ms,abs){
+  const el=document.getElementById('roster'),t=today();
+  if(!ms.length){el.innerHTML='<span style="color:#94a3b8">Команда порожня</span>';return}
+  const sh=D.shifts&&D.shifts[t];
+  el.innerHTML=ms.map(m=>{
+    const off=inact(m.name,t,abs); let cls='chip';
+    if(m.is_oncall) cls+=' on'; if(off) cls+=' off';
+    if(sh&&sh.primary_user===m.name) cls+=' duty-primary';
+    else if(sh&&sh.backup_user===m.name) cls+=' duty-backup';
+    else if(U&&U.name===m.name) cls+=' me';
+    return `<span class="${cls}" onclick="showPerson('${esc(m.name)}')">${esc(m.name)}${m.team_role?' · '+esc(m.team_role):''}${off?' (відсутній)':''}</span>`;
+  }).join('');
+}
+function showPerson(name){
+  const ds=today();
+  document.getElementById('person-title').innerText=name+' · '+ds;
+  let abs=(D.absences||[]).filter(a=>a.user_name===name&&ds>=a.start_date&&ds<=a.end_date);
+  abs.sort((a,b)=>absRank(b.type)-absRank(a.type));
+  const tasks=collectTodayTasks().filter(t=>t.user_name===name||t.responsible===name||t.created_by===name);
+  const incs=((D.incidents||{})[ds]||[]).filter(i=>i.user_name===name||i.reported_for===name);
+  const sh=D.shifts&&D.shifts[ds];
+  let h='';
+  if(sh&&(sh.primary_user===name||sh.backup_user===name))
+    h+=`<p><b>Чергування:</b> ${sh.primary_user===name?'Основний':''}${sh.backup_user===name?(sh.primary_user===name?' · ':'')+'Дублюючий':''}</p>`;
+  h+=`<h4>Відсутності</h4>`+(abs.length?abs.map(a=>`• <b>${esc(a.type)}</b> (${a.start_date}–${a.end_date})`).join('<br>'):'Немає');
+  h+=`<h4>Задачі з дейлі</h4>`;
+  if(tasks.length){h+='<div class="table-wrap"><table><thead><tr><th>Задача</th><th>Статус</th><th>Час</th></tr></thead><tbody>';
+    tasks.forEach(t=>{const tone=taskTone(t);h+=`<tr class="${tone.row}"><td>${esc(t.task_description)}</td><td><span class="st ${tone.badge}">${esc(t.status)}</span></td><td>${formatDuration(t.total_minutes)}</td></tr>`});
+    h+='</tbody></table></div>'} else h+='<p>Немає</p>';
+  h+=`<h4>Звернення</h4>`;
+  if(incs.length){h+='<div class="table-wrap"><table><thead><tr><th>Опис</th><th>Пріоритет</th><th>Source</th><th>Час</th></tr></thead><tbody>';
+    incs.forEach(i=>{h+=`<tr><td>${esc(i.description)}</td><td>${esc(i.priority)}</td><td>${esc(i.source)}</td><td>${formatDuration(i.total_minutes||i.duration_minutes)}</td></tr>`});
+    h+='</tbody></table></div>'} else h+='<p>Немає</p>';
+  document.getElementById('person-body').innerHTML=h;
+  document.getElementById('m-person').style.display='flex';
+}
+function cal(y,m,sh,abs,inc,tasks){
+  const mn=['Січень','Лютий','Березень','Квітень','Травень','Червень','Липень','Серпень','Вересень','Жовтень','Листопад','Грудень'];
+  document.getElementById('mt').innerText=mn[m-1]+' '+y;
+  const g=document.getElementById('cal');while(g.children.length>7)g.removeChild(g.lastChild);
+  const fd=new Date(y,m-1,1).getDay(),dim=new Date(y,m,0).getDate(),off=fd===0?6:fd-1,td=today();
+  for(let i=0;i<off;i++){const e=document.createElement('div');e.className='dc';e.style.background='#fafafa';e.style.cursor='default';g.appendChild(e)}
+  for(let d=1;d<=dim;d++){
+    const ds=`${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const c=document.createElement('div'); const dow=new Date(y,m-1,d).getDay();
+    c.className='dc'+(dow===0||dow===6?' weekend':'')+(ds===td?' today':'');
+    c.onclick=()=>day(ds); c.innerHTML=`<div class="dn">${d}</div>`;
+    let da=(abs||[]).filter(a=>ds>=a.start_date&&ds<=a.end_date);
+    da=[...da].sort((a,b)=>absRank(b.type)-absRank(a.type));
+    da.forEach(a=>{const col=absColor(a.type);c.innerHTML+=`<div class="ba" style="background:${col}22;color:${col};border:1px solid ${col}55">${esc((a.user_name||'').split(' ')[0])} · ${esc(a.type)}</div>`});
+    if(sh[ds]){let sc=`<b>Осн:</b> ${esc(sh[ds].primary_user)}`;if(sh[ds].backup_user)sc+=`<br><b>Дубл:</b> ${esc(sh[ds].backup_user)}`;else sc+=`<br><span style="color:#94a3b8">(один)</span>`;c.innerHTML+=`<div class="sc">${sc}</div>`}
+    const dt=(tasks||{})[ds]||[];
+    if(dt.length){const urgent=dt.filter(t=>dueFlag(t.due_date)==='over'||dueFlag(t.due_date)==='soon'||t.priority==='Надкритична'||t.priority==='Термінова').length;
+      c.innerHTML+=`<div class="bt" style="${urgent?'color:#ef4444;font-weight:700':''}">📋 ${dt.length}${urgent?' ⚠':''}</div>`}
+    if(inc[ds]&&inc[ds].length){const t=inc[ds].reduce((s,i)=>s+(i.duration_minutes||i.total_minutes||0),0);c.innerHTML+=`<div class="bi">⏱️ ${inc[ds].length} (${formatDuration(t)})</div>`}
+    g.appendChild(c);
+  }
+}
+function memberOpts(selected,allowEmpty){
+  const ms=membersList(); let o=allowEmpty?`<option value="">— на розгляді —</option>`:'';
+  ms.forEach(m=>{o+=`<option value="${esc(m.name)}" ${m.name===selected?'selected':''}>${esc(m.name)}</option>`}); return o;
+}
+function day(ds){
+  _day=ds;document.getElementById('dt').innerText='День: '+ds;
+  const s=D.shifts&&D.shifts[ds],abs=D.absences||[];
+  document.getElementById('ds').innerHTML=s?`<b>Основний:</b> ${esc(s.primary_user)}`+(s.backup_user?`<br><b>Дублюючий:</b> ${esc(s.backup_user)}`:'<br><em style="color:#94a3b8">Лише один черговий</em>'):'Чергування не призначено';
+  let al=abs.filter(a=>ds>=a.start_date&&ds<=a.end_date); al=[...al].sort((a,b)=>absRank(b.type)-absRank(a.type));
+  document.getElementById('da').innerHTML=al.length?al.map(a=>{const col=absColor(a.type);return `<span class="ba" style="background:${col}22;color:${col};border:1px solid ${col}55;margin-right:6px"><b>${esc(a.user_name)}</b> (${esc(a.type)})</span>`}).join(''):'Немає';
+  const tasks=(D.daily_tasks||{})[ds]||[];
+  if(tasks.length){
+    let html='<table><thead><tr><th>Виконавець</th><th>Відп.</th><th>Задача</th><th>Статус</th><th>Пріоритет</th><th>Час</th><th></th></tr></thead><tbody>';
+    tasks.forEach(t=>{
+      const unassigned=!t.user_name;
+      const canStatus=U && (isAdmin() || (!!t.user_name && t.user_name===U.name)) && (isAdmin() || t.status!=='Виконана');
+      const allowed=nextStatuses(t.status);
+      const stOpts=(allowed.length?allowed:[t.status]).map(x=>`<option ${x===t.status?'selected':''}>${x}</option>`).join('');
+      const prOpts=PRIOS.map(x=>`<option ${x===t.priority?'selected':''}>${x}</option>`).join('');
+      const tone=taskTone(t);
+      let execCell=isAdmin()?`<select onchange="updTask(${t.id},'user_name',this.value)">${memberOpts(t.user_name||'',true)}</select>`:(t.user_name?esc(t.user_name):'<em style="color:#94a3b8">на розгляді</em>');
+      let respCell=isAdmin()?`<select onchange="updTask(${t.id},'responsible',this.value)"><option value="">—</option>${memberOpts(t.responsible||'',false)}</select>`:esc(t.responsible||'—');
+      const dueMark=dueFlag(t.due_date)==='over'?' 🔴':(dueFlag(t.due_date)==='soon'?' 🟠':'');
+      html+=`<tr class="${tone.row}"><td>${execCell}</td><td>${respCell}</td><td>${esc(t.task_description)}${t.due_date?' <small>до '+esc(t.due_date)+dueMark+'</small>':''}</td>
+        <td>${canStatus?`<select onchange="updTask(${t.id},'status',this.value)">${stOpts}</select>`:`<span class="st ${tone.badge}">${esc(t.status)}</span>`}</td>
+        <td>${isAdmin()?`<select onchange="updTask(${t.id},'priority',this.value)">${prOpts}</select>`:`<span class="prio">${esc(t.priority)}</span>`}</td>
+        <td>${formatDuration(t.estimated_minutes)} / ${formatDuration(t.total_minutes)}</td>
+        <td>${isAdmin()?`<button class="btn btn-d" style="padding:2px 6px" onclick="delTask(${t.id})">✕</button>`:''}<button class="btn btn-s" style="padding:2px 6px;margin-left:2px" onclick="toggleDayCmt('task',${t.id})">💬</button></td></tr>
+        <tr id="day-cmt-task-${t.id}" style="display:none"><td colspan="7"><div id="cmt-task-${t.id}"><em style="font-size:12px;color:#94a3b8">коментарі…</em></div></td></tr>`;
+    });
+    html+='</tbody></table>'; document.getElementById('dtasks').innerHTML=html;
+  } else document.getElementById('dtasks').innerHTML='Задач немає';
+  const sel=document.getElementById('inc-filter');
+  const names=[...new Set(((D.incidents||{})[ds]||[]).map(i=>i.user_name||'(без)'))].sort();
+  sel.innerHTML='<option value="">Усі</option>'+names.map(n=>`<option>${n}</option>`).join('');
+  renderDayIncs(); document.getElementById('m-day').style.display='flex';
+}
+function renderDayIncs(){
+  const ds=_day, filter=document.getElementById('inc-filter').value;
+  let incs=((D.incidents||{})[ds]||[]).slice();
+  if(filter)incs=incs.filter(i=>(i.user_name||'(без)')===filter);
+  if(!incs.length){document.getElementById('di').innerHTML='Немає';return}
+  let html='<table><thead><tr><th>Хто</th><th>Пріоритет</th><th>Source</th><th>Статус</th><th>Час</th><th>Опис</th></tr></thead><tbody>';
+  incs.forEach(i=>{html+=`<tr><td>${esc(i.user_name)}</td><td>${esc(i.priority)}</td><td>${esc(i.source)}</td><td>${esc(i.status)}</td><td>${formatDuration(i.total_minutes||i.duration_minutes)}</td><td>${esc(i.description)} <button class="btn btn-s" style="padding:2px 6px" onclick="toggleDayCmt('incident',${i.id})">💬</button></td></tr>
+    <tr id="day-cmt-incident-${i.id}" style="display:none"><td colspan="6"><div id="cmt-inc-${i.id}"><em style="font-size:12px;color:#94a3b8">коментарі…</em></div></td></tr>`});
+  html+='</tbody></table>'; document.getElementById('di').innerHTML=html;
+}
+function toggleDayCmt(etype,eid){
+  const row=document.getElementById('day-cmt-'+etype+'-'+eid);
+  if(!row) return;
+  const show=row.style.display==='none';
+  row.style.display=show?'':'none';
+  if(show) loadCmts(etype,eid);
+}
+function stats(st){const t=document.getElementById('stats');t.innerHTML='';(st||[]).forEach(s=>{t.innerHTML+=`<tr><td>${s.name}</td><td>${s.primary_count||0}</td><td>${s.backup_count||0}</td><td>${formatDuration(s.incident_minutes||0)}</td></tr>`})}
+
+function openAbs(){const s=document.getElementById('at');s.innerHTML='';AT.forEach(t=>{s.innerHTML+=`<option>${t.name}</option>`});document.getElementById('as').value=today();document.getElementById('ae').value=today();document.getElementById('m-abs').style.display='flex'}
+async function subAbs(){const r=await fetch('/api/request-absence',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_name:U.name,type:document.getElementById('at').value,start_date:document.getElementById('as').value,end_date:document.getElementById('ae').value})});if(r.ok){alert('Надіслано');cl('m-abs');load()}else alert('Помилка')}
+function fillMemberSelect(selId,includeSelf){const sel=document.getElementById(selId);const ms=membersList();let opts='';if(includeSelf&&U)opts+=`<option value="${esc(U.name)}">${esc(U.name)} (я)</option>`;ms.forEach(m=>{if(!includeSelf||m.name!==U.name)opts+=`<option value="${esc(m.name)}">${esc(m.name)}</option>`});sel.innerHTML=opts||`<option value="${esc(U&&U.name||'')}">${esc(U&&U.name||'')}</option>`}
+function openInc(){document.getElementById('id').value=today();document.getElementById('im').value=15;document.getElementById('idesc').value='';const pr=document.getElementById('iprio');pr.innerHTML=(IP.length?IP:[{name:'Звичайний'}]).map(p=>`<option ${p.is_default?'selected':''}>${esc(p.name)}</option>`).join('');const wrap=document.getElementById('inc-who-wrap'),srcW=document.getElementById('inc-src-wrap'),hint=document.getElementById('inc-hint');if(isAdmin()){wrap.style.display='';srcW.style.display='';fillMemberSelect('iuser',true);hint.innerText='Admin: дата, source, від імені члена команди.';}else{wrap.style.display='none';srcW.style.display='none';hint.innerText='Від свого імені.';}document.getElementById('m-inc').style.display='flex'}
+async function subInc(){const who=(isAdmin()&&document.getElementById('iuser').value)||U.name;const body={user_name:who,date:document.getElementById('id').value,type:document.getElementById('it').value,duration_minutes:+document.getElementById('im').value||0,description:document.getElementById('idesc').value.trim(),role:U.role,created_by:U.name,priority:document.getElementById('iprio').value||'Звичайний',source:isAdmin()?document.getElementById('isrc').value:(who===U.name?'self':'team_lead'),reported_for:who};const r=await fetch('/api/incidents',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});if(r.ok){const j=await r.json();alert(j.message||'Зафіксовано');cl('m-inc');load()}else alert(await r.text()||'Помилка')}
+function openTask(){document.getElementById('td').value=today();document.getElementById('tdesc').value='';document.getElementById('tprio').value='Базова';document.getElementById('test').value=30;document.getElementById('task-assignee-wrap').style.display=isAdmin()?'':'none';document.getElementById('task-resp-wrap').style.display=isAdmin()?'':'none';document.getElementById('task-due-wrap').style.display=isAdmin()?'':'none';if(isAdmin()){fillMemberSelect('tuser',true);const tu=document.getElementById('tuser');if(tu)tu.innerHTML='<option value="">— на розгляді —</option>'+tu.innerHTML;fillMemberSelect('tresp',true);document.getElementById('tdue').value='';}document.getElementById('m-task').style.display='flex'}
+async function subTask(){const who=isAdmin()?(document.getElementById('tuser').value||''):U.name;const body={user_name:who,date:document.getElementById('td').value,task_description:document.getElementById('tdesc').value.trim(),priority:document.getElementById('tprio').value,status:'Нова',created_by:U.name,estimated_minutes:+document.getElementById('test').value||0};if(isAdmin()){body.responsible=document.getElementById('tresp')?document.getElementById('tresp').value||'':'';body.due_date=document.getElementById('tdue').value||'';}const r=await fetch('/api/daily-tasks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});if(r.ok){alert('Збережено');cl('m-task');load()}else alert('Помилка')}
+function nextStatuses(cur){const admin=isAdmin();const map={'Нова':admin?['Нова','У роботі','Архів']:['Нова','У роботі'],'У роботі':admin?['У роботі','На паузі','До перевірки','Виконана','Архів']:['У роботі','На паузі','До перевірки'],'На паузі':admin?['На паузі','У роботі','До перевірки','Архів']:['На паузі','У роботі'],'До перевірки':admin?['До перевірки','У роботі','Виконана','Архів']:['До перевірки','Виконана'],'Виконана':admin?['Виконана','Перевідкрита','Архів']:['Виконана'],'Перевідкрита':admin?['Перевідкрита','Нова','У роботі','Архів']:['Перевідкрита'],'Архів':admin?['Архів','Перевідкрита','Нова']:['Архів']};return map[cur]||(admin?STATUSES:[cur||'Нова'])}
+async function updTask(id,field,val){const body={id,role:U&&U.role||'user',actor:U&&U.name||''};body[field]=val;const r=await fetch('/api/daily-tasks',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});if(!r.ok)alert(await r.text()||'Помилка');await load();if(document.getElementById('m-col').style.display==='flex')openCol(_colKind,_colName);else if(_day)day(_day)}
+async function delTask(id){if(!confirm('Видалити?'))return;await fetch('/api/daily-tasks?id='+id,{method:'DELETE'});cl('m-day');load()}
+
+sess();load();
+</script><script src="/status-fix.js"></script>
+</body></html>
