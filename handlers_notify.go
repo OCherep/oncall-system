@@ -1,0 +1,257 @@
+package main
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"io"
+	"log"
+	"net/http"
+	"net/url"
+	"os"
+	"strings"
+	"time"
+)
+
+// Сповіщення: Slack (командний канал + DM) і Telegram-дзеркало.
+//
+// Env:
+//   SLACK_WEBHOOK_URL     — Incoming Webhook командного каналу
+//   SLACK_BOT_TOKEN       — xoxb-… для chat.postMessage (канал + DM)
+//   SLACK_TEAM_CHANNEL    — channel ID (C…) або #name
+//   TELEGRAM_BOT_TOKEN    — токен бота від @BotFather
+//   TELEGRAM_CHAT_ID      — ID командного чату/групи (для дзеркала)
+//   NOTIFY_ON_INCIDENT=1  — увімкнути (default: on якщо є будь-який токен)
+
+func slackWebhookURL() string { return strings.TrimSpace(os.Getenv("SLACK_WEBHOOK_URL")) }
+func slackBotToken() string   { return strings.TrimSpace(os.Getenv("SLACK_BOT_TOKEN")) }
+func slackTeamChannel() string {
+	ch := strings.TrimSpace(os.Getenv("SLACK_TEAM_CHANNEL"))
+	if ch == "" {
+		ch = strings.TrimSpace(os.Getenv("SLACK_CHANNEL"))
+	}
+	return ch
+}
+func telegramBotToken() string { return strings.TrimSpace(os.Getenv("TELEGRAM_BOT_TOKEN")) }
+func telegramChatID() string   { return strings.TrimSpace(os.Getenv("TELEGRAM_CHAT_ID")) }
+
+func notifyEnabled() bool {
+	v := strings.TrimSpace(os.Getenv("NOTIFY_ON_INCIDENT"))
+	if v == "0" || strings.EqualFold(v, "false") {
+		return false
+	}
+	return slackWebhookURL() != "" || slackBotToken() != "" || telegramBotToken() != ""
+}
+
+// notifyTeam — командний канал Slack + Telegram-дзеркало.
+func notifyTeam(text string) {
+	if !notifyEnabled() || strings.TrimSpace(text) == "" {
+		return
+	}
+	go func() {
+		token := slackBotToken()
+		hook := slackWebhookURL()
+		ch := slackTeamChannel()
+		if token != "" && ch != "" {
+			if err := postSlackAPI(token, ch, text); err != nil {
+				log.Printf("slack team api: %v", err)
+			}
+		} else if hook != "" {
+			if err := postSlackWebhook(hook, text); err != nil {
+				log.Printf("slack team webhook: %v", err)
+			}
+		}
+		if err := postTelegram(telegramChatID(), text); err != nil {
+			log.Printf("telegram team: %v", err)
+		}
+	}()
+}
+
+func notifyTeamSlack(text string) { notifyTeam(text) }
+
+func notifyUserSlack(userName, text string) {
+	if !notifyEnabled() || strings.TrimSpace(text) == "" || strings.TrimSpace(userName) == "" {
+		return
+	}
+	go func() {
+		var slackID string
+		_ = db.QueryRow(`SELECT COALESCE(slack_id,'') FROM users WHERE name = ? LIMIT 1`, userName).Scan(&slackID)
+		if slackID == "" {
+			log.Printf("slack dm: no slack_id for %q", userName)
+			return
+		}
+		if err := postSlackAPI(slackBotToken(), slackID, text); err != nil {
+			log.Printf("slack dm %s: %v", userName, err)
+		}
+	}()
+}
+
+func notifyOncallAboutIncident(inc IncidentReport) {
+	if !notifyEnabled() {
+		return
+	}
+	today := time.Now().Format("2006-01-02")
+	date := inc.Date
+	if date == "" {
+		date = today
+	}
+	var primary, backup string
+	_ = db.QueryRow(`SELECT COALESCE(primary_user,''), COALESCE(backup_user,'') FROM shifts WHERE date=?`, date).Scan(&primary, &backup)
+	msg := formatIncidentNotifyMsg(inc, primary, backup)
+	notifyTeam(msg)
+	seen := map[string]bool{}
+	for _, name := range []string{primary, backup, inc.UserName} {
+		if name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		personal := fmt.Sprintf("🔔 Звернення #%d (%s)\n%s\nПріоритет: %s · Source: %s", inc.ID, date, truncateRunes(inc.Description, 200), nz(inc.Priority, "Звичайний"), nz(inc.Source, "webhook"))
+		if inc.ExternalID != "" {
+			personal += "\nJira: " + inc.ExternalID
+		}
+		notifyUserSlack(name, personal)
+	}
+}
+
+func formatIncidentNotifyMsg(inc IncidentReport, primary, backup string) string {
+	var b strings.Builder
+	b.WriteString("*Нове звернення*")
+	if inc.ID > 0 {
+		b.WriteString(fmt.Sprintf(" `#%d`", inc.ID))
+	}
+	if inc.ExternalID != "" {
+		b.WriteString(fmt.Sprintf(" · %s", inc.ExternalID))
+	}
+	b.WriteString("\n")
+	b.WriteString(fmt.Sprintf("• *Опис:* %s\n", truncateRunes(inc.Description, 300)))
+	b.WriteString(fmt.Sprintf("• *Дата:* %s · *Пріоритет:* %s · *Source:* %s\n", nz(inc.Date, time.Now().Format("2006-01-02")), nz(inc.Priority, "Звичайний"), nz(inc.Source, "webhook")))
+	if inc.UserName != "" {
+		b.WriteString(fmt.Sprintf("• *Виконавець:* %s\n", inc.UserName))
+	}
+	if primary != "" {
+		b.WriteString(fmt.Sprintf("• *Черговий (осн.):* %s", primary))
+		if backup != "" {
+			b.WriteString(fmt.Sprintf(" · *Дубль:* %s", backup))
+		}
+		b.WriteString("\n")
+	}
+	if inc.CreatedBy != "" {
+		b.WriteString(fmt.Sprintf("• *Від:* %s\n", inc.CreatedBy))
+	}
+	return b.String()
+}
+
+func postSlackWebhook(hookURL, text string) error {
+	body, _ := json.Marshal(map[string]string{"text": text})
+	req, err := http.NewRequest(http.MethodPost, hookURL, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	client := &http.Client{Timeout: 8 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return fmt.Errorf("webhook status %d: %s", resp.StatusCode, string(b))
+	}
+	return nil
+}
+
+func postSlackAPI(token, channel, text string) error {
+	if token == "" {
+		return fmt.Errorf("SLACK_BOT_TOKEN empty")
+	}
+	if channel == "" {
+		return fmt.Errorf("channel/user required for bot API")
+	}
+	payload := map[string]interface{}{"channel": channel, "text": text}
+	body, _ := json.Marshal(payload)
+	req, err := http.NewRequest(http.MethodPost, "https://slack.com/api/chat.postMessage", bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json; charset=utf-8")
+	req.Header.Set("Authorization", "Bearer "+token)
+	client := &http.Client{Timeout: 8 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	var out struct {
+		OK    bool   `json:"ok"`
+		Error string `json:"error"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&out)
+	if !out.OK {
+		return fmt.Errorf("slack api: %s", out.Error)
+	}
+	return nil
+}
+
+func postTelegram(chatID, text string) error {
+	token := telegramBotToken()
+	if token == "" {
+		return nil
+	}
+	if chatID == "" {
+		return fmt.Errorf("TELEGRAM_CHAT_ID empty")
+	}
+	html := slackMrkdwnToTelegramHTML(text)
+	api := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", token)
+	form := url.Values{}
+	form.Set("chat_id", chatID)
+	form.Set("text", html)
+	form.Set("parse_mode", "HTML")
+	form.Set("disable_web_page_preview", "true")
+	client := &http.Client{Timeout: 8 * time.Second}
+	resp, err := client.PostForm(api, form)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	var out struct {
+		OK          bool   `json:"ok"`
+		Description string `json:"description"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&out)
+	if !out.OK {
+		return fmt.Errorf("telegram: %s", out.Description)
+	}
+	return nil
+}
+
+func slackMrkdwnToTelegramHTML(s string) string {
+	esc := strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;").Replace(s)
+	var b strings.Builder
+	parts := strings.Split(esc, "*")
+	for i, p := range parts {
+		if i%2 == 1 {
+			b.WriteString("<b>")
+			b.WriteString(p)
+			b.WriteString("</b>")
+		} else {
+			b.WriteString(p)
+		}
+	}
+	return b.String()
+}
+
+func nz(s, def string) string {
+	if strings.TrimSpace(s) == "" {
+		return def
+	}
+	return s
+}
+
+func truncateRunes(s string, max int) string {
+	r := []rune(s)
+	if len(r) <= max {
+		return s
+	}
+	return string(r[:max]) + "…"
+}
