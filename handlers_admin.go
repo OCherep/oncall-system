@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"os"
 	"strings"
-	"time"
 )
 
 func dbAdminPassword() string {
@@ -52,7 +51,7 @@ func handleAdminUsers(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	switch r.Method {
 	case http.MethodGet:
-		rows, err := db.Query(`SELECT u.id, u.username, u.name, u.role, u.team_role_id, COALESCE(tr.name,''), COALESCE(u.is_oncall,1)
+		rows, err := db.Query(`SELECT u.id, u.username, u.name, u.role, u.team_role_id, COALESCE(tr.name,''), COALESCE(u.is_oncall,1), COALESCE(u.slack_id,'')
 			FROM users u LEFT JOIN team_roles tr ON u.team_role_id=tr.id ORDER BY u.id`)
 		if err != nil {
 			http.Error(w, err.Error(), 500)
@@ -63,7 +62,7 @@ func handleAdminUsers(w http.ResponseWriter, r *http.Request) {
 		for rows.Next() {
 			var u User
 			var isOn int
-			rows.Scan(&u.ID, &u.Username, &u.Name, &u.Role, &u.TeamRoleID, &u.TeamRole, &isOn)
+			rows.Scan(&u.ID, &u.Username, &u.Name, &u.Role, &u.TeamRoleID, &u.TeamRole, &isOn, &u.SlackID)
 			u.IsOncall = isOn == 1
 			list = append(list, u)
 		}
@@ -78,8 +77,8 @@ func handleAdminUsers(w http.ResponseWriter, r *http.Request) {
 		if u.IsOncall {
 			on = 1
 		}
-		res, err := db.Exec(`INSERT INTO users (username, password, name, role, team_role_id, is_oncall) VALUES (?,?,?,?,?,?)`,
-			u.Username, u.Password, u.Name, u.Role, u.TeamRoleID, on)
+		res, err := db.Exec(`INSERT INTO users (username, password, name, role, team_role_id, is_oncall, slack_id) VALUES (?,?,?,?,?,?,?)`,
+			u.Username, u.Password, u.Name, u.Role, u.TeamRoleID, on, u.SlackID)
 		if err != nil {
 			http.Error(w, err.Error(), 500)
 			return
@@ -100,13 +99,13 @@ func handleAdminUsers(w http.ResponseWriter, r *http.Request) {
 			on = 1
 		}
 		if u.Password != "" {
-			db.Exec(`UPDATE users SET username=?, password=?, name=?, role=?, team_role_id=?, is_oncall=? WHERE id=?`,
-				u.Username, u.Password, u.Name, u.Role, u.TeamRoleID, on, u.ID)
+			db.Exec(`UPDATE users SET username=?, password=?, name=?, role=?, team_role_id=?, is_oncall=?, slack_id=? WHERE id=?`,
+				u.Username, u.Password, u.Name, u.Role, u.TeamRoleID, on, u.SlackID, u.ID)
 		} else {
-			db.Exec(`UPDATE users SET username=?, name=?, role=?, team_role_id=?, is_oncall=? WHERE id=?`,
-				u.Username, u.Name, u.Role, u.TeamRoleID, on, u.ID)
+			db.Exec(`UPDATE users SET username=?, name=?, role=?, team_role_id=?, is_oncall=?, slack_id=? WHERE id=?`,
+				u.Username, u.Name, u.Role, u.TeamRoleID, on, u.SlackID, u.ID)
 		}
-		logAudit("admin", "UPDATE_USER", r.RemoteAddr, fmt.Sprintf("id=%d", u.ID))
+		logAudit("admin", "UPDATE_USER", r.RemoteAddr, fmt.Sprintf("id=%d slack_id=%s", u.ID, u.SlackID))
 		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 	case http.MethodDelete:
 		id := r.URL.Query().Get("id")
@@ -161,13 +160,13 @@ func handleAdminAbsenceTypes(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	switch r.Method {
 	case http.MethodGet:
-		rows, _ := db.Query(`SELECT id, name, code, COALESCE(color,'') FROM absence_types ORDER BY id`)
+		rows, _ := db.Query(`SELECT id, name, code FROM absence_types ORDER BY id`)
 		var list []AbsenceType
 		if rows != nil {
 			defer rows.Close()
 			for rows.Next() {
 				var t AbsenceType
-				rows.Scan(&t.ID, &t.Name, &t.Code, &t.Color)
+				rows.Scan(&t.ID, &t.Name, &t.Code)
 				list = append(list, t)
 			}
 		}
@@ -175,7 +174,7 @@ func handleAdminAbsenceTypes(w http.ResponseWriter, r *http.Request) {
 	case http.MethodPost:
 		var t AbsenceType
 		json.NewDecoder(r.Body).Decode(&t)
-		res, err := db.Exec(`INSERT INTO absence_types (name, code, color) VALUES (?,?,?)`, t.Name, t.Code, t.Color)
+		res, err := db.Exec(`INSERT INTO absence_types (name, code) VALUES (?,?)`, t.Name, t.Code)
 		if err != nil {
 			http.Error(w, err.Error(), 500)
 			return
@@ -187,7 +186,7 @@ func handleAdminAbsenceTypes(w http.ResponseWriter, r *http.Request) {
 	case http.MethodPut:
 		var t AbsenceType
 		json.NewDecoder(r.Body).Decode(&t)
-		db.Exec(`UPDATE absence_types SET name=?, code=?, color=? WHERE id=?`, t.Name, t.Code, t.Color, t.ID)
+		db.Exec(`UPDATE absence_types SET name=?, code=? WHERE id=?`, t.Name, t.Code, t.ID)
 		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 	case http.MethodDelete:
 		db.Exec("DELETE FROM absence_types WHERE id=?", r.URL.Query().Get("id"))
@@ -197,188 +196,22 @@ func handleAdminAbsenceTypes(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func handleAdminIncidentPriorities(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	switch r.Method {
-	case http.MethodGet:
-		rows, _ := db.Query(`SELECT id, name, code, COALESCE(color,''), COALESCE(sort_order,0), COALESCE(is_default,0) FROM incident_priorities ORDER BY sort_order, id`)
-		var list []IncidentPriority
-		if rows != nil {
-			defer rows.Close()
-			for rows.Next() {
-				var p IncidentPriority
-				var def int
-				rows.Scan(&p.ID, &p.Name, &p.Code, &p.Color, &p.SortOrder, &def)
-				p.IsDefault = def == 1
-				list = append(list, p)
-			}
-		}
-		json.NewEncoder(w).Encode(list)
-	case http.MethodPost:
-		var p IncidentPriority
-		json.NewDecoder(r.Body).Decode(&p)
-		def := 0
-		if p.IsDefault {
-			def = 1
-			db.Exec(`UPDATE incident_priorities SET is_default=0`)
-		}
-		res, err := db.Exec(`INSERT INTO incident_priorities (name, code, color, sort_order, is_default) VALUES (?,?,?,?,?)`,
-			p.Name, p.Code, p.Color, p.SortOrder, def)
-		if err != nil {
-			http.Error(w, err.Error(), 500)
-			return
-		}
-		id, _ := res.LastInsertId()
-		p.ID = int(id)
-		w.WriteHeader(201)
-		json.NewEncoder(w).Encode(p)
-	case http.MethodPut:
-		var p IncidentPriority
-		json.NewDecoder(r.Body).Decode(&p)
-		def := 0
-		if p.IsDefault {
-			def = 1
-			db.Exec(`UPDATE incident_priorities SET is_default=0`)
-		}
-		db.Exec(`UPDATE incident_priorities SET name=?, code=?, color=?, sort_order=?, is_default=? WHERE id=?`,
-			p.Name, p.Code, p.Color, p.SortOrder, def, p.ID)
-		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
-	case http.MethodDelete:
-		db.Exec("DELETE FROM incident_priorities WHERE id=?", r.URL.Query().Get("id"))
-		json.NewEncoder(w).Encode(map[string]string{"status": "deleted"})
-	default:
-		http.Error(w, "Method not allowed", 405)
+func absTypeRank(typeName string) int {
+	n := strings.ToLower(typeName)
+	if strings.Contains(n, "ікарн") || strings.Contains(n, "sick") {
+		return 30
 	}
+	if strings.Contains(n, "ідпуст") || strings.Contains(n, "vacation") {
+		return 20
+	}
+	if strings.Contains(n, "ихідн") || strings.Contains(n, "dayoff") {
+		return 10
+	}
+	return 5
 }
 
-func handleAdminIncidents(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	switch r.Method {
-	case http.MethodGet:
-		q := incidentSelect + " WHERE 1=1"
-		args := []interface{}{}
-		if v := r.URL.Query().Get("status"); v != "" {
-			q += " AND status=?"
-			args = append(args, v)
-		}
-		if v := r.URL.Query().Get("date"); v != "" {
-			q += " AND date=?"
-			args = append(args, v)
-		}
-		q += " ORDER BY id DESC LIMIT 300"
-		rows, err := db.Query(q, args...)
-		if err != nil {
-			http.Error(w, err.Error(), 500)
-			return
-		}
-		defer rows.Close()
-		var list []IncidentReport
-		for rows.Next() {
-			inc, _ := scanIncident(rows)
-			list = append(list, inc)
-		}
-		json.NewEncoder(w).Encode(list)
-	case http.MethodPut:
-		// reuse client PUT via redirect body — same logic as handleIncidents PUT with admin role
-		var raw map[string]interface{}
-		json.NewDecoder(r.Body).Decode(&raw)
-		raw["role"] = "admin"
-		b, _ := json.Marshal(raw)
-		// minimal: update key fields
-		var inc IncidentReport
-		json.Unmarshal(b, &inc)
-		if inc.ID == 0 {
-			http.Error(w, "id required", 400)
-			return
-		}
-		rows, err := db.Query(incidentSelect+` WHERE id=?`, inc.ID)
-		if err != nil || !rows.Next() {
-			if rows != nil {
-				rows.Close()
-			}
-			http.Error(w, "not found", 404)
-			return
-		}
-		cur, _ := scanIncident(rows)
-		rows.Close()
-		st := cur.Status
-		if inc.Status != "" {
-			st = inc.Status
-		}
-		prio := cur.Priority
-		if _, ok := raw["priority"]; ok {
-			prio = inc.Priority
-		}
-		un := cur.UserName
-		if _, ok := raw["user_name"]; ok {
-			un = inc.UserName
-		}
-		resp := cur.Responsible
-		if _, ok := raw["responsible"]; ok {
-			resp = inc.Responsible
-		}
-		db.Exec(`UPDATE incidents SET status=?, priority=?, user_name=?, responsible=? WHERE id=?`, st, prio, un, resp, inc.ID)
-		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
-	case http.MethodDelete:
-		db.Exec("DELETE FROM incidents WHERE id=?", r.URL.Query().Get("id"))
-		json.NewEncoder(w).Encode(map[string]string{"status": "deleted"})
-	default:
-		http.Error(w, "Method not allowed", 405)
-	}
-}
-
-func handleIncidentToTask(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	if r.Method != http.MethodPost {
-		http.Error(w, "POST only", 405)
-		return
-	}
-	var req struct {
-		ID int `json:"id"`
-	}
-	json.NewDecoder(r.Body).Decode(&req)
-	if req.ID == 0 {
-		http.Error(w, "id required", 400)
-		return
-	}
-	rows, err := db.Query(incidentSelect+` WHERE id=?`, req.ID)
-	if err != nil || !rows.Next() {
-		if rows != nil {
-			rows.Close()
-		}
-		http.Error(w, "not found", 404)
-		return
-	}
-	inc, _ := scanIncident(rows)
-	rows.Close()
-	desc := "[зі звернення #" + fmt.Sprintf("%d", inc.ID) + "] " + inc.Description
-	res, err := db.Exec(`INSERT INTO daily_tasks (user_name, date, task_description, status, priority, total_minutes, created_at, created_by, responsible, due_date, incident_id)
-		VALUES (?,?,?,'Нова',?,0,CURRENT_TIMESTAMP,?,?,?,?)`,
-		inc.UserName, inc.Date, desc, mapIncPrioToTask(inc.Priority), inc.CreatedBy, inc.Responsible, inc.DueDate, inc.ID)
-	if err != nil {
-		http.Error(w, err.Error(), 500)
-		return
-	}
-	tid, _ := res.LastInsertId()
-	db.Exec(`UPDATE incidents SET status='Вирішено' WHERE id=?`, inc.ID)
-	db.Exec(`INSERT INTO comments (entity_type, entity_id, author_name, body, is_system, created_at)
-		VALUES ('incident', ?, 'system', ?, 1, CURRENT_TIMESTAMP)`, inc.ID,
-		fmt.Sprintf("Переведено в задачу #%d", tid))
-	logAudit("admin", "INCIDENT_TO_TASK", r.RemoteAddr, fmt.Sprintf("incident=%d task=%d", inc.ID, tid))
-	json.NewEncoder(w).Encode(map[string]interface{}{"status": "ok", "task_id": tid})
-}
-
-func mapIncPrioToTask(p string) string {
-	switch strings.ToLower(p) {
-	case "критичний", "critical":
-		return "Надкритична"
-	case "високий", "high":
-		return "Термінова"
-	case "низький", "low":
-		return "У шухляду"
-	default:
-		return "Базова"
-	}
+func datesOverlap(aStart, aEnd, bStart, bEnd string) bool {
+	return aStart <= bEnd && bStart <= aEnd
 }
 
 func handleAdminRequests(w http.ResponseWriter, r *http.Request) {
@@ -402,12 +235,44 @@ func handleAdminRequests(w http.ResponseWriter, r *http.Request) {
 			Status string `json:"status"`
 		}
 		json.NewDecoder(r.Body).Decode(&req)
-		db.Exec(`UPDATE absences SET status=? WHERE id=?`, req.Status, req.ID)
-		if req.Status == "Approved" || req.Status == "Rejected" {
-			db.Exec(`DELETE FROM shifts`)
+		if req.ID == 0 || req.Status == "" {
+			http.Error(w, "id and status required", 400)
+			return
 		}
-		logAudit("admin", "UPDATE_REQUEST", r.RemoteAddr, fmt.Sprintf("id=%d status=%s", req.ID, req.Status))
-		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+		var cur AbsenceRequest
+		err := db.QueryRow(`SELECT id, user_name, type, start_date, end_date, status FROM absences WHERE id=?`, req.ID).
+			Scan(&cur.ID, &cur.UserName, &cur.Type, &cur.StartDate, &cur.EndDate, &cur.Status)
+		if err != nil {
+			http.Error(w, "not found", 404)
+			return
+		}
+		db.Exec(`UPDATE absences SET status=? WHERE id=?`, req.Status, req.ID)
+		rejected := 0
+		if req.Status == "Approved" {
+			rank := absTypeRank(cur.Type)
+			rows, _ := db.Query(`SELECT id, type, start_date, end_date, status FROM absences
+				WHERE user_name=? AND id!=? AND status IN ('Pending','Approved')`, cur.UserName, cur.ID)
+			if rows != nil {
+				defer rows.Close()
+				for rows.Next() {
+					var oid int
+					var otype, os, oe, ost string
+					rows.Scan(&oid, &otype, &os, &oe, &ost)
+					if absTypeRank(otype) >= rank {
+						continue
+					}
+					if !datesOverlap(cur.StartDate, cur.EndDate, os, oe) {
+						continue
+					}
+					db.Exec(`UPDATE absences SET status='Rejected' WHERE id=?`, oid)
+					logAudit("admin", "AUTO_REJECT_ABSENCE", r.RemoteAddr,
+						fmt.Sprintf("id=%d type=%s rejected due to higher %s id=%d", oid, otype, cur.Type, cur.ID))
+					rejected++
+				}
+			}
+		}
+		logAudit("admin", "UPDATE_REQUEST", r.RemoteAddr, fmt.Sprintf("id=%d status=%s auto_rejected=%d", req.ID, req.Status, rejected))
+		json.NewEncoder(w).Encode(map[string]interface{}{"status": "ok", "auto_rejected": rejected})
 	default:
 		http.Error(w, "Method not allowed", 405)
 	}
@@ -435,8 +300,7 @@ func handleAdminTasks(w http.ResponseWriter, r *http.Request) {
 		q := `SELECT id, user_name, date, task_description,
 			COALESCE(status,'Нова'), COALESCE(priority,'Базова'), work_started_at,
 			COALESCE(total_minutes,0), COALESCE(datetime(created_at,'localtime'),''),
-			COALESCE(visible_from,''), COALESCE(due_date,''), COALESCE(created_by,''), COALESCE(responsible,''),
-			COALESCE(estimated_minutes,0)
+			COALESCE(visible_from,''), COALESCE(due_date,''), COALESCE(created_by,''), COALESCE(responsible,'')
 			FROM daily_tasks WHERE 1=1`
 		args := []interface{}{}
 		if v := r.URL.Query().Get("user"); v != "" {
@@ -451,20 +315,6 @@ func handleAdminTasks(w http.ResponseWriter, r *http.Request) {
 			q += " AND priority = ?"
 			args = append(args, v)
 		}
-		archive := r.URL.Query().Get("archive") == "1"
-		if !archive {
-			year := time.Now().Year()
-			month := int(time.Now().Month())
-			if y := r.URL.Query().Get("year"); y != "" {
-				fmt.Sscanf(y, "%d", &year)
-			}
-			if m := r.URL.Query().Get("month"); m != "" {
-				fmt.Sscanf(m, "%d", &month)
-			}
-			pat := fmt.Sprintf("%04d-%02d-%%", year, month)
-			q += " AND (date LIKE ? OR due_date LIKE ?)"
-			args = append(args, pat, pat)
-		}
 		if v := r.URL.Query().Get("date_from"); v != "" {
 			q += " AND date >= ?"
 			args = append(args, v)
@@ -472,11 +322,6 @@ func handleAdminTasks(w http.ResponseWriter, r *http.Request) {
 		if v := r.URL.Query().Get("date_to"); v != "" {
 			q += " AND date <= ?"
 			args = append(args, v)
-		}
-		if v := r.URL.Query().Get("q"); v != "" {
-			q += " AND (task_description LIKE ? OR user_name LIKE ? OR responsible LIKE ? OR created_by LIKE ?)"
-			like := "%" + v + "%"
-			args = append(args, like, like, like, like)
 		}
 		q += " ORDER BY date DESC, id DESC"
 		rows, err := db.Query(q, args...)
@@ -489,8 +334,7 @@ func handleAdminTasks(w http.ResponseWriter, r *http.Request) {
 		for rows.Next() {
 			var t DailyTask
 			var ws, ca, vis, due, cby, resp sql.NullString
-			var est sql.NullInt64
-			rows.Scan(&t.ID, &t.UserName, &t.Date, &t.TaskDescription, &t.Status, &t.Priority, &ws, &t.TotalMinutes, &ca, &vis, &due, &cby, &resp, &est)
+			rows.Scan(&t.ID, &t.UserName, &t.Date, &t.TaskDescription, &t.Status, &t.Priority, &ws, &t.TotalMinutes, &ca, &vis, &due, &cby, &resp)
 			if ws.Valid {
 				t.WorkStartedAt = ws.String
 			}
@@ -509,9 +353,6 @@ func handleAdminTasks(w http.ResponseWriter, r *http.Request) {
 			if resp.Valid {
 				t.Responsible = resp.String
 			}
-			if est.Valid {
-				t.EstimatedMinutes = int(est.Int64)
-			}
 			list = append(list, t)
 		}
 		json.NewEncoder(w).Encode(list)
@@ -525,32 +366,21 @@ func handleAdminTasks(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "id required", 400)
 			return
 		}
+		raw["role"] = "admin"
+		body, _ := json.Marshal(raw)
 		var cur DailyTask
 		var ws, ca, visN, dueN, respN sql.NullString
-		var estN sql.NullInt64
 		err := db.QueryRow(`SELECT id, user_name, date, task_description, COALESCE(status,'Нова'), COALESCE(priority,'Базова'),
 			work_started_at, COALESCE(total_minutes,0), COALESCE(datetime(created_at,'localtime'),''),
-			COALESCE(visible_from,''), COALESCE(due_date,''), COALESCE(responsible,''), COALESCE(estimated_minutes,0)
+			COALESCE(visible_from,''), COALESCE(due_date,''), COALESCE(responsible,'')
 			FROM daily_tasks WHERE id=?`, t.ID).
-			Scan(&cur.ID, &cur.UserName, &cur.Date, &cur.TaskDescription, &cur.Status, &cur.Priority, &ws, &cur.TotalMinutes, &ca, &visN, &dueN, &respN, &estN)
+			Scan(&cur.ID, &cur.UserName, &cur.Date, &cur.TaskDescription, &cur.Status, &cur.Priority, &ws, &cur.TotalMinutes, &ca, &visN, &dueN, &respN)
 		if err != nil {
 			http.Error(w, "not found", 404)
 			return
 		}
 		if ws.Valid {
 			cur.WorkStartedAt = ws.String
-		}
-		if visN.Valid {
-			cur.VisibleFrom = visN.String
-		}
-		if dueN.Valid {
-			cur.DueDate = dueN.String
-		}
-		if respN.Valid {
-			cur.Responsible = respN.String
-		}
-		if estN.Valid {
-			cur.EstimatedMinutes = int(estN.Int64)
 		}
 		newStatus := t.Status
 		if newStatus == "" {
@@ -578,39 +408,13 @@ func handleAdminTasks(w http.ResponseWriter, r *http.Request) {
 		} else {
 			workArg = workStarted
 		}
-		userName := cur.UserName
-		if _, ok := raw["user_name"]; ok {
-			userName = t.UserName
+		userName := t.UserName
+		if userName == "" {
+			userName = cur.UserName
 		}
-		resp := cur.Responsible
-		if _, ok := raw["responsible"]; ok {
-			resp = t.Responsible
-		}
-		date := cur.Date
-		if _, ok := raw["date"]; ok && t.Date != "" {
-			date = t.Date
-		}
-		desc := cur.TaskDescription
-		if _, ok := raw["task_description"]; ok && t.TaskDescription != "" {
-			desc = t.TaskDescription
-		}
-		due := cur.DueDate
-		if _, ok := raw["due_date"]; ok {
-			due = t.DueDate
-		}
-		vis := cur.VisibleFrom
-		if _, ok := raw["visible_from"]; ok {
-			vis = t.VisibleFrom
-		}
-		est := cur.EstimatedMinutes
-		if _, ok := raw["estimated_minutes"]; ok {
-			est = t.EstimatedMinutes
-		}
-		db.Exec(`UPDATE daily_tasks SET status=?, priority=?, work_started_at=?, total_minutes=?,
-			user_name=?, responsible=?, date=?, task_description=?, due_date=?, visible_from=?, estimated_minutes=? WHERE id=?`,
-			newStatus, newPriority, workArg, total, userName, resp, date, desc, due, vis, est, t.ID)
-		_ = b
-		logAudit("admin", "UPDATE_ADMIN_TASK", r.RemoteAddr, fmt.Sprintf("id=%d status=%s due=%s", t.ID, newStatus, due))
+		db.Exec(`UPDATE daily_tasks SET status=?, priority=?, work_started_at=?, total_minutes=?, user_name=? WHERE id=?`,
+			newStatus, newPriority, workArg, total, userName, t.ID)
+		_ = body
 		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 	case http.MethodDelete:
 		db.Exec("DELETE FROM daily_tasks WHERE id=?", r.URL.Query().Get("id"))
@@ -623,7 +427,7 @@ func handleAdminTasks(w http.ResponseWriter, r *http.Request) {
 func handleDBStats(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if !checkDBAdminPassword(r) {
-		http.Error(w, "Потрібен пароль доступу до бази", 403)
+		http.Error(w, "Потрібен пароль доступу до бази (заголовок X-DB-Admin-Password)", 403)
 		return
 	}
 	rows, _ := db.Query(`SELECT table_name, COALESCE(row_count,0), COALESCE(last_action,''), COALESCE(datetime(last_update,'localtime'),'') FROM table_tracker`)
@@ -649,7 +453,7 @@ func handleReadOnlyQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !checkDBAdminPassword(r) {
-		http.Error(w, "Потрібен пароль", 403)
+		http.Error(w, "Потрібен пароль доступу до бази (заголовок X-DB-Admin-Password)", 403)
 		return
 	}
 	var req struct {
@@ -698,9 +502,9 @@ func handleRegenerateShifts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !checkDBAdminPassword(r) {
-		http.Error(w, "Потрібен пароль", 403)
+		http.Error(w, "Потрібен пароль доступу до бази", 403)
 		return
 	}
 	db.Exec(`DELETE FROM shifts`)
-	json.NewEncoder(w).Encode(map[string]string{"status": "shifts cleared"})
+	json.NewEncoder(w).Encode(map[string]string{"status": "shifts cleared — reload calendar to regenerate"})
 }
