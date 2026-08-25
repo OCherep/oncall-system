@@ -1,241 +1,849 @@
 <!DOCTYPE html>
-<html lang="uk"><head>
-<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Admin — On-Call</title>
-<style>
-:root{--p:#2563eb;--bg:#f8fafc;--t:#0f172a;--b:#e2e8f0}
-body{margin:0;font-family:system-ui,sans-serif;background:var(--bg);color:var(--t)}
-.navbar{position:fixed;top:0;left:0;right:0;height:56px;background:#fff;border-bottom:1px solid var(--b);display:flex;align-items:center;justify-content:space-between;padding:0 16px;z-index:100}
-.btn{background:var(--p);color:#fff;border:none;padding:8px 14px;border-radius:6px;cursor:pointer;font-size:13px}
-.btn:hover{opacity:.9}.btn-d{background:#ef4444}.btn-s{background:#64748b}.btn-p{background:#16a34a}.btn-e{background:#0ea5e9}
-.main{margin-top:72px;padding:16px;max-width:1200px;margin-left:auto;margin-right:auto}
-.tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
-.tabs a{padding:8px 14px;background:#fff;border:1px solid var(--b);border-radius:6px;text-decoration:none;color:var(--t);font-size:13px;cursor:pointer}
-.tabs a.active{background:var(--p);color:#fff;border-color:var(--p)}
-.sec{display:none}.sec.on{display:block}
-table{width:100%;border-collapse:collapse;background:#fff;border:1px solid var(--b);border-radius:8px;font-size:13px;margin-top:8px}
-th,td{padding:8px 10px;border-bottom:1px solid var(--b);text-align:left}th{background:#f1f5f9}
-.fg{margin-bottom:10px;display:inline-block;margin-right:12px;vertical-align:top}label{display:block;font-size:12px;color:#64748b;margin-bottom:3px}
-input,select,textarea{padding:8px;border:1px solid var(--b);border-radius:6px;font-size:13px}
-textarea{min-height:60px;width:280px}
-.filters{display:flex;flex-wrap:wrap;gap:8px;align-items:end;margin-bottom:12px}
-.card{background:#fff;border:1px solid var(--b);border-radius:8px;padding:14px;margin-bottom:14px}
-.card h3{margin:0 0 10px;font-size:15px}
-.swatch{display:inline-block;width:14px;height:14px;border-radius:3px;vertical-align:middle;border:1px solid #cbd5e1}
-.row-due-soon{background:#fff7ed}.row-due-over{background:#fee2e2}
-.badge-due{display:inline-block;padding:1px 6px;border-radius:4px;font-size:11px;background:#ef4444;color:#fff;margin-left:4px}
-.badge-due-soon{background:#f59e0b}
-</style></head><body>
-<div class="navbar"><div><strong>Admin</strong> · On-Call</div>
-<div><a class="btn btn-s" href="/">← Календар</a></div></div>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Адміністрування - OnCall System</title>
+    <style>
+        :root {
+            --primary-color: #2563eb;
+            --bg-color: #f8fafc;
+            --text-color: #0f172a;
+            --border-color: #e2e8f0;
+            --danger-color: #ef4444;
+            --success-color: #10b981;
+        }
 
-<div class="main">
-<div class="tabs">
-<a data-s="users" class="active">Користувачі</a>
-<a data-s="roles">Ролі команди</a>
-<a data-s="types">Типи відсутності</a>
-<a data-s="iprios">Пріоритети звернень</a>
-<a data-s="requests">Заявки</a>
-<a data-s="incs">Звернення</a>
-<a data-s="tasks">Задачі з дейлі</a>
-<a data-s="logs">Логи</a>
-</div>
+        body {
+            margin: 0;
+            font-family: system-ui, -apple-system, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+        }
 
-<div class="sec on" id="users">
-<h2>Користувачі</h2>
-<div class="card">
-<input type="hidden" id="u-id" value="">
-<div class="fg"><label>Username</label><input id="u-user"></div>
-<div class="fg"><label>Пароль</label><input id="u-pass" type="password"></div>
-<div class="fg"><label>Ім'я</label><input id="u-name"></div>
-<div class="fg"><label>Role</label><select id="u-role"><option>user</option><option>admin</option></select></div>
-<div class="fg"><label>Team role</label><select id="u-tr"></select></div>
-<div class="fg"><label>On-call</label><select id="u-on"><option value="1">Так</option><option value="0">Ні</option></select></div>
-<button class="btn" id="u-save" onclick="saveUser()">Додати</button>
-<button class="btn btn-s" id="u-cancel" style="display:none" onclick="resetUserForm()">Скасувати</button>
-</div>
-<table><thead><tr><th>ID</th><th>Username</th><th>Ім'я</th><th>Role</th><th>Team</th><th>On-call</th><th></th></tr></thead><tbody id="u-tb"></tbody></table>
-</div>
+        .navbar {
+            position: fixed;
+            top: 0; left: 0; right: 0;
+            height: 60px;
+            background-color: #ffffff;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 20px;
+            z-index: 1000;
+        }
 
-<div class="sec" id="roles">
-<h2>Ролі команди</h2>
-<div class="card"><input type="hidden" id="r-id"><div class="fg"><label>Назва</label><input id="r-name"></div>
-<button class="btn" id="r-save" onclick="saveRole()">Додати</button>
-<button class="btn btn-s" id="r-cancel" style="display:none" onclick="resetRoleForm()">Скасувати</button></div>
-<table><thead><tr><th>ID</th><th>Назва</th><th></th></tr></thead><tbody id="r-tb"></tbody></table>
-</div>
+        .nav-left, .nav-right {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
 
-<div class="sec" id="types">
-<h2>Типи відсутності</h2>
-<div class="card"><input type="hidden" id="t-id">
-<div class="fg"><label>Назва</label><input id="t-name"></div>
-<div class="fg"><label>Code</label><input id="t-code"></div>
-<div class="fg"><label>Колір</label><input id="t-color" type="color" value="#f59e0b" style="width:60px;height:36px;padding:2px"></div>
-<button class="btn" id="t-save" onclick="saveType()">Додати</button>
-<button class="btn btn-s" id="t-cancel" style="display:none" onclick="resetTypeForm()">Скасувати</button></div>
-<table><thead><tr><th>ID</th><th>Назва</th><th>Code</th><th>Колір</th><th></th></tr></thead><tbody id="t-tb"></tbody></table>
-</div>
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-weight: bold;
+            font-size: 18px;
+            color: var(--primary-color);
+            text-decoration: none;
+        }
 
-<div class="sec" id="iprios">
-<h2>Пріоритети звернень</h2>
-<div class="card"><input type="hidden" id="ip-id">
-<div class="fg"><label>Назва</label><input id="ip-name"></div>
-<div class="fg"><label>Code</label><input id="ip-code"></div>
-<div class="fg"><label>Колір</label><input id="ip-color" type="color" value="#3b82f6" style="width:60px;height:36px;padding:2px"></div>
-<div class="fg"><label>Порядок</label><input id="ip-sort" type="number" value="30" style="width:70px"></div>
-<div class="fg"><label>Default</label><select id="ip-def"><option value="0">Ні</option><option value="1">Так</option></select></div>
-<button class="btn" id="ip-save" onclick="saveIPrio()">Додати</button>
-<button class="btn btn-s" id="ip-cancel" style="display:none" onclick="resetIPrio()">Скасувати</button></div>
-<table><thead><tr><th>ID</th><th>Назва</th><th>Code</th><th>Колір</th><th>Sort</th><th>Def</th><th></th></tr></thead><tbody id="ip-tb"></tbody></table>
-</div>
+        .main-menu { display: flex; gap: 10px; }
 
-<div class="sec" id="requests">
-<h2>Заявки на відсутність</h2>
-<table><thead><tr><th>ID</th><th>Хто</th><th>Тип</th><th>З</th><th>По</th><th>Статус</th><th></th></tr></thead><tbody id="req-tb"></tbody></table>
-</div>
+        .main-menu-btn {
+            padding: 8px 16px;
+            border-radius: 6px;
+            border: 1px solid transparent;
+            background: none;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 14px;
+            color: #64748b;
+        }
 
-<div class="sec" id="incs">
-<h2>Звернення</h2>
-<p style="font-size:12px;color:#64748b">Лише admin може перевести звернення → задачу з дейлі.</p>
-<table><thead><tr><th>ID</th><th>Виконавець</th><th>Дата</th><th>Пріоритет</th><th>Source</th><th>Статус</th><th>Опис</th><th></th></tr></thead><tbody id="inc-tb"></tbody></table>
-</div>
+        .main-menu-btn.active {
+            background-color: #eff6ff;
+            color: var(--primary-color);
+            border-color: #bfdbfe;
+        }
 
-<div class="sec" id="tasks">
-<h2>Задачі з дейлі</h2>
-<div class="card" id="task-edit-card">
-<h3 id="task-edit-title">Створити задачу</h3>
-<input type="hidden" id="nt-id">
-<div class="fg"><label>Виконавець</label><select id="nt-user"><option value="">— на розгляді —</option></select></div>
-<div class="fg"><label>Відповідальна</label><select id="nt-resp"><option value="">—</option></select></div>
-<div class="fg"><label>Дата</label><input type="date" id="nt-date"></div>
-<div class="fg"><label>Видима з</label><input type="date" id="nt-vis"></div>
-<div class="fg"><label>Due ★</label><input type="date" id="nt-due"></div>
-<div class="fg"><label>План хв</label><input type="number" id="nt-est" min="0" value="0" style="width:80px"></div>
-<div class="fg"><label>Статус</label><select id="nt-status"><option>Нова</option><option>У роботі</option><option>На паузі</option><option>До перевірки</option><option>Виконана</option><option>Перевідкрита</option><option>Архів</option></select></div>
-<div class="fg"><label>Пріоритет</label><select id="nt-prio"><option>Базова</option><option>Надкритична</option><option>Термінова</option><option>Техборг</option><option>У шухляду</option></select></div>
-<div class="fg" style="display:block;width:100%"><label>Опис</label><textarea id="nt-desc" style="width:100%;max-width:640px;box-sizing:border-box"></textarea></div>
-<button class="btn" id="nt-save" onclick="saveTask()">Створити</button>
-<button class="btn btn-s" id="nt-cancel" style="display:none" onclick="resetTaskForm()">Скасувати</button>
-</div>
-<div class="filters">
-<div class="fg"><label>Режим</label><select id="tf-mode" onchange="onModeChange()"><option value="month">Поточний місяць</option><option value="archive">Архів</option></select></div>
-<div class="fg" id="tf-month-wrap"><label>Місяць</label><input type="month" id="tf-month"></div>
-<div class="fg"><label>Пошук</label><input id="tf-q" style="width:140px"></div>
-<div class="fg"><label>Виконавець</label><select id="tf-user"><option value="">Усі</option></select></div>
-<div class="fg"><label>Статус</label><select id="tf-status"><option value="">Усі</option><option>Нова</option><option>У роботі</option><option>На паузі</option><option>До перевірки</option><option>Виконана</option><option>Перевідкрита</option><option>Архів</option></select></div>
-<button class="btn" onclick="loadTasks()">Фільтр</button>
-</div>
-<table><thead><tr><th>ID</th><th>Виконавець</th><th>Відп.</th><th>Дата</th><th>Due</th><th>Задача</th><th>Статус</th><th>Пріоритет</th><th>План/факт</th><th></th></tr></thead><tbody id="task-tb"></tbody></table>
-</div>
+        .btn {
+            padding: 8px 16px;
+            border-radius: 6px;
+            border: 1px solid var(--border-color);
+            background-color: #ffffff;
+            cursor: pointer;
+            font-weight: 500;
+            text-decoration: none;
+            color: var(--text-color);
+            font-size: 14px;
+        }
 
-<div class="sec" id="logs">
-<h2>Аудит-логи</h2>
-<table><thead><tr><th>Час</th><th>Хто</th><th>Дія</th><th>IP</th><th>Деталі</th></tr></thead><tbody id="log-tb"></tbody></table>
-</div>
-</div>
+        .btn:hover { background-color: #f1f5f9; }
+        .btn-primary { background-color: var(--primary-color); color: white; border: none; }
+        .btn-danger { background-color: var(--danger-color); color: white; border: none; }
 
-<script>
-const STATUSES=['Нова','У роботі','На паузі','До перевірки','Виконана','Перевідкрита','Архів'];
-const PRIOS=['Надкритична','Термінова','Базова','Техборг','У шухляду'];
-let users=[],roles=[],_tasksCache=[],_iprios=[];
+        .layout {
+            margin-top: 60px;
+            display: flex;
+            min-height: calc(100vh - 60px);
+        }
 
-document.querySelectorAll('.tabs a').forEach(a=>{
-  a.onclick=()=>{
-    document.querySelectorAll('.tabs a').forEach(x=>x.classList.remove('active'));
-    a.classList.add('active');
-    document.querySelectorAll('.sec').forEach(s=>s.classList.remove('on'));
-    document.getElementById(a.dataset.s).classList.add('on');
-    if(a.dataset.s==='tasks'){fillTaskSelects();initMonth();loadTasks()}
-    if(a.dataset.s==='logs')loadLogs();
-    if(a.dataset.s==='requests')loadReqs();
-    if(a.dataset.s==='iprios')loadIPrios();
-    if(a.dataset.s==='incs')loadIncs();
-  };
-});
+        .sidebar {
+            width: 240px;
+            background-color: #ffffff;
+            border-right: 1px solid var(--border-color);
+            padding: 20px 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
 
-function today(){return new Date().toISOString().slice(0,10)}
-function esc(s){const d=document.createElement('div');d.textContent=s||'';return d.innerHTML}
-function formatDuration(mins){mins=Math.max(0,Math.floor(+mins||0));if(mins<60)return mins+' хв';const h=Math.floor(mins/60),m=mins%60;if(mins<1440)return m?h+' год '+m+' хв':h+' год';const d=Math.floor(mins/1440),rh=Math.floor((mins%1440)/60);return rh?d+' д '+rh+' год':d+' д'}
-function memberOpts(selected,allowEmpty){let o=allowEmpty?'<option value="">— на розгляді —</option>':'';(users||[]).filter(u=>u.role!=='admin'||u.is_oncall).forEach(u=>{o+=`<option value="${esc(u.name)}" ${u.name===selected?'selected':''}>${esc(u.name)}</option>`});return o}
-function initMonth(){const el=document.getElementById('tf-month');if(el&&!el.value){const n=new Date();el.value=`${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}`}}
-function onModeChange(){document.getElementById('tf-month-wrap').style.display=document.getElementById('tf-mode').value==='archive'?'none':'';loadTasks()}
-function dueFlag(due){if(!due)return null;const t=today();if(t>due)return 'over';const d=new Date(due+'T12:00:00');d.setDate(d.getDate()-1);if(t>=d.toISOString().slice(0,10))return 'soon';return null}
+        .sidebar-section {
+            font-size: 12px;
+            font-weight: bold;
+            color: #94a3b8;
+            text-transform: uppercase;
+            padding: 5px 10px;
+        }
 
-async function loadAll(){
-  const [u,r,t,ip]=await Promise.all([
-    fetch('/api/admin/users').then(r=>r.json()),
-    fetch('/api/admin/roles').then(r=>r.json()),
-    fetch('/api/admin/absence-types').then(r=>r.json()),
-    fetch('/api/admin/incident-priorities').then(r=>r.json()).catch(()=>[])
-  ]);
-  users=u||[];roles=r||[];_iprios=ip||[];
-  document.getElementById('u-tr').innerHTML='<option value="">—</option>'+(roles||[]).map(x=>`<option value="${x.id}">${x.name}</option>`).join('');
-  document.getElementById('u-tb').innerHTML=(users||[]).map(x=>`<tr><td>${x.id}</td><td>${esc(x.username)}</td><td>${esc(x.name)}</td><td>${x.role}</td><td>${esc(x.team_role||'—')}</td><td>${x.is_oncall?'Так':'Ні'}</td>
-    <td><button class="btn btn-e" style="padding:2px 8px" onclick="editUser(${x.id})">✎</button> <button class="btn btn-d" style="padding:2px 8px" onclick="delUser(${x.id})">✕</button></td></tr>`).join('')||'<tr><td colspan="7">Порожньо</td></tr>';
-  document.getElementById('r-tb').innerHTML=(roles||[]).map(x=>`<tr><td>${x.id}</td><td>${esc(x.name)}</td><td><button class="btn btn-e" style="padding:2px 8px" onclick="editRole(${x.id})">✎</button> <button class="btn btn-d" style="padding:2px 8px" onclick="delRole(${x.id})">✕</button></td></tr>`).join('')||'<tr><td colspan="3">—</td></tr>';
-  document.getElementById('t-tb').innerHTML=(t||[]).map(x=>`<tr><td>${x.id}</td><td>${esc(x.name)}</td><td>${esc(x.code||'')}</td><td><span class="swatch" style="background:${x.color||'#f59e0b'}"></span></td>
-    <td><button class="btn btn-e" style="padding:2px 8px" onclick="editType(${x.id})">✎</button> <button class="btn btn-d" style="padding:2px 8px" onclick="delType(${x.id})">✕</button></td></tr>`).join('')||'<tr><td colspan="5">—</td></tr>';
-  window._atypes=t||[];
-  document.getElementById('tf-user').innerHTML='<option value="">Усі</option>'+(users||[]).filter(u=>u.role!=='admin').map(u=>`<option value="${esc(u.name)}">${esc(u.name)}</option>`).join('');
-  fillTaskSelects();initMonth();
-}
+        .sidebar-item {
+            padding: 10px;
+            border-radius: 6px;
+            color: var(--text-color);
+            text-decoration: none;
+            font-size: 14px;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
 
-function fillTaskSelects(){
-  const tu=document.getElementById('nt-user'),tr=document.getElementById('nt-resp');
-  if(tu)tu.innerHTML=memberOpts('',true);
-  if(tr)tr.innerHTML='<option value="">—</option>'+(users||[]).map(u=>`<option value="${esc(u.name)}">${esc(u.name)}</option>`).join('');
-  if(document.getElementById('nt-date')&&!document.getElementById('nt-date').value)document.getElementById('nt-date').value=today();
-  if(document.getElementById('nt-vis')&&!document.getElementById('nt-vis').value)document.getElementById('nt-vis').value=today();
-}
+        .sidebar-item:hover, .sidebar-item.active {
+            background-color: #f1f5f9;
+            color: var(--primary-color);
+            font-weight: 600;
+        }
 
-function resetUserForm(){document.getElementById('u-id').value='';['u-user','u-pass','u-name'].forEach(id=>document.getElementById(id).value='');document.getElementById('u-role').value='user';document.getElementById('u-tr').value='';document.getElementById('u-on').value='1';document.getElementById('u-save').innerText='Додати';document.getElementById('u-cancel').style.display='none'}
-function editUser(id){const x=users.find(u=>u.id===id);if(!x)return;document.getElementById('u-id').value=x.id;document.getElementById('u-user').value=x.username||'';document.getElementById('u-pass').value='';document.getElementById('u-name').value=x.name||'';document.getElementById('u-role').value=x.role||'user';document.getElementById('u-tr').value=x.team_role_id||'';document.getElementById('u-on').value=x.is_oncall?'1':'0';document.getElementById('u-save').innerText='Зберегти';document.getElementById('u-cancel').style.display=''}
-async function saveUser(){const id=+document.getElementById('u-id').value||0;const body={username:document.getElementById('u-user').value,password:document.getElementById('u-pass').value,name:document.getElementById('u-name').value,role:document.getElementById('u-role').value,team_role_id:+document.getElementById('u-tr').value||null,is_oncall:document.getElementById('u-on').value==='1'};if(id){body.id=id;await fetch('/api/admin/users',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})}else await fetch('/api/admin/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});resetUserForm();loadAll()}
-async function delUser(id){if(confirm('Видалити?')){await fetch('/api/admin/users?id='+id,{method:'DELETE'});loadAll()}}
+        .dropdown-container { display: flex; flex-direction: column; gap: 2px; }
+        .dropdown-menu { display: none; flex-direction: column; gap: 2px; padding-left: 15px; }
+        .dropdown-menu.open { display: flex; }
 
-function resetRoleForm(){document.getElementById('r-id').value='';document.getElementById('r-name').value='';document.getElementById('r-save').innerText='Додати';document.getElementById('r-cancel').style.display='none'}
-function editRole(id){const x=roles.find(r=>r.id===id);if(!x)return;document.getElementById('r-id').value=id;document.getElementById('r-name').value=x.name;document.getElementById('r-save').innerText='Зберегти';document.getElementById('r-cancel').style.display=''}
-async function saveRole(){const id=+document.getElementById('r-id').value||0,name=document.getElementById('r-name').value.trim();if(!name)return;if(id)await fetch('/api/admin/roles',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,name})});else await fetch('/api/admin/roles',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})});resetRoleForm();loadAll()}
-async function delRole(id){if(confirm('Видалити?')){await fetch('/api/admin/roles?id='+id,{method:'DELETE'});loadAll()}}
+        .content {
+            flex: 1;
+            padding: 20px 40px;
+            max-width: 1200px;
+        }
 
-function resetTypeForm(){document.getElementById('t-id').value='';document.getElementById('t-name').value='';document.getElementById('t-code').value='';document.getElementById('t-color').value='#f59e0b';document.getElementById('t-save').innerText='Додати';document.getElementById('t-cancel').style.display='none'}
-function editType(id){const x=(window._atypes||[]).find(t=>t.id===id);if(!x)return;document.getElementById('t-id').value=id;document.getElementById('t-name').value=x.name||'';document.getElementById('t-code').value=x.code||'';document.getElementById('t-color').value=x.color||'#f59e0b';document.getElementById('t-save').innerText='Зберегти';document.getElementById('t-cancel').style.display=''}
-async function saveType(){const id=+document.getElementById('t-id').value||0,name=document.getElementById('t-name').value.trim(),code=document.getElementById('t-code').value.trim(),color=document.getElementById('t-color').value;if(!name)return;if(id)await fetch('/api/admin/absence-types',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,name,code,color})});else await fetch('/api/admin/absence-types',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,code,color})});resetTypeForm();loadAll()}
-async function delType(id){if(confirm('Видалити?')){await fetch('/api/admin/absence-types?id='+id,{method:'DELETE'});loadAll()}}
+        .breadcrumbs { font-size: 12px; color: #64748b; margin-bottom: 15px; }
 
-async function loadIPrios(){
-  _iprios=await fetch('/api/admin/incident-priorities').then(r=>r.json());
-  document.getElementById('ip-tb').innerHTML=(_iprios||[]).map(x=>`<tr><td>${x.id}</td><td>${esc(x.name)}</td><td>${esc(x.code)}</td><td><span class="swatch" style="background:${x.color}"></span></td><td>${x.sort_order}</td><td>${x.is_default?'★':''}</td>
-    <td><button class="btn btn-e" style="padding:2px 8px" onclick="editIPrio(${x.id})">✎</button> <button class="btn btn-d" style="padding:2px 8px" onclick="delIPrio(${x.id})">✕</button></td></tr>`).join('')||'<tr><td colspan="7">—</td></tr>';
-}
-function resetIPrio(){document.getElementById('ip-id').value='';document.getElementById('ip-name').value='';document.getElementById('ip-code').value='';document.getElementById('ip-color').value='#3b82f6';document.getElementById('ip-sort').value=30;document.getElementById('ip-def').value='0';document.getElementById('ip-save').innerText='Додати';document.getElementById('ip-cancel').style.display='none'}
-function editIPrio(id){const x=_iprios.find(p=>p.id===id);if(!x)return;document.getElementById('ip-id').value=id;document.getElementById('ip-name').value=x.name;document.getElementById('ip-code').value=x.code||'';document.getElementById('ip-color').value=x.color||'#3b82f6';document.getElementById('ip-sort').value=x.sort_order||0;document.getElementById('ip-def').value=x.is_default?'1':'0';document.getElementById('ip-save').innerText='Зберегти';document.getElementById('ip-cancel').style.display=''}
-async function saveIPrio(){const id=+document.getElementById('ip-id').value||0;const body={name:document.getElementById('ip-name').value.trim(),code:document.getElementById('ip-code').value.trim(),color:document.getElementById('ip-color').value,sort_order:+document.getElementById('ip-sort').value||0,is_default:document.getElementById('ip-def').value==='1'};if(!body.name)return;if(id){body.id=id;await fetch('/api/admin/incident-priorities',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})}else await fetch('/api/admin/incident-priorities',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});resetIPrio();loadIPrios()}
-async function delIPrio(id){if(confirm('Видалити?')){await fetch('/api/admin/incident-priorities?id='+id,{method:'DELETE'});loadIPrios()}}
+        .card {
+            background: white;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
 
-async function loadReqs(){const d=await fetch('/api/admin/requests').then(r=>r.json());document.getElementById('req-tb').innerHTML=(d||[]).map(x=>`<tr><td>${x.id}</td><td>${esc(x.user_name)}</td><td>${esc(x.type)}</td><td>${x.start_date}</td><td>${x.end_date}</td><td>${x.status}</td>
-<td>${x.status==='Pending'?`<button class="btn btn-p" onclick="setSt(${x.id},'Approved')">OK</button> <button class="btn btn-d" onclick="setSt(${x.id},'Rejected')">✕</button>`:'—'}</td></tr>`).join('')||'<tr><td colspan="7">Немає</td></tr>'}
-async function setSt(id,status){await fetch('/api/admin/requests',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,status})});loadReqs()}
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
 
-async function loadIncs(){
-  const d=await fetch('/api/admin/incidents').then(r=>r.json());
-  document.getElementById('inc-tb').innerHTML=(d||[]).map(x=>`<tr>
-    <td>${x.id}</td><td>${esc(x.user_name||'—')}</td><td>${x.date}</td><td>${esc(x.priority)}</td><td>${esc(x.source)}</td><td>${esc(x.status)}</td><td>${esc(x.description)}</td>
-    <td style="white-space:nowrap">
-      ${x.status!=='Вирішено'&&x.status!=='Архів'?`<button class="btn btn-p" style="padding:2px 8px" onclick="toTask(${x.id})">→ задача</button>`:''}
-      <button class="btn btn-d" style="padding:2px 6px" onclick="delInc(${x.id})">✕</button>
-    </td></tr>`).join('')||'<tr><td colspan="8">Немає</td></tr>';
-}
-async function toTask(id){if(!confirm('Перевести звернення #'+id+' у задачу з дейлі?'))return;const r=await fetch('/api/admin/incidents/to-task',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});if(!r.ok){alert(await r.text());return}alert('Створено задачу');loadIncs()}
-async function delInc(id){if(confirm('Видалити?')){await fetch('/api/admin/incidents?id='+id,{method:'DELETE'});loadIncs()}}
+        .card-header h2 { margin: 0; font-size: 18px; }
 
-function resetTaskForm(){document.getElementById('nt-id').value='';document.getElementById('nt-desc').value='';document.getElementById('nt-due').value='';document.getElementById('nt-est').value='0';document.getElementById('nt-status').value='Нова';document.getElementById('nt-prio').value='Базова';document.getElementById('nt-date').value=today();document.getElementById('nt-vis').value=today();fillTaskSelects();document.getElementById('task-edit-title').innerText='Створити задачу';document.getElementById('nt-save').innerText='Створити';document.getElementById('nt-cancel').style.display='none'}
-function editTask(id){const x=_tasksCache.find(t=>t.id===id);if(!x)return;document.getElementById('nt-id').value=x.id;document.getElementById('nt-user').innerHTML=memberOpts(x.user_name||'',true);document.getElementById('nt-resp').innerHTML='<option value="">—</option>'+(users||[]).map(u=>`<option value="${esc(u.name)}" ${u.name===x.responsible?'selected':''}>${esc(u.name)}</option>`).join('');document.getElementById('nt-date').value=x.date||'';document.getElementById('nt-vis').value=x.visible_from||x.date||'';document.getElementById('nt-due').value=x.due_date||'';document.getElementById('nt-est').value=x.estimated_minutes||0;document.getElementById('nt-status').value=x.status||'Нова';document.getElementById('nt-prio').value=x.priority||'Базова';document.getElementById('nt-desc').value=x.task_description||'';document.getElementById('task-edit-title').innerText='Редагувати #'+x.id;document.getElementById('nt-save').innerText='Зберегти';document.getElementById('nt-cancel').style.display='';document.getElementById('task-edit-card').scrollIntoView({behavior:'smooth'})}
-async function saveTask(){const id=+document.getElementById('nt-id').value||0;const desc=document.getElementById('nt-desc').value.trim(),date=document.getElementById('nt-date').value;if(!desc||!date){alert('Потрібні дата та опис');return}const body={user_name:document.getElementById('nt-user').value||'',responsible:document.getElementById('nt-resp').value||'',date,visible_from:document.getElementById('nt-vis').value||date,due_date:document.getElementById('nt-due').value||'',estimated_minutes:+document.getElementById('nt-est').value||0,task_description:desc,status:document.getElementById('nt-status').value,priority:document.getElementById('nt-prio').value,created_by:'admin',role:'admin'};if(id){body.id=id;const r=await fetch('/api/admin/tasks',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});if(!r.ok){alert(await r.text());return}}else{const r=await fetch('/api/daily-tasks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});if(!r.ok){alert(await r.text());return}}resetTaskForm();loadTasks()}
-async function loadTasks(){const u=document.getElementById('tf-user').value,s=document.getElementById('tf-status').value,q=document.getElementById('tf-q').value.trim(),mode=document.getElementById('tf-mode').value;const p=new URLSearchParams();if(u)p.set('user',u);if(s)p.set('status',s);if(q)p.set('q',q);if(mode==='archive')p.set('archive','1');else{const m=document.getElementById('tf-month').value;if(m){const[yy,mm]=m.split('-');p.set('year',yy);p.set('month',String(+mm))}}const d=await fetch('/api/admin/tasks?'+p).then(r=>r.json());_tasksCache=d||[];document.getElementById('task-tb').innerHTML=_tasksCache.map(x=>{const flag=dueFlag(x.due_date);const row=flag==='over'?'row-due-over':(flag==='soon'?'row-due-soon':'');let badge='';if(flag==='over')badge='<span class="badge-due">прострочено</span>';else if(flag==='soon')badge='<span class="badge-due badge-due-soon">переддень</span>';const st=STATUSES.map(v=>`<option ${v===x.status?'selected':''}>${v}</option>`).join('');const pri=PRIOS.map(v=>`<option ${v===x.priority?'selected':''}>${v}</option>`).join('');return `<tr class="${row}"><td>${x.id}</td><td><select onchange="updTask(${x.id},'user_name',this.value)">${memberOpts(x.user_name||'',true)}</select></td><td>${esc(x.responsible||'—')}</td><td>${x.date}</td><td><input type="date" value="${x.due_date||''}" style="width:130px" onchange="updTask(${x.id},'due_date',this.value)">${badge}</td><td>${esc(x.task_description)}</td><td><select onchange="updTask(${x.id},'status',this.value)">${st}</select></td><td><select onchange="updTask(${x.id},'priority',this.value)">${pri}</select></td><td>${formatDuration(x.estimated_minutes)}/${formatDuration(x.total_minutes)}</td><td><button class="btn btn-e" style="padding:2px 6px" onclick="editTask(${x.id})">✎</button> <button class="btn btn-d" style="padding:2px 6px" onclick="delTask(${x.id})">✕</button></td></tr>`}).join('')||'<tr><td colspan="10">Немає</td></tr>'}
-async function updTask(id,field,val){const body={id,role:'admin'};body[field]=val;const r=await fetch('/api/admin/tasks',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});if(!r.ok)alert(await r.text());loadTasks()}
-async function delTask(id){if(confirm('Видалити?')){await fetch('/api/admin/tasks?id='+id,{method:'DELETE'});loadTasks()}}
-async function loadLogs(){const d=await fetch('/api/admin/logs').then(r=>r.json());document.getElementById('log-tb').innerHTML=(d||[]).map(x=>`<tr><td>${x.timestamp||''}</td><td>${esc(x.user_name)}</td><td>${esc(x.action)}</td><td>${x.ip||''}</td><td>${esc(x.details||'')}</td></tr>`).join('')||'<tr><td colspan="5">—</td></tr>'}
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
 
-loadAll();
-</script></body></html>
+        th, td {
+            padding: 10px 12px;
+            text-align: left;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        th { background-color: #f8fafc; font-weight: 600; }
+
+        .badge { padding: 3px 8px; border-radius: 12px; font-size: 12px; font-weight: 500; }
+        .badge-secondary { background-color: #f1f5f9; color: #475569; }
+        .badge-warning { background-color: #fef3c7; color: #92400e; }
+
+        .console-box {
+            background-color: #0f172a;
+            color: #38bdf8;
+            font-family: monospace;
+            padding: 15px;
+            border-radius: 6px;
+            min-height: 150px;
+            max-height: 300px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            margin-top: 10px;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.5);
+            align-items: center;
+            justify-content: center;
+            z-index: 2000;
+        }
+
+        .modal-content {
+            background: white;
+            padding: 25px;
+            border-radius: 8px;
+            width: 100%; max-width: 450px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .form-group { display: flex; flex-direction: column; gap: 5px; }
+        .form-group input, .form-group select, .form-group textarea {
+            padding: 8px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+
+    <nav class="navbar">
+        <div class="nav-left">
+            <a href="/" class="logo">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M12 12c-2-2.5-4-4-6-4a4 4 0 0 0 0 8c2 0 4-1.5 6-4zm0 0c2 2.5 4 4 6 4a4 4 0 0 0 0-8c-2 0-4 1.5-6 4z"/>
+                </svg>
+                <span>OnCall System</span>
+            </a>
+
+            <a href="/" class="btn">&#8592; Повернутись до графіку</a>
+
+            <div class="main-menu">
+                <button class="main-menu-btn active" id="menu-btn-management" onclick="switchMainMenu('management')">Менеджмент</button>
+                <button class="main-menu-btn" id="menu-btn-settings" onclick="switchMainMenu('settings')">Налаштування</button>
+            </div>
+        </div>
+
+        <div class="nav-right">
+            <span id="user-info" style="font-weight: 500;"></span>
+            <button class="btn btn-primary" onclick="logout()">Sign Out</button>
+        </div>
+    </nav>
+
+    <div class="layout">
+        <div class="sidebar" id="sidebar"></div>
+        <div class="content">
+            <div class="breadcrumbs" id="breadcrumbs">Головна / Адміністрування</div>
+            <div id="page-container"></div>
+        </div>
+    </div>
+
+    <!-- TODO: Keep Dictionary CRUD Modals -->
+    <!-- Модалка користувача -->
+    <div class="modal" id="user-modal">
+        <div class="modal-content">
+            <h3 id="user-modal-title">Додати / Редагувати користувача</h3>
+            <input type="hidden" id="user-id">
+            <div class="form-group"><label>ПІБ / Ім'я</label><input type="text" id="user-name"></div>
+            <div class="form-group"><label>Логін</label><input type="text" id="user-username"></div>
+            <div class="form-group"><label>Пароль (залиште порожнім, якщо не змінюється)</label><input type="password" id="user-password"></div>
+            <div class="form-group"><label>Системна роль</label><select id="user-role"><option value="user">user</option><option value="admin">admin</option></select></div>
+            <div class="form-group"><label>Роль у команді</label><select id="user-team-role"></select></div>
+            <div style="display:flex; gap:10px;"><input type="checkbox" id="user-is-oncall" checked><label>Чергує</label></div>
+            <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 10px;">
+                <button class="btn" onclick="closeModal('user-modal')">Скасувати</button>
+                <button class="btn btn-primary" onclick="saveUser()">Зберегти</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Модалка командної ролі -->
+    <div class="modal" id="role-modal">
+        <div class="modal-content">
+            <h3 id="role-modal-title">Роль у команді</h3>
+            <input type="hidden" id="role-id">
+            <div class="form-group"><label>Назва ролі</label><input type="text" id="role-name"></div>
+            <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 10px;">
+                <button class="btn" onclick="closeModal('role-modal')">Скасувати</button>
+                <button class="btn btn-primary" onclick="saveRole()">Зберегти</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Модалка типу відсутності -->
+    <div class="modal" id="abs-modal">
+        <div class="modal-content">
+            <h3 id="abs-modal-title">Тип відсутності</h3>
+            <input type="hidden" id="abs-id">
+            <div class="form-group"><label>Назва</label><input type="text" id="abs-name"></div>
+            <div class="form-group"><label>Код (English)</label><input type="text" id="abs-code"></div>
+            <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 10px;">
+                <button class="btn" onclick="closeModal('abs-modal')">Скасувати</button>
+                <button class="btn btn-primary" onclick="saveAbsenceType()">Зберегти</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentUser = null;
+        let currentMainMenu = 'management';
+        let currentSubPage = 'approval';
+        let loadedUsers = [], loadedRoles = [], loadedAbsTypes = [];
+
+        window.onload = function() {
+            const saved = localStorage.getItem('currentUser');
+            if (!saved) { window.location.href = '/'; return; }
+            currentUser = JSON.parse(saved);
+
+            document.getElementById('user-info').innerText = `${currentUser.name} (${currentUser.role})`;
+            switchMainMenu('management');
+        };
+
+        function logout() {
+            localStorage.removeItem('currentUser');
+            window.location.href = '/';
+        }
+
+        function switchMainMenu(menu) {
+            currentMainMenu = menu;
+            document.getElementById('menu-btn-management').classList.toggle('active', menu === 'management');
+            document.getElementById('menu-btn-settings').classList.toggle('active', menu === 'settings');
+
+            renderSidebar();
+
+            if (menu === 'management') loadSubPage('approval');
+            if (menu === 'settings') loadSubPage('dictionaries');
+        }
+
+        function renderSidebar() {
+            const sidebar = document.getElementById('sidebar');
+            if (currentMainMenu === 'management') {
+                sidebar.innerHTML = `
+                    <div class="sidebar-section">Менеджмент</div>
+                    <div class="sidebar-item ${currentSubPage==='queues'?'active':''}" onclick="loadSubPage('queues')">Черги задач</div>
+                    <div class="sidebar-item ${currentSubPage==='inc-archive'?'active':''}" onclick="loadSubPage('inc-archive')">Архів звернень</div>
+                    <div class="sidebar-item ${currentSubPage==='approval'?'active':''}" onclick="loadSubPage('approval')">Для затвердження</div>
+                `;
+            } else if (currentMainMenu === 'settings') {
+                sidebar.innerHTML = `
+                    <div class="dropdown-container">
+                        <div class="sidebar-item" onclick="toggleDropdown('sys-dropdown')">
+                            <span>Система</span><span>&#9660;</span>
+                        </div>
+                        <div class="dropdown-menu open" id="sys-dropdown">
+                            <div class="sidebar-item ${currentSubPage==='dictionaries'?'active':''}" onclick="loadSubPage('dictionaries')">Довідники</div>
+                        </div>
+                    </div>
+                    <div class="dropdown-container">
+                        <div class="sidebar-item" onclick="toggleDropdown('proj-dropdown')">
+                            <span>Проєкт</span><span>&#9660;</span>
+                        </div>
+                        <div class="dropdown-menu open" id="proj-dropdown">
+                            <div class="sidebar-item ${currentSubPage==='proj-logs'?'active':''}" onclick="loadSubPage('proj-logs')">Логи</div>
+                            <div class="sidebar-item ${currentSubPage==='proj-db'?'active':''}" onclick="loadSubPage('proj-db')">База й таблиці</div>
+                            <div class="sidebar-item ${currentSubPage==='proj-traffic'?'active':''}" onclick="loadSubPage('proj-traffic')">Трафік та логіни</div>
+                        </div>
+                    </div>
+                `;
+            }
+        }
+
+        function toggleDropdown(id) {
+            document.getElementById(id).classList.toggle('open');
+        }
+
+        async function loadSubPage(sub) {
+            currentSubPage = sub;
+            renderSidebar();
+
+            const container = document.getElementById('page-container');
+            const breadcrumbs = document.getElementById('breadcrumbs');
+
+            if (sub === 'queues') {
+                breadcrumbs.innerHTML = `Головна / Адміністрування / Менеджмент / <b>Черги задач</b>`;
+                container.innerHTML = `
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+                        <h2 style="margin:0">Черги задач і звернень</h2>
+                        <button class="btn btn-primary" onclick="loadQueuesData()">Оновити</button>
+                    </div>
+                    <div id="queues-summary" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:20px"></div>
+                    <div class="card">
+                        <div class="card-header"><h2>Задачі за статусом</h2></div>
+                        <table><thead><tr><th>Статус</th><th>Кількість</th></tr></thead><tbody id="queues-by-status"></tbody></table>
+                    </div>
+                    <div class="card">
+                        <div class="card-header"><h2>За виконавцем (відкриті)</h2></div>
+                        <table><thead><tr><th>Виконавець</th><th>Усього</th><th>Відкриті</th></tr></thead><tbody id="queues-by-assignee"></tbody></table>
+                    </div>
+                    <div class="card">
+                        <div class="card-header"><h2>Звернення сьогодні за статусом</h2></div>
+                        <table><thead><tr><th>Статус</th><th>Кількість</th></tr></thead><tbody id="queues-inc-status"></tbody></table>
+                    </div>
+                `;
+                loadQueuesData();
+            } else if (sub === 'inc-archive') {
+                breadcrumbs.innerHTML = `Головна / Адміністрування / Менеджмент / <b>Архів звернень</b>`;
+                container.innerHTML = `
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px">
+                        <h2 style="margin:0">Архів / історія звернень</h2>
+                        <div style="display:flex;gap:8px;align-items:center">
+                            <select id="inc-arch-status" onchange="loadIncArchive()">
+                                <option value="all">Усі</option>
+                                <option value="Вирішено" selected>Вирішено</option>
+                                <option value="Архів">Архів</option>
+                                <option value="Нове">Нове</option>
+                                <option value="В роботі">В роботі</option>
+                            </select>
+                            <button class="btn btn-s" onclick="loadIncArchive()">Оновити</button>
+                        </div>
+                    </div>
+                    <div id="inc-archive-list">Завантаження…</div>`;
+                loadIncArchive();
+            } else if (sub === 'approval') {
+                breadcrumbs.innerHTML = `Головна / Адміністрування / Менеджмент / <b>Для затвердження</b>`;
+                container.innerHTML = `<h2>Сторінка затвердження відпусток</h2><div id="requests-tables"></div>`;
+                loadRequestsData();
+            } else if (sub === 'dictionaries') {
+                breadcrumbs.innerHTML = `Головна / Адміністрування / Налаштування / Система / <b>Довідники</b>`;
+                container.innerHTML = `
+                    <div class="card">
+                        <div class="card-header"><h2>Члени команди</h2><button class="btn btn-primary" onclick="openUserModal()">+ Додати користувача</button></div>
+                        <table><thead><tr><th>Ім'я</th><th>Логін</th><th>Роль</th><th>Командна роль</th><th>Чергує?</th><th>Дії</th></tr></thead><tbody id="users-table"></tbody></table>
+                    </div>
+                    <div class="card">
+                        <div class="card-header"><h2>Довідник ролей</h2><button class="btn btn-primary" onclick="openRoleModal()">+ Додати роль</button></div>
+                        <table><thead><tr><th>ID</th><th>Назва ролі</th><th>Дії</th></tr></thead><tbody id="roles-table"></tbody></table>
+                    </div>
+                    <div class="card">
+                        <div class="card-header"><h2>Типи відсутностей</h2><button class="btn btn-primary" onclick="openAbsModal()">+ Додати тип</button></div>
+                        <table><thead><tr><th>ID</th><th>Назва</th><th>Код</th><th>Дії</th></tr></thead><tbody id="abs-types-table"></tbody></table>
+                    </div>
+                `;
+                loadDictionariesData();
+            } else if (sub === 'proj-logs') {
+                breadcrumbs.innerHTML = `Головна / Адміністрування / Налаштування / Проєкт / <b>Логи</b>`;
+                container.innerHTML = `
+                    <div class="card">
+                        <div class="card-header">
+                            <h2>Логи програм та сервісів</h2>
+                            <select id="app-log-filter" onchange="fetchAppLogs()">
+                                <option value="All">Усі сервіси</option>
+                                <option value="Auth Service">Auth Service</option>
+                                <option value="OnCall Core">OnCall Core</option>
+                                <option value="Admin Panel">Admin Panel</option>
+                                <option value="Nginx Proxy">Nginx Proxy</option>
+                            </select>
+                        </div>
+                        <div class="console-box" id="app-logs-box">Завантаження логів...</div>
+                    </div>
+                `;
+                fetchAppLogs();
+            } else if (sub === 'proj-db') {
+                breadcrumbs.innerHTML = `Головна / Адміністрування / Налаштування / Проєкт / <b>База й таблиці</b>`;
+                container.innerHTML = `
+                    <div class="card">
+                        <div class="card-header"><h2>Моніторингова таблиця дій з БД</h2></div>
+                        <table>
+                            <thead><tr><th>Таблиця</th><th>Кількість записів</th><th>Остання дія</th><th>Дата та час останньої зміни</th></tr></thead>
+                            <tbody id="db-stats-table"></tbody>
+                        </table>
+                    </div>
+                    <div class="card">
+                        <div class="card-header"><h2>Read-Only SQL Console</h2></div>
+                        <div class="form-group">
+                            <textarea id="sql-query" rows="3" placeholder="SELECT * FROM users LIMIT 10;"></textarea>
+                        </div>
+                        <button class="btn btn-primary" onclick="runSqlQuery()" style="margin-top:10px;">Виконати SELECT</button>
+                        <div id="sql-results" style="margin-top:15px;"></div>
+                    </div>
+                `;
+                fetchDBStats();
+            } else if (sub === 'proj-traffic') {
+                breadcrumbs.innerHTML = `Головна / Адміністрування / Налаштування / Проєкт / <b>Трафік та логіни</b>`;
+                container.innerHTML = `
+                    <div class="card">
+                        <div class="card-header"><h2>Журнал дій та авторизацій у системі</h2></div>
+                        <table>
+                            <thead><tr><th>Час</th><th>Користувач</th><th>Дія</th><th>IP адреса</th><th>Деталі</th></tr></thead>
+                            <tbody id="audit-logs-table"></tbody>
+                        </table>
+                    </div>
+                `;
+                fetchAuditLogs();
+            }
+        }
+
+        // --- TODO: DICTIONARY CRUD FUNCTIONS ---
+        async function loadDictionariesData() {
+            const [uRes, rRes, aRes] = await Promise.all([fetch('/api/admin/users'), fetch('/api/admin/team-roles'), fetch('/api/admin/absence-types')]);
+            loadedUsers = await uRes.json();
+            loadedRoles = await rRes.json();
+            loadedAbsTypes = await aRes.json();
+
+            // Render Users
+            document.getElementById('users-table').innerHTML = (loadedUsers || []).map(u => `
+                <tr>
+                    <td>${u.name}</td>
+                    <td>${u.username}</td>
+                    <td>${u.role}</td>
+                    <td>${u.team_role || '—'}</td>
+                    <td>${u.is_oncall ? 'Так' : 'Ні'}</td>
+                    <td>
+                        <button class="btn" onclick="editUser(${u.id})">Редагувати</button>
+                        <button class="btn btn-danger" onclick="deleteUser(${u.id})">Видалити</button>
+                    </td>
+                </tr>
+            `).join('');
+
+            // Render Roles
+            document.getElementById('roles-table').innerHTML = (loadedRoles || []).map(r => `
+                <tr>
+                    <td>${r.id}</td>
+                    <td>${r.name}</td>
+                    <td>
+                        <button class="btn" onclick="editRole(${r.id}, '${r.name}')">Редагувати</button>
+                        <button class="btn btn-danger" onclick="deleteRole(${r.id})">Видалити</button>
+                    </td>
+                </tr>
+            `).join('');
+
+            // Render Absence Types
+            document.getElementById('abs-types-table').innerHTML = (loadedAbsTypes || []).map(a => `
+                <tr>
+                    <td>${a.id}</td>
+                    <td>${a.name}</td>
+                    <td><code>${a.code}</code></td>
+                    <td>
+                        <button class="btn" onclick="editAbsType(${a.id}, '${a.name}', '${a.code}')">Редагувати</button>
+                        <button class="btn btn-danger" onclick="deleteAbsType(${a.id})">Видалити</button>
+                    </td>
+                </tr>
+            `).join('');
+
+            // Populate User Team Roles select dropdown
+            const roleSelect = document.getElementById('user-team-role');
+            if (roleSelect) {
+                roleSelect.innerHTML = (loadedRoles || []).map(r => `<option value="${r.id}">${r.name}</option>`).join('');
+            }
+        }
+
+        // Modal Helpers
+        function closeModal(id) { document.getElementById(id).style.display = 'none'; }
+
+        // User CRUD
+        function openUserModal() {
+            document.getElementById('user-id').value = '';
+            document.getElementById('user-name').value = '';
+            document.getElementById('user-username').value = '';
+            document.getElementById('user-password').value = '';
+            document.getElementById('user-role').value = 'user';
+            document.getElementById('user-is-oncall').checked = true;
+            document.getElementById('user-modal-title').innerText = 'Додати користувача';
+            document.getElementById('user-modal').style.display = 'flex';
+        }
+
+        function editUser(id) {
+            const u = loadedUsers.find(x => x.id === id);
+            if (!u) return;
+            document.getElementById('user-id').value = u.id;
+            document.getElementById('user-name').value = u.name;
+            document.getElementById('user-username').value = u.username;
+            document.getElementById('user-password').value = '';
+            document.getElementById('user-role').value = u.role;
+            if (u.team_role_id) document.getElementById('user-team-role').value = u.team_role_id;
+            document.getElementById('user-is-oncall').checked = u.is_oncall;
+            document.getElementById('user-modal-title').innerText = 'Редагувати користувача';
+            document.getElementById('user-modal').style.display = 'flex';
+        }
+
+        async function saveUser() {
+            const id = document.getElementById('user-id').value;
+            const payload = {
+                id: id ? parseInt(id) : 0,
+                name: document.getElementById('user-name').value,
+                username: document.getElementById('user-username').value,
+                password: document.getElementById('user-password').value,
+                role: document.getElementById('user-role').value,
+                team_role_id: parseInt(document.getElementById('user-team-role').value) || null,
+                is_oncall: document.getElementById('user-is-oncall').checked
+            };
+            const method = id ? 'PUT' : 'POST';
+            await fetch('/api/admin/users', { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+            closeModal('user-modal');
+            loadDictionariesData();
+        }
+
+        async function deleteUser(id) {
+            if (!confirm('Видалити користувача?')) return;
+            await fetch(`/api/admin/users?id=${id}`, { method: 'DELETE' });
+            loadDictionariesData();
+        }
+
+        // Team Roles CRUD
+        function openRoleModal() {
+            document.getElementById('role-id').value = '';
+            document.getElementById('role-name').value = '';
+            document.getElementById('role-modal-title').innerText = 'Додати роль';
+            document.getElementById('role-modal').style.display = 'flex';
+        }
+
+        function editRole(id, name) {
+            document.getElementById('role-id').value = id;
+            document.getElementById('role-name').value = name;
+            document.getElementById('role-modal-title').innerText = 'Редагувати роль';
+            document.getElementById('role-modal').style.display = 'flex';
+        }
+
+        async function saveRole() {
+            const id = document.getElementById('role-id').value;
+            const payload = { id: id ? parseInt(id) : 0, name: document.getElementById('role-name').value };
+            const method = id ? 'PUT' : 'POST';
+            await fetch('/api/admin/team-roles', { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+            closeModal('role-modal');
+            loadDictionariesData();
+        }
+
+        async function deleteRole(id) {
+            if (!confirm('Видалити роль?')) return;
+            await fetch(`/api/admin/team-roles?id=${id}`, { method: 'DELETE' });
+            loadDictionariesData();
+        }
+
+        // Absence Types CRUD
+        function openAbsModal() {
+            document.getElementById('abs-id').value = '';
+            document.getElementById('abs-name').value = '';
+            document.getElementById('abs-code').value = '';
+            document.getElementById('abs-modal-title').innerText = 'Додати тип відсутності';
+            document.getElementById('abs-modal').style.display = 'flex';
+        }
+
+        function editAbsType(id, name, code) {
+            document.getElementById('abs-id').value = id;
+            document.getElementById('abs-name').value = name;
+            document.getElementById('abs-code').value = code;
+            document.getElementById('abs-modal-title').innerText = 'Редагувати тип відсутності';
+            document.getElementById('abs-modal').style.display = 'flex';
+        }
+
+        async function saveAbsenceType() {
+            const id = document.getElementById('abs-id').value;
+            const payload = {
+                id: id ? parseInt(id) : 0,
+                name: document.getElementById('abs-name').value,
+                code: document.getElementById('abs-code').value
+            };
+            const method = id ? 'PUT' : 'POST';
+            await fetch('/api/admin/absence-types', { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+            closeModal('abs-modal');
+            loadDictionariesData();
+        }
+
+        async function deleteAbsType(id) {
+            if (!confirm('Видалити тип відсутності?')) return;
+            await fetch(`/api/admin/absence-types?id=${id}`, { method: 'DELETE' });
+            loadDictionariesData();
+        }
+
+        // --- OTHER FETCHERS ---
+        async function fetchAppLogs() {
+            const filter = document.getElementById('app-log-filter').value;
+            const res = await fetch(`/api/admin/project/app-logs?app=${filter}`);
+            const data = await res.json();
+            const box = document.getElementById('app-logs-box');
+            if (data && data.length > 0) {
+                box.innerText = data.map(l => `[${l.timestamp}] [${l.app}] [${l.level}]: ${l.message}`).join('\n');
+            } else {
+                box.innerText = 'Логи відсутні';
+            }
+        }
+
+        async function fetchDBStats() {
+            const res = await fetch('/api/admin/project/db-stats');
+            const data = await res.json();
+            const tbody = document.getElementById('db-stats-table');
+            tbody.innerHTML = '';
+            data.forEach(s => {
+                tbody.innerHTML += `<tr><td><code>${s.table_name}</code></td><td>${s.row_count}</td><td><span class="badge badge-secondary">${s.last_action}</span></td><td>${s.last_update}</td></tr>`;
+            });
+        }
+
+        async function runSqlQuery() {
+            const query = document.getElementById('sql-query').value;
+            const res = await fetch('/api/admin/project/query', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ query })
+            });
+            const div = document.getElementById('sql-results');
+            if (!res.ok) {
+                const err = await res.text();
+                div.innerHTML = `<div style="color:red;">Помилка: ${err}</div>`;
+                return;
+            }
+            const data = await res.json();
+            if (!data.rows || data.rows.length === 0) {
+                div.innerHTML = '<em>Результатів немає</em>';
+                return;
+            }
+
+            let html = '<table><thead><tr>' + data.columns.map(c => `<th>${c}</th>`).join('') + '</tr></thead><tbody>';
+            data.rows.forEach(r => {
+                html += '<tr>' + data.columns.map(c => `<td>${r[c] !== null ? r[c] : ''}</td>`).join('') + '</tr>';
+            });
+            html += '</tbody></table>';
+            div.innerHTML = html;
+        }
+
+        async function fetchAuditLogs() {
+            const res = await fetch('/api/admin/project/audit-logs');
+            const data = await res.json();
+            const tbody = document.getElementById('audit-logs-table');
+            tbody.innerHTML = '';
+            data.forEach(l => {
+                tbody.innerHTML += `<tr><td>${l.timestamp}</td><td><strong>${l.user_name}</strong></td><td><span class="badge badge-warning">${l.action}</span></td><td>${l.ip}</td><td>${l.details}</td></tr>`;
+            });
+        }
+
+        async function loadRequestsData() {
+            const [reqRes, typesRes] = await Promise.all([fetch('/api/admin/requests'), fetch('/api/admin/absence-types')]);
+            const requests = await reqRes.json();
+            const types = await typesRes.json();
+            const container = document.getElementById('requests-tables');
+            container.innerHTML = '';
+
+            types.forEach(t => {
+                const filtered = requests.filter(r => r.type === t.code || r.type === t.name);
+                let rows = '';
+                filtered.forEach(req => {
+                    let actionsHtml = req.status === 'Pending' ? `<button class="btn btn-primary" onclick="updateReq(${req.id}, 'Approved')">Затвердити</button> <button class="btn btn-danger" onclick="updateReq(${req.id}, 'Rejected')">Відхилити</button>` : '—';
+                    rows += `<tr><td>${req.user_name}</td><td>${req.start_date}</td><td>${req.end_date}</td><td><span class="badge badge-secondary">${req.status}</span></td><td>${actionsHtml}</td></tr>`;
+                });
+                container.innerHTML += `<div class="card"><div class="card-header"><h2>Заявки: ${t.name}</h2></div><table><thead><tr><th>Користувач</th><th>Початок</th><th>Кінець</th><th>Статус</th><th>Дії</th></tr></thead><tbody>${rows || '<tr><td colspan="5">Немає заявок</td></tr>'}</tbody></table></div>`;
+            });
+        }
+
+        async function updateReq(id, status) {
+            await fetch('/api/admin/requests', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, status }) });
+            loadRequestsData();
+        }
+
+        async function loadQueuesData() {
+            try {
+                const r = await fetch('/api/admin/queues');
+                if (!r.ok) { alert('Помилка завантаження черг: ' + (await r.text())); return; }
+                const d = await r.json();
+                const sum = document.getElementById('queues-summary');
+                if (sum) {
+                    sum.innerHTML = `
+                        <div class="card" style="padding:14px;text-align:center"><div style="font-size:11px;color:#64748b">Сьогодні</div><div style="font-size:22px;font-weight:700">${d.today||'—'}</div></div>
+                        <div class="card" style="padding:14px;text-align:center;border-left:4px solid #ef4444"><div style="font-size:11px;color:#64748b">Прострочені</div><div style="font-size:22px;font-weight:700;color:#ef4444">${d.tasks_overdue||0}</div></div>
+                        <div class="card" style="padding:14px;text-align:center;border-left:4px solid #f59e0b"><div style="font-size:11px;color:#64748b">Due сьогодні</div><div style="font-size:22px;font-weight:700;color:#f59e0b">${d.tasks_due_today||0}</div></div>
+                        <div class="card" style="padding:14px;text-align:center;border-left:4px solid #2563eb"><div style="font-size:11px;color:#64748b">Звернення сьогодні</div><div style="font-size:22px;font-weight:700;color:#2563eb">${(d.incidents_today_by_status&&d.incidents_today_by_status['усі'])||0}</div></div>
+                    `;
+                }
+                const stBody = document.getElementById('queues-by-status');
+                if (stBody) {
+                    const by = d.tasks_by_status || {};
+                    const order = ['Нова','У роботі','На паузі','До перевірки','Виконана','Перевідкрита'];
+                    const keys = [...order.filter(k=>by[k]!=null), ...Object.keys(by).filter(k=>!order.includes(k))];
+                    stBody.innerHTML = keys.length
+                        ? keys.map(k=>`<tr><td><span class="badge badge-secondary">${k}</span></td><td><b>${by[k]}</b></td></tr>`).join('')
+                        : '<tr><td colspan="2">Немає задач</td></tr>';
+                }
+                const asBody = document.getElementById('queues-by-assignee');
+                if (asBody) {
+                    const list = d.tasks_by_assignee || [];
+                    asBody.innerHTML = list.length
+                        ? list.map(a=>`<tr><td>${a.name}</td><td>${a.count}</td><td><b style="color:${a.open>0?'#ef4444':'#16a34a'}">${a.open}</b></td></tr>`).join('')
+                        : '<tr><td colspan="3">Немає</td></tr>';
+                }
+                const incBody = document.getElementById('queues-inc-status');
+                if (incBody) {
+                    const by = d.incidents_today_by_status || {};
+                    const order = ['Нове','В роботі','На паузі','Вирішено','Архів'];
+                    const keys = [...order.filter(k=>by[k]!=null), ...Object.keys(by).filter(k=>k!=='усі'&&!order.includes(k))];
+                    incBody.innerHTML = keys.length
+                        ? keys.map(k=>`<tr><td><span class="badge badge-secondary">${k}</span></td><td><b>${by[k]}</b></td></tr>`).join('')
+                        : '<tr><td colspan="2">Немає звернень сьогодні</td></tr>';
+                }
+            } catch (e) {
+                alert('Помилка: ' + e.message);
+            }
+        }
+    
+        async function loadIncArchive() {
+            const st = (document.getElementById('inc-arch-status') || {}).value || 'all';
+            const box = document.getElementById('inc-archive-list');
+            if (!box) return;
+            box.innerHTML = 'Завантаження…';
+            try {
+                const r = await fetch('/api/incidents?status=' + encodeURIComponent(st) + '&limit=100');
+                const list = await r.json();
+                if (!Array.isArray(list) || !list.length) {
+                    box.innerHTML = '<p style="color:#64748b">Немає звернень</p>';
+                    return;
+                }
+                let h = '<table><thead><tr><th>ID</th><th>Дата</th><th>Виконавець</th><th>Статус</th><th>Source</th><th>Опис</th><th></th></tr></thead><tbody>';
+                list.forEach(i => {
+                    h += `<tr>
+                        <td>#${i.id}</td>
+                        <td>${escHtml(i.date)}</td>
+                        <td>${escHtml(i.user_name || '—')}</td>
+                        <td>${escHtml(i.status)}</td>
+                        <td>${escHtml(i.source)}</td>
+                        <td>${escHtml(i.description || '')}</td>
+                        <td><button class="btn btn-s" style="padding:2px 8px" onclick="toggleArchCmt(${i.id})">💬</button></td>
+                    </tr>
+                    <tr id="arch-cmt-${i.id}" style="display:none"><td colspan="7"><div id="arch-cmt-body-${i.id}" style="padding:8px 12px;background:#f8fafc;font-size:13px">…</div></td></tr>`;
+                });
+                h += '</tbody></table>';
+                box.innerHTML = h;
+            } catch (e) {
+                box.innerHTML = '<p style="color:#ef4444">Помилка: ' + e + '</p>';
+            }
+        }
+        function escHtml(s) {
+            const d = document.createElement('div');
+            d.textContent = s || '';
+            return d.innerHTML;
+        }
+        async function toggleArchCmt(id) {
+            const row = document.getElementById('arch-cmt-' + id);
+            if (!row) return;
+            const show = row.style.display === 'none';
+            row.style.display = show ? '' : 'none';
+            if (!show) return;
+            const body = document.getElementById('arch-cmt-body-' + id);
+            body.innerHTML = 'Завантаження коментарів…';
+            try {
+                const r = await fetch('/api/comments?entity_type=incident&entity_id=' + id);
+                const list = await r.json();
+                if (!Array.isArray(list) || !list.length) {
+                    body.innerHTML = '<em style="color:#94a3b8">Коментарів немає</em>';
+                    return;
+                }
+                body.innerHTML = list.map(c => {
+                    const who = c.is_system ? '<em>system</em>' : escHtml(c.author_name || '');
+                    return `<div style="margin-bottom:6px;padding-bottom:6px;border-bottom:1px solid #e2e8f0">
+                        <div style="font-size:11px;color:#64748b">${who} · ${escHtml(c.created_at || '')}</div>
+                        <div>${escHtml(c.body)}</div>
+                    </div>`;
+                }).join('');
+            } catch (e) {
+                body.innerHTML = '<span style="color:#ef4444">' + e + '</span>';
+            }
+        }
+</script>
+</body>
+</html>
