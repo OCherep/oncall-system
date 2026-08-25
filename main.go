@@ -21,6 +21,7 @@ type User struct {
 	TeamRoleID *int   `json:"team_role_id"`
 	TeamRole   string `json:"team_role"`
 	IsOncall   bool   `json:"is_oncall"`
+	SlackID    string `json:"slack_id,omitempty"`
 }
 
 type TeamRole struct {
@@ -29,10 +30,9 @@ type TeamRole struct {
 }
 
 type AbsenceType struct {
-	ID    int    `json:"id"`
-	Name  string `json:"name"`
-	Code  string `json:"code"`
-	Color string `json:"color"`
+	ID   int    `json:"id"`
+	Name string `json:"name"`
+	Code string `json:"code"`
 }
 
 type AbsenceRequest struct {
@@ -69,49 +69,26 @@ type IncidentReport struct {
 	Status          string `json:"status,omitempty"`
 	Priority        string `json:"priority,omitempty"`
 	Source          string `json:"source,omitempty"`
-	Responsible     string `json:"responsible,omitempty"`
-	CreatedBy       string `json:"created_by,omitempty"`
-	WorkStartedAt   string `json:"work_started_at,omitempty"`
 	TotalMinutes    int    `json:"total_minutes,omitempty"`
-	DueDate         string `json:"due_date,omitempty"`
+	CreatedBy       string `json:"created_by,omitempty"`
 	ReportedFor     string `json:"reported_for,omitempty"`
-}
-
-type IncidentPriority struct {
-	ID        int    `json:"id"`
-	Name      string `json:"name"`
-	Code      string `json:"code"`
-	Color     string `json:"color"`
-	SortOrder int    `json:"sort_order"`
-	IsDefault bool   `json:"is_default"`
-}
-
-type Comment struct {
-	ID         int    `json:"id,omitempty"`
-	EntityType string `json:"entity_type"`
-	EntityID   int    `json:"entity_id"`
-	AuthorName string `json:"author_name"`
-	Body       string `json:"body"`
-	IsSystem   bool   `json:"is_system"`
-	CreatedAt  string `json:"created_at,omitempty"`
+	ExternalID      string `json:"external_id,omitempty"`
 }
 
 type DailyTask struct {
-	ID               int    `json:"id,omitempty"`
-	UserName         string `json:"user_name"`
-	Date             string `json:"date"`
-	TaskDescription  string `json:"task_description"`
-	Status           string `json:"status"`
-	Priority         string `json:"priority"`
-	WorkStartedAt    string `json:"work_started_at,omitempty"`
-	TotalMinutes     int    `json:"total_minutes"`
-	CreatedAt        string `json:"created_at,omitempty"`
-	VisibleFrom      string `json:"visible_from,omitempty"`
-	DueDate          string `json:"due_date,omitempty"`
-	CreatedBy        string `json:"created_by,omitempty"`
-	Responsible      string `json:"responsible,omitempty"`
-	EstimatedMinutes int    `json:"estimated_minutes,omitempty"`
-	IncidentID       int    `json:"incident_id,omitempty"`
+	ID              int    `json:"id,omitempty"`
+	UserName        string `json:"user_name"`
+	Date            string `json:"date"`
+	TaskDescription string `json:"task_description"`
+	Status          string `json:"status"`
+	Priority        string `json:"priority"`
+	WorkStartedAt   string `json:"work_started_at,omitempty"`
+	TotalMinutes    int    `json:"total_minutes"`
+	CreatedAt       string `json:"created_at,omitempty"`
+	VisibleFrom     string `json:"visible_from,omitempty"`
+	DueDate         string `json:"due_date,omitempty"`
+	CreatedBy       string `json:"created_by,omitempty"`
+	Responsible     string `json:"responsible,omitempty"`
 }
 
 type TableStat struct {
@@ -162,40 +139,80 @@ func initDB() {
 			is_oncall INTEGER DEFAULT 1
 		)`,
 		`CREATE TABLE IF NOT EXISTS team_roles (
-			id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL)`,
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			name TEXT UNIQUE NOT NULL
+		)`,
 		`CREATE TABLE IF NOT EXISTS absence_types (
-			id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL, code TEXT, color TEXT)`,
-		`CREATE TABLE IF NOT EXISTS shifts (date TEXT PRIMARY KEY, primary_user TEXT, backup_user TEXT)`,
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			name TEXT UNIQUE NOT NULL,
+			code TEXT
+		)`,
+		`CREATE TABLE IF NOT EXISTS shifts (
+			date TEXT PRIMARY KEY,
+			primary_user TEXT,
+			backup_user TEXT
+		)`,
 		`CREATE TABLE IF NOT EXISTS absences (
-			id INTEGER PRIMARY KEY AUTOINCREMENT, user_name TEXT, type TEXT, start_date TEXT, end_date TEXT, status TEXT DEFAULT 'Pending')`,
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_name TEXT,
+			type TEXT,
+			start_date TEXT,
+			end_date TEXT,
+			status TEXT DEFAULT 'Pending'
+		)`,
 		`CREATE TABLE IF NOT EXISTS incidents (
-			id INTEGER PRIMARY KEY AUTOINCREMENT, user_name TEXT, date TEXT, type TEXT,
-			duration_minutes INTEGER DEFAULT 0, description TEXT,
-			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-			status TEXT DEFAULT 'Нове', priority TEXT DEFAULT 'Звичайний', source TEXT DEFAULT 'self',
-			responsible TEXT, created_by TEXT, work_started_at TEXT,
-			total_minutes INTEGER DEFAULT 0, due_date TEXT, reported_for TEXT)`,
-		`CREATE TABLE IF NOT EXISTS incident_priorities (
-			id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL, code TEXT, color TEXT,
-			sort_order INTEGER DEFAULT 0, is_default INTEGER DEFAULT 0)`,
-		`CREATE TABLE IF NOT EXISTS comments (
-			id INTEGER PRIMARY KEY AUTOINCREMENT, entity_type TEXT NOT NULL, entity_id INTEGER NOT NULL,
-			author_name TEXT, body TEXT, is_system INTEGER DEFAULT 0,
-			created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`,
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_name TEXT,
+			date TEXT,
+			type TEXT,
+			duration_minutes INTEGER,
+			description TEXT,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
 		`CREATE TABLE IF NOT EXISTS daily_tasks (
-			id INTEGER PRIMARY KEY AUTOINCREMENT, user_name TEXT, date TEXT, task_description TEXT,
-			status TEXT DEFAULT 'Нова', priority TEXT DEFAULT 'Базова', work_started_at TEXT,
-			total_minutes INTEGER DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-			visible_from TEXT, due_date TEXT, created_by TEXT, responsible TEXT,
-			estimated_minutes INTEGER DEFAULT 0, incident_id INTEGER DEFAULT 0)`,
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_name TEXT,
+			date TEXT,
+			task_description TEXT,
+			status TEXT DEFAULT 'Нова',
+			priority TEXT DEFAULT 'Базова',
+			work_started_at TEXT,
+			total_minutes INTEGER DEFAULT 0,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			visible_from TEXT,
+			due_date TEXT,
+			created_by TEXT,
+			responsible TEXT
+		)`,
 		`CREATE TABLE IF NOT EXISTS audit_logs (
-			id INTEGER PRIMARY KEY AUTOINCREMENT, user_name TEXT, action TEXT, ip TEXT, details TEXT,
-			timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)`,
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_name TEXT,
+			action TEXT,
+			ip TEXT,
+			details TEXT,
+			timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
 		`CREATE TABLE IF NOT EXISTS app_logs (
-			id INTEGER PRIMARY KEY AUTOINCREMENT, level TEXT, message TEXT,
-			timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)`,
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			level TEXT,
+			message TEXT,
+			timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
 		`CREATE TABLE IF NOT EXISTS table_tracker (
-			table_name TEXT PRIMARY KEY, row_count INTEGER, last_action TEXT, last_update DATETIME)`,
+			table_name TEXT PRIMARY KEY,
+			row_count INTEGER,
+			last_action TEXT,
+			last_update DATETIME
+		)`,
+		`CREATE TABLE IF NOT EXISTS comments (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			entity_type TEXT NOT NULL,
+			entity_id INTEGER NOT NULL,
+			author_name TEXT,
+			body TEXT NOT NULL,
+			is_system INTEGER DEFAULT 0,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
 	}
 	for _, s := range stmts {
 		if _, err := db.Exec(s); err != nil {
@@ -207,12 +224,10 @@ func initDB() {
 	db.Exec("ALTER TABLE incidents ADD COLUMN status TEXT DEFAULT 'Нове'")
 	db.Exec("ALTER TABLE incidents ADD COLUMN priority TEXT DEFAULT 'Звичайний'")
 	db.Exec("ALTER TABLE incidents ADD COLUMN source TEXT DEFAULT 'self'")
-	db.Exec("ALTER TABLE incidents ADD COLUMN responsible TEXT")
-	db.Exec("ALTER TABLE incidents ADD COLUMN created_by TEXT")
-	db.Exec("ALTER TABLE incidents ADD COLUMN work_started_at TEXT")
 	db.Exec("ALTER TABLE incidents ADD COLUMN total_minutes INTEGER DEFAULT 0")
-	db.Exec("ALTER TABLE incidents ADD COLUMN due_date TEXT")
+	db.Exec("ALTER TABLE incidents ADD COLUMN created_by TEXT")
 	db.Exec("ALTER TABLE incidents ADD COLUMN reported_for TEXT")
+	db.Exec("ALTER TABLE incidents ADD COLUMN external_id TEXT DEFAULT ''")
 	db.Exec("ALTER TABLE daily_tasks ADD COLUMN status TEXT DEFAULT 'Нова'")
 	db.Exec("ALTER TABLE daily_tasks ADD COLUMN priority TEXT DEFAULT 'Базова'")
 	db.Exec("ALTER TABLE daily_tasks ADD COLUMN work_started_at TEXT")
@@ -222,16 +237,13 @@ func initDB() {
 	db.Exec("ALTER TABLE daily_tasks ADD COLUMN due_date TEXT")
 	db.Exec("ALTER TABLE daily_tasks ADD COLUMN created_by TEXT")
 	db.Exec("ALTER TABLE daily_tasks ADD COLUMN responsible TEXT")
-	db.Exec("ALTER TABLE daily_tasks ADD COLUMN estimated_minutes INTEGER DEFAULT 0")
-	db.Exec("ALTER TABLE daily_tasks ADD COLUMN incident_id INTEGER DEFAULT 0")
 	db.Exec("ALTER TABLE users ADD COLUMN is_oncall INTEGER DEFAULT 1")
-	db.Exec("ALTER TABLE absence_types ADD COLUMN color TEXT")
+	db.Exec("ALTER TABLE users ADD COLUMN slack_id TEXT DEFAULT ''")
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_comments_entity ON comments(entity_type, entity_id)")
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_incidents_source ON incidents(source)")
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_incidents_date ON incidents(date)")
 
-	db.Exec(`UPDATE absence_types SET color='#3b82f6' WHERE (code='vacation' OR name LIKE '%ідпуст%') AND (color IS NULL OR color='')`)
-	db.Exec(`UPDATE absence_types SET color='#ef4444' WHERE (code='sick' OR name LIKE '%ікарн%') AND (color IS NULL OR color='')`)
-	db.Exec(`UPDATE absence_types SET color='#94a3b8' WHERE (code='dayoff' OR name LIKE '%ихідн%') AND (color IS NULL OR color='')`)
-
-	tables := []string{"users", "team_roles", "absence_types", "shifts", "absences", "incidents", "daily_tasks", "audit_logs", "app_logs", "incident_priorities", "comments"}
+	tables := []string{"users", "team_roles", "absence_types", "shifts", "absences", "incidents", "daily_tasks", "audit_logs", "app_logs", "comments"}
 	for _, t := range tables {
 		db.Exec("INSERT OR IGNORE INTO table_tracker (table_name, last_action, last_update) VALUES (?, 'INIT', CURRENT_TIMESTAMP)", t)
 		for _, act := range []string{"INSERT", "UPDATE", "DELETE"} {
@@ -247,19 +259,8 @@ func initDB() {
 	db.QueryRow("SELECT COUNT(*) FROM users").Scan(&cnt)
 	if cnt == 0 {
 		db.Exec(`INSERT INTO users (username, password, name, role, is_oncall) VALUES ('admin', 'admin', 'Admin', 'admin', 0)`)
-		db.Exec(`INSERT INTO absence_types (name, code, color) VALUES
-			('Відпустка', 'vacation', '#3b82f6'), ('Лікарняний', 'sick', '#ef4444'), ('Вихідний', 'dayoff', '#94a3b8')`)
+		db.Exec(`INSERT INTO absence_types (name, code) VALUES ('Відпустка', 'vacation'), ('Лікарняний', 'sick'), ('Вихідний', 'dayoff')`)
 		log.Println("seeded default admin / admin")
-	}
-	var pc int
-	db.QueryRow("SELECT COUNT(*) FROM incident_priorities").Scan(&pc)
-	if pc == 0 {
-		db.Exec(`INSERT INTO incident_priorities (name, code, color, sort_order, is_default) VALUES
-			('Критичний', 'critical', '#ef4444', 10, 0),
-			('Високий', 'high', '#f59e0b', 20, 0),
-			('Звичайний', 'normal', '#3b82f6', 30, 1),
-			('Низький', 'low', '#94a3b8', 40, 0)`)
-		log.Println("seeded incident priorities")
 	}
 }
 
@@ -272,24 +273,20 @@ func main() {
 	http.HandleFunc("/api/request-absence", handleRequestAbsence)
 	http.HandleFunc("/api/incidents", handleIncidents)
 	http.HandleFunc("/api/daily-tasks", handleDailyTasks)
-	http.HandleFunc("/api/comments", handleComments)
-	http.HandleFunc("/api/incident-priorities", handleIncidentPrioritiesPublic)
-	// webhook: заготовка для моніторингу; за замовчуванням вимкнено (ENABLE_INCIDENT_WEBHOOK=1)
-	http.HandleFunc("/api/webhooks/incidents", handleIncidentWebhook)
-
 	http.HandleFunc("/api/admin/users", handleAdminUsers)
 	http.HandleFunc("/api/admin/roles", handleAdminRoles)
 	http.HandleFunc("/api/admin/absence-types", handleAdminAbsenceTypes)
-	http.HandleFunc("/api/admin/incident-priorities", handleAdminIncidentPriorities)
 	http.HandleFunc("/api/admin/requests", handleAdminRequests)
 	http.HandleFunc("/api/admin/logs", handleAdminLogs)
 	http.HandleFunc("/api/admin/tasks", handleAdminTasks)
-	http.HandleFunc("/api/admin/incidents", handleAdminIncidents)
-	http.HandleFunc("/api/admin/incidents/to-task", handleIncidentToTask)
 	http.HandleFunc("/api/admin/project/unlock", handleDBUnlock)
 	http.HandleFunc("/api/admin/project/db-stats", handleDBStats)
 	http.HandleFunc("/api/admin/project/query", handleReadOnlyQuery)
 	http.HandleFunc("/api/admin/regenerate-shifts", handleRegenerateShifts)
+	http.HandleFunc("/api/comments", handleComments)
+	http.HandleFunc("/api/admin/queues", handleAdminQueues)
+	http.HandleFunc("/api/webhooks/incidents", handleWebhookIncidents)
+	http.HandleFunc("/api/webhooks/health", handleWebhookHealth)
 
 	fs := http.FileServer(http.Dir("./static"))
 	http.Handle("/", fs)
