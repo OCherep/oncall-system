@@ -9,6 +9,22 @@ services:
       - PORT=8084
       - DB_PATH=/app/data/oncall.db
       - DB_ADMIN_PASSWORD=db-admin-change-me
+      # Webhook Jira/боти
+      - ENABLE_INCIDENT_WEBHOOK=${ENABLE_INCIDENT_WEBHOOK:-0}
+      - WEBHOOK_SECRET=${WEBHOOK_SECRET:-change-me-webhook-secret}
+      # Slack: командний канал + особисті DM
+      - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL:-}
+      - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN:-}
+      - SLACK_TEAM_CHANNEL=${SLACK_TEAM_CHANNEL:-}
+      - NOTIFY_ON_INCIDENT=${NOTIFY_ON_INCIDENT:-1}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID:-}
+      # Jira outbound (статус → transition + comment)
+      - JIRA_ENABLED=${JIRA_ENABLED:-0}
+      - JIRA_BASE_URL=${JIRA_BASE_URL:-}
+      - JIRA_EMAIL=${JIRA_EMAIL:-}
+      - JIRA_API_TOKEN=${JIRA_API_TOKEN:-}
+      - JIRA_STATUS_MAP=${JIRA_STATUS_MAP:-}
     volumes:
       - ./data:/app/data
       - /var/log/oncall-app:/var/log/oncall-app
