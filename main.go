@@ -125,7 +125,7 @@ func initDB() {
 	if i := strings.LastIndex(dbPath, "/"); i > 0 {
 		_ = os.MkdirAll(dbPath[:i], 0755)
 	}
-	db, err = sql.Open("sqlite3", dbPath+"?_journal_mode=WAL&_busy_timeout=5000")
+	db, err = sql.Open("sqlite3", dbPath+"?_journal_mode=WAL&_busy_timeout=15000&_txlock=immediate")
 	if err != nil {
 		log.Fatal(err)
 	}
