@@ -746,7 +746,7 @@ func handleIncidents(w http.ResponseWriter, r *http.Request) {
 				syncIncidentStatusToJira(cur.ExternalID, oldStatus, newStatus)
 			}
 		}
-		// Admin: пріоритет / опис / тривалість
+		// Admin: пріоритет / опис / тривалість / дата / тип
 		if roleHint == "admin" {
 			if v, ok := raw["priority"].(string); ok && v != "" && v != cur.Priority {
 				db.Exec(`UPDATE incidents SET priority=? WHERE id=?`, v, id)
@@ -763,6 +763,17 @@ func handleIncidents(w http.ResponseWriter, r *http.Request) {
 					db.Exec(`UPDATE incidents SET duration_minutes=? WHERE id=?`, m, id)
 					cur.DurationMinutes = m
 				}
+			}
+			if v, ok := raw["date"].(string); ok && v != "" && v != cur.Date {
+				db.Exec(`UPDATE incidents SET date=? WHERE id=?`, v, id)
+				cur.Date = v
+			}
+			if v, ok := raw["type"].(string); ok && v != "" {
+				db.Exec(`UPDATE incidents SET type=? WHERE id=?`, v, id)
+			}
+			if v, ok := raw["source"].(string); ok && v != "" {
+				db.Exec(`UPDATE incidents SET source=? WHERE id=?`, v, id)
+				cur.Source = v
 			}
 		}
 		logAudit(actor, "UPDATE_INCIDENT", clientIP(r), fmt.Sprintf("id=%d status=%s→%s", id, oldStatus, newStatus))
