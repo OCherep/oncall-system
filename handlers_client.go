@@ -405,23 +405,36 @@ func isIncStatusAllowed(cur, next, role string) bool {
 }
 
 func copyComments(fromType string, fromID int, toType string, toID int) int {
+	// Important: with SetMaxOpenConns(1) we must fully close the SELECT before any Exec,
+	// otherwise SQLite deadlocks the whole process.
+	type row struct {
+		author string
+		body   string
+		isSys  int
+	}
+	var items []row
 	rows, err := db.Query(`SELECT COALESCE(author_name,''), body, COALESCE(is_system,0) FROM comments
 		WHERE entity_type=? AND entity_id=? ORDER BY id ASC`, fromType, fromID)
 	if err != nil {
 		return 0
 	}
-	defer rows.Close()
-	n := 0
 	for rows.Next() {
-		var author, body string
-		var isSys int
-		rows.Scan(&author, &body, &isSys)
-		if strings.TrimSpace(body) == "" {
+		var r row
+		if err := rows.Scan(&r.author, &r.body, &r.isSys); err != nil {
 			continue
 		}
-		db.Exec(`INSERT INTO comments (entity_type, entity_id, author_name, body, is_system) VALUES (?,?,?,?,?)`,
-			toType, toID, author, body, isSys)
-		n++
+		if strings.TrimSpace(r.body) == "" {
+			continue
+		}
+		items = append(items, r)
+	}
+	rows.Close()
+	n := 0
+	for _, r := range items {
+		if _, err := db.Exec(`INSERT INTO comments (entity_type, entity_id, author_name, body, is_system) VALUES (?,?,?,?,?)`,
+			toType, toID, r.author, r.body, r.isSys); err == nil {
+			n++
+		}
 	}
 	return n
 }
