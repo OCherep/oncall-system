@@ -175,13 +175,13 @@ func clientIP(r *http.Request) string {
 	return r.RemoteAddr
 }
 
-func backfillConvertedTaskIDs() {
-	rows, err := db.Query(`SELECT id, task_description FROM daily_tasks WHERE task_description LIKE '[зі звернення #%]'`)
+func cleanupDuplicateIncidentTasks() {
+	rows, err := db.Query(`SELECT id, task_description FROM daily_tasks WHERE task_description LIKE '[зі звернення #%]' ORDER BY id ASC`)
 	if err != nil || rows == nil {
 		return
 	}
-	type pair struct{ tid, iid int }
-	var pairs []pair
+	keep := map[int]int{} // incidentID -> first task id
+	var drop []int
 	for rows.Next() {
 		var tid int
 		var desc string
@@ -189,13 +189,65 @@ func backfillConvertedTaskIDs() {
 			continue
 		}
 		var iid int
-		if _, err := fmt.Sscanf(desc, "[зі звернення #%d]", &iid); err == nil && iid > 0 {
-			pairs = append(pairs, pair{tid, iid})
+		if _, err := fmt.Sscanf(desc, "[зі звернення #%d]", &iid); err != nil || iid <= 0 {
+			continue
+		}
+		if first, ok := keep[iid]; ok {
+			if tid != first {
+				drop = append(drop, tid)
+			}
+		} else {
+			keep[iid] = tid
 		}
 	}
 	rows.Close()
+	for _, tid := range drop {
+		db.Exec(`DELETE FROM comments WHERE entity_type='task' AND entity_id=?`, tid)
+		db.Exec(`DELETE FROM task_assignees WHERE task_id=?`, tid)
+		db.Exec(`DELETE FROM daily_tasks WHERE id=?`, tid)
+		log.Printf("cleanup: removed duplicate task #%d (same incident source)", tid)
+	}
+	// ensure incidents point at kept task
+	for iid, tid := range keep {
+		db.Exec(`UPDATE incidents SET converted_to_task_id=?, status=CASE WHEN status IN ('Вирішено','Архів') THEN status ELSE 'Вирішено' END WHERE id=?`, tid, iid)
+	}
+}
+
+func backfillConvertedTaskIDs() {
+	rows, err := db.Query(`SELECT id, task_description, COALESCE(status,'Нова') FROM daily_tasks WHERE task_description LIKE '[зі звернення #%]' ORDER BY id ASC`)
+	if err != nil || rows == nil {
+		return
+	}
+	type pair struct {
+		tid, iid int
+		status   string
+	}
+	var pairs []pair
+	for rows.Next() {
+		var tid int
+		var desc, st string
+		if rows.Scan(&tid, &desc, &st) != nil {
+			continue
+		}
+		var iid int
+		if _, err := fmt.Sscanf(desc, "[зі звернення #%d]", &iid); err == nil && iid > 0 {
+			pairs = append(pairs, pair{tid, iid, st})
+		}
+	}
+	rows.Close()
+	// group by incident: keep lowest task id, archive the rest
+	first := map[int]int{}
 	for _, p := range pairs {
-		db.Exec(`UPDATE incidents SET converted_to_task_id=? WHERE id=? AND COALESCE(converted_to_task_id,0)=0`, p.tid, p.iid)
+		if keep, ok := first[p.iid]; !ok {
+			first[p.iid] = p.tid
+			db.Exec(`UPDATE incidents SET converted_to_task_id=?, status=CASE WHEN status IN ('Архів') THEN status ELSE 'Вирішено' END WHERE id=?`, p.tid, p.iid)
+		} else if p.tid != keep {
+			// duplicate task from same incident — archive (hide from boards)
+			if p.status != "Архів" {
+				db.Exec(`UPDATE daily_tasks SET status='Архів' WHERE id=?`, p.tid)
+				addSystemComment("task", p.tid, fmt.Sprintf("Дублікат звернення #%d; основна задача #%d", p.iid, keep))
+			}
+		}
 	}
 }
 
