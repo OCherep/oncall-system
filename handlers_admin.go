@@ -356,19 +356,18 @@ func handleAppLogs(w http.ResponseWriter, r *http.Request) {
 	}
 	var list []line
 	if err == nil && rows != nil {
-		defer rows.Close()
 		for rows.Next() {
 			var L line
 			rows.Scan(&L.Time, &L.Level, &L.Service, &L.Message)
 			list = append(list, L)
 		}
+		rows.Close()
 	}
 	// fallback: mirror recent audit_logs as text lines
 	if len(list) == 0 {
 		arows, _ := db.Query(`SELECT COALESCE(datetime(timestamp,'localtime'),''), user_name, action, ip, details
 			FROM audit_logs ORDER BY id DESC LIMIT 100`)
 		if arows != nil {
-			defer arows.Close()
 			for arows.Next() {
 				var ts, user, action, ip, details string
 				arows.Scan(&ts, &user, &action, &ip, &details)
@@ -377,6 +376,7 @@ func handleAppLogs(w http.ResponseWriter, r *http.Request) {
 					Message: fmt.Sprintf("[%s] %s @ %s — %s", action, user, ip, details),
 				})
 			}
+			arows.Close()
 		}
 	}
 	if list == nil {
@@ -397,12 +397,12 @@ func handleTableInspect(w http.ResponseWriter, r *http.Request) {
 	allowed := map[string]bool{}
 	trows, _ := db.Query(`SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'`)
 	if trows != nil {
-		defer trows.Close()
 		for trows.Next() {
 			var n string
 			trows.Scan(&n)
 			allowed[n] = true
 		}
+		trows.Close()
 	}
 	if !allowed[name] {
 		http.Error(w, "unknown table", 404)
@@ -412,7 +412,6 @@ func handleTableInspect(w http.ResponseWriter, r *http.Request) {
 	var schema []map[string]interface{}
 	cols, _ := db.Query(`PRAGMA table_info(` + name + `)`)
 	if cols != nil {
-		defer cols.Close()
 		for cols.Next() {
 			var cid, notnull, pk int
 			var cname, ctype string
@@ -422,6 +421,7 @@ func handleTableInspect(w http.ResponseWriter, r *http.Request) {
 				"cid": cid, "name": cname, "type": ctype, "notnull": notnull, "pk": pk, "dflt": dflt,
 			})
 		}
+		cols.Close()
 	}
 	limit := 100
 	if v := r.URL.Query().Get("limit"); v != "" {
@@ -499,7 +499,6 @@ func handleAdminTasks(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), 500)
 			return
 		}
-		defer rows.Close()
 		var list []DailyTask
 		for rows.Next() {
 			var t DailyTask
@@ -523,8 +522,12 @@ func handleAdminTasks(w http.ResponseWriter, r *http.Request) {
 			if resp.Valid {
 				t.Responsible = resp.String
 			}
-			t.Assignees = loadTaskAssignees(t.ID)
 			list = append(list, t)
+		}
+		rows.Close()
+		// Assignees AFTER rows closed (MaxOpenConns=1 — no nested queries)
+		for i := range list {
+			list[i].Assignees = loadTaskAssignees(list[i].ID)
 		}
 		if list == nil {
 			list = []DailyTask{}
@@ -629,27 +632,31 @@ func handleDBStats(w http.ResponseWriter, r *http.Request) {
 	meta := map[string]TableStat{}
 	mrows, _ := db.Query(`SELECT table_name, COALESCE(row_count,0), COALESCE(last_action,''), COALESCE(datetime(last_update,'localtime'),'') FROM table_tracker`)
 	if mrows != nil {
-		defer mrows.Close()
 		for mrows.Next() {
 			var ts TableStat
 			mrows.Scan(&ts.TableName, &ts.RowCount, &ts.LastAction, &ts.LastUpdate)
 			meta[ts.TableName] = ts
 		}
+		mrows.Close()
 	}
 	rows, err := db.Query(`SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name`)
-	var list []TableStat
+	var names []string
 	if err == nil && rows != nil {
-		defer rows.Close()
 		for rows.Next() {
 			var name string
 			rows.Scan(&name)
-			ts := meta[name]
-			ts.TableName = name
-			var cnt int
-			db.QueryRow("SELECT COUNT(*) FROM `" + name + "`").Scan(&cnt)
-			ts.RowCount = cnt
-			list = append(list, ts)
+			names = append(names, name)
 		}
+		rows.Close()
+	}
+	var list []TableStat
+	for _, name := range names {
+		ts := meta[name]
+		ts.TableName = name
+		var cnt int
+		db.QueryRow("SELECT COUNT(*) FROM `" + name + "`").Scan(&cnt)
+		ts.RowCount = cnt
+		list = append(list, ts)
 	}
 	if list == nil {
 		list = []TableStat{}
