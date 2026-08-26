@@ -30,14 +30,14 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
         WHERE u.username = ? AND u.password = ?`, req.Username, req.Password).
 		Scan(&u.ID, &u.Username, &u.Name, &u.Role, &u.TeamRoleID, &u.TeamRole, &isOncallInt)
 	if err != nil {
-		logAudit(req.Username, "LOGIN_FAILED", r.RemoteAddr, "Невдала спроба входу")
+		logAudit(req.Username, "LOGIN_FAILED", clientIP(r), "Невдала спроба входу")
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
 		json.NewEncoder(w).Encode(map[string]string{"error": "Невірне ім'я користувача або пароль"})
 		return
 	}
 	u.IsOncall = isOncallInt == 1
-	logAudit(u.Username, "LOGIN_SUCCESS", r.RemoteAddr, "Успішна авторизація")
+	logAudit(u.Username, "LOGIN_SUCCESS", clientIP(r), "Успішна авторизація")
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(u)
 }
@@ -254,8 +254,10 @@ func handleGetData(w http.ResponseWriter, r *http.Request) {
 	incRows, err := db.Query(`SELECT id, user_name, date, type, duration_minutes, description,
 		COALESCE(datetime(created_at,'localtime'), datetime('now','localtime')),
 		COALESCE(status,'Нове'), COALESCE(priority,'Звичайний'), COALESCE(source,'self'),
-		COALESCE(total_minutes,0), COALESCE(created_by,''), COALESCE(reported_for,'')
-		FROM incidents WHERE date LIKE ? ORDER BY created_at ASC`, monthPattern)
+		COALESCE(total_minutes,0), COALESCE(created_by,''), COALESCE(reported_for,''),
+		COALESCE(converted_to_task_id,0)
+		FROM incidents WHERE date LIKE ? AND COALESCE(converted_to_task_id,0)=0
+		ORDER BY created_at ASC`, monthPattern)
 	incidents := make(map[string][]IncidentReport)
 	statsMap := make(map[string]*UserStat)
 	for _, name := range oncallUsers {
@@ -266,7 +268,7 @@ func handleGetData(w http.ResponseWriter, r *http.Request) {
 		for incRows.Next() {
 			var inc IncidentReport
 			incRows.Scan(&inc.ID, &inc.UserName, &inc.Date, &inc.Type, &inc.DurationMinutes, &inc.Description, &inc.CreatedAt,
-				&inc.Status, &inc.Priority, &inc.Source, &inc.TotalMinutes, &inc.CreatedBy, &inc.ReportedFor)
+				&inc.Status, &inc.Priority, &inc.Source, &inc.TotalMinutes, &inc.CreatedBy, &inc.ReportedFor, &inc.ConvertedToTaskID)
 			if inc.TotalMinutes == 0 {
 				inc.TotalMinutes = inc.DurationMinutes
 			}
@@ -350,7 +352,7 @@ func handleRequestAbsence(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	logAudit(req.UserName, "REQUEST_ABSENCE", r.RemoteAddr, req.Type+" "+req.StartDate+"-"+req.EndDate)
+	logAudit(req.UserName, "REQUEST_ABSENCE", clientIP(r), req.Type+" "+req.StartDate+"-"+req.EndDate)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
@@ -441,6 +443,21 @@ func copyComments(fromType string, fromID int, toType string, toID int) int {
 
 // convertIncidentToTask створює задачу з звернення, копіює коментарі (залишаючи їх і на зверненні).
 func convertIncidentToTask(inc IncidentReport, actor string) (int64, int, error) {
+	// Запобіжник від дублювання
+	var existing int
+	_ = db.QueryRow(`SELECT COALESCE(converted_to_task_id,0) FROM incidents WHERE id=?`, inc.ID).Scan(&existing)
+	if existing > 0 {
+		return int64(existing), 0, fmt.Errorf("звернення #%d вже переведено в задачу #%d", inc.ID, existing)
+	}
+	// також шукаємо задачу з тим самим префіксом (legacy)
+	var legacyID int
+	_ = db.QueryRow(`SELECT id FROM daily_tasks WHERE task_description LIKE ? ORDER BY id ASC LIMIT 1`,
+		fmt.Sprintf("[зі звернення #%d]%%", inc.ID)).Scan(&legacyID)
+	if legacyID > 0 {
+		db.Exec(`UPDATE incidents SET converted_to_task_id=?, status=CASE WHEN status IN ('Вирішено','Архів') THEN status ELSE 'Вирішено' END WHERE id=?`, legacyID, inc.ID)
+		return int64(legacyID), 0, fmt.Errorf("звернення #%d вже має задачу #%d", inc.ID, legacyID)
+	}
+
 	desc := fmt.Sprintf("[зі звернення #%d] %s", inc.ID, inc.Description)
 	prio := mapIncidentPrioToTask(inc.Priority)
 	res, err := db.Exec(`INSERT INTO daily_tasks (user_name, date, task_description, status, priority, total_minutes, created_at, created_by, responsible)
@@ -450,10 +467,43 @@ func convertIncidentToTask(inc IncidentReport, actor string) (int64, int, error)
 		return 0, 0, err
 	}
 	tid, _ := res.LastInsertId()
+	// primary assignee row
+	if strings.TrimSpace(inc.UserName) != "" {
+		db.Exec(`INSERT OR IGNORE INTO task_assignees (task_id, user_name, total_minutes) VALUES (?,?,0)`, tid, inc.UserName)
+	}
 	copied := copyComments("incident", inc.ID, "task", int(tid))
+	db.Exec(`UPDATE incidents SET converted_to_task_id=?, status='Вирішено' WHERE id=?`, tid, inc.ID)
 	addSystemComment("incident", inc.ID, fmt.Sprintf("Переведено в задачу #%d", tid))
 	addSystemComment("task", int(tid), fmt.Sprintf("Створено зі звернення #%d (скопійовано коментарів: %d)", inc.ID, copied))
 	return tid, copied, nil
+}
+
+func loadTaskAssignees(taskID int) []TaskAssignee {
+	rows, err := db.Query(`SELECT user_name, COALESCE(total_minutes,0), COALESCE(work_started_at,'') FROM task_assignees WHERE task_id=? ORDER BY id`, taskID)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var list []TaskAssignee
+	for rows.Next() {
+		var a TaskAssignee
+		rows.Scan(&a.UserName, &a.TotalMinutes, &a.WorkStartedAt)
+		list = append(list, a)
+	}
+	return list
+}
+
+func setTaskAssignees(taskID int, names []string) {
+	db.Exec(`DELETE FROM task_assignees WHERE task_id=?`, taskID)
+	seen := map[string]bool{}
+	for _, n := range names {
+		n = strings.TrimSpace(n)
+		if n == "" || seen[n] {
+			continue
+		}
+		seen[n] = true
+		db.Exec(`INSERT INTO task_assignees (task_id, user_name, total_minutes) VALUES (?,?,0)`, taskID, n)
+	}
 }
 
 func handleIncidents(w http.ResponseWriter, r *http.Request) {
@@ -472,7 +522,8 @@ func handleIncidents(w http.ResponseWriter, r *http.Request) {
 		q := `SELECT id, user_name, date, type, duration_minutes, description,
 			COALESCE(datetime(created_at,'localtime'),''),
 			COALESCE(status,'Нове'), COALESCE(priority,'Звичайний'), COALESCE(source,'self'),
-			COALESCE(total_minutes,0), COALESCE(created_by,''), COALESCE(reported_for,''), COALESCE(external_id,'')
+			COALESCE(total_minutes,0), COALESCE(created_by,''), COALESCE(reported_for,''), COALESCE(external_id,''),
+			COALESCE(converted_to_task_id,0)
 			FROM incidents WHERE 1=1`
 		args := []interface{}{}
 		if status != "" && status != "all" {
@@ -495,7 +546,7 @@ func handleIncidents(w http.ResponseWriter, r *http.Request) {
 		for rows.Next() {
 			var inc IncidentReport
 			rows.Scan(&inc.ID, &inc.UserName, &inc.Date, &inc.Type, &inc.DurationMinutes, &inc.Description, &inc.CreatedAt,
-				&inc.Status, &inc.Priority, &inc.Source, &inc.TotalMinutes, &inc.CreatedBy, &inc.ReportedFor, &inc.ExternalID)
+				&inc.Status, &inc.Priority, &inc.Source, &inc.TotalMinutes, &inc.CreatedBy, &inc.ReportedFor, &inc.ExternalID, &inc.ConvertedToTaskID)
 			list = append(list, inc)
 		}
 		if list == nil {
@@ -586,9 +637,9 @@ func handleIncidents(w http.ResponseWriter, r *http.Request) {
 				result["comments_copied"] = copied
 				result["message"] = fmt.Sprintf("Звернення зафіксовано на %s і додано як задачу #%d", inc.Date, tid)
 			}
-			logAudit(inc.CreatedBy, "CREATE_INCIDENT_AS_TASK", r.RemoteAddr, inc.Description)
+			logAudit(inc.CreatedBy, "CREATE_INCIDENT_AS_TASK", clientIP(r), inc.Description)
 		} else {
-			logAudit(inc.CreatedBy, "CREATE_INCIDENT", r.RemoteAddr, fmt.Sprintf("#%d %s %dхв", id, inc.Date, inc.DurationMinutes))
+			logAudit(inc.CreatedBy, "CREATE_INCIDENT", clientIP(r), fmt.Sprintf("#%d %s %dхв", id, inc.Date, inc.DurationMinutes))
 		}
 		w.WriteHeader(http.StatusCreated)
 		json.NewEncoder(w).Encode(result)
@@ -633,7 +684,7 @@ func handleIncidents(w http.ResponseWriter, r *http.Request) {
 			if newUser != cur.UserName {
 				db.Exec(`UPDATE incidents SET user_name=?, reported_for=? WHERE id=?`, newUser, newUser, id)
 				addSystemComment("incident", id, fmt.Sprintf("Виконавець: «%s» → «%s»", cur.UserName, newUser))
-				logAudit(actor, "ASSIGN_INCIDENT", r.RemoteAddr, fmt.Sprintf("id=%d user=%s", id, newUser))
+				logAudit(actor, "ASSIGN_INCIDENT", clientIP(r), fmt.Sprintf("id=%d user=%s", id, newUser))
 				cur.UserName = newUser
 			}
 		}
@@ -654,15 +705,17 @@ func handleIncidents(w http.ResponseWriter, r *http.Request) {
 			}
 			tid, copied, cerr := convertIncidentToTask(cur, actor)
 			if cerr != nil {
+				// duplicate → 409
+				if strings.Contains(cerr.Error(), "вже") {
+					http.Error(w, cerr.Error(), http.StatusConflict)
+					return
+				}
 				http.Error(w, cerr.Error(), 500)
 				return
 			}
-			// закриваємо звернення як Вирішено (якщо ще не)
-			if cur.Status != "Вирішено" && cur.Status != "Архів" {
-				db.Exec(`UPDATE incidents SET status='Вирішено' WHERE id=?`, id)
-				cur.Status = "Вирішено"
-			}
-			logAudit(actor, "CONVERT_INCIDENT_TO_TASK", r.RemoteAddr, fmt.Sprintf("inc=%d task=%d copied=%d", id, tid, copied))
+			cur.Status = "Вирішено"
+			cur.ConvertedToTaskID = int(tid)
+			logAudit(actor, "CONVERT_INCIDENT_TO_TASK", clientIP(r), fmt.Sprintf("inc=%d task=%d copied=%d", id, tid, copied))
 			json.NewEncoder(w).Encode(map[string]interface{}{
 				"status": "ok", "task_id": tid, "comments_copied": copied, "incident_status": cur.Status,
 			})
@@ -712,7 +765,7 @@ func handleIncidents(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
-		logAudit(actor, "UPDATE_INCIDENT", r.RemoteAddr, fmt.Sprintf("id=%d status=%s→%s", id, oldStatus, newStatus))
+		logAudit(actor, "UPDATE_INCIDENT", clientIP(r), fmt.Sprintf("id=%d status=%s→%s", id, oldStatus, newStatus))
 		cur.Status = newStatus
 		json.NewEncoder(w).Encode(cur)
 
@@ -734,7 +787,7 @@ func handleIncidents(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		db.Exec(`DELETE FROM comments WHERE entity_type='incident' AND entity_id=?`, idStr)
-		logAudit("admin", "DELETE_INCIDENT", r.RemoteAddr, "id="+idStr)
+		logAudit("admin", "DELETE_INCIDENT", clientIP(r), "id="+idStr)
 		json.NewEncoder(w).Encode(map[string]string{"status": "deleted"})
 
 	default:
@@ -790,7 +843,7 @@ func handleDailyTasks(w http.ResponseWriter, r *http.Request) {
 		}
 		id, _ := res.LastInsertId()
 		t.ID = int(id)
-		logAudit(t.UserName, "CREATE_DAILY_TASK", r.RemoteAddr, t.TaskDescription)
+		logAudit(t.UserName, "CREATE_DAILY_TASK", clientIP(r), t.TaskDescription)
 		w.WriteHeader(http.StatusCreated)
 		json.NewEncoder(w).Encode(t)
 
@@ -934,7 +987,7 @@ func handleDailyTasks(w http.ResponseWriter, r *http.Request) {
 		if newStatus != cur.Status {
 			addSystemComment("task", t.ID, fmt.Sprintf("Статус: %s → %s", cur.Status, newStatus))
 		}
-		logAudit(userName, "UPDATE_DAILY_TASK", r.RemoteAddr, fmt.Sprintf("id=%d status=%s priority=%s", t.ID, newStatus, newPriority))
+		logAudit(userName, "UPDATE_DAILY_TASK", clientIP(r), fmt.Sprintf("id=%d status=%s priority=%s", t.ID, newStatus, newPriority))
 		json.NewEncoder(w).Encode(t)
 
 	case http.MethodDelete:
@@ -1024,7 +1077,7 @@ func handleComments(w http.ResponseWriter, r *http.Request) {
 		c.ID = int(id)
 		c.AuthorName = author
 		c.IsSystem = false
-		logAudit(author, "ADD_COMMENT", r.RemoteAddr, fmt.Sprintf("%s#%d", c.EntityType, c.EntityID))
+		logAudit(author, "ADD_COMMENT", clientIP(r), fmt.Sprintf("%s#%d", c.EntityType, c.EntityID))
 		json.NewEncoder(w).Encode(c)
 	default:
 		http.Error(w, "Method not allowed", 405)
