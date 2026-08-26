@@ -851,6 +851,7 @@
             try {
                 const r = await fetch('/api/incidents?' + q.toString());
                 const list = await safeJson(r);
+                window._adminIncsCache = list;
                 if (!Array.isArray(list) || !list.length) {
                     tb.innerHTML = '<tr><td colspan="9" style="color:#64748b">Немає звернень</td></tr>';
                     return;
@@ -877,6 +878,7 @@
                         <td style="max-width:260px" title="${desc}">${desc.length>80?desc.slice(0,80)+'…':desc}</td>
                         <td>${inc.duration_minutes||inc.total_minutes||0}</td>
                         <td style="white-space:nowrap">
+                            <button class="btn" style="padding:2px 8px" title="Редагувати" onclick="openEditInc(${inc.id})">✎</button>
                             <button class="btn" style="padding:2px 8px" title="Коментарі" onclick="adminShowIncCmts(${inc.id})">💬</button>
                             ${convBtn}
                             <button class="btn btn-danger" style="padding:2px 8px" onclick="adminDelInc(${inc.id})">✕</button>
@@ -981,6 +983,7 @@
             try {
                 const r = await fetch('/api/admin/tasks?' + q.toString());
                 const list = await safeJson(r);
+                window._adminTasksCache = list;
                 if (!Array.isArray(list) || !list.length) {
                     tb.innerHTML = '<tr><td colspan="9" style="color:#64748b">Немає задач</td></tr>';
                     return;
@@ -1010,7 +1013,10 @@
                         <td><select onchange="adminUpdTask(${task.id},'status',this.value)">${stOpts}</select></td>
                         <td><select onchange="adminUpdTask(${task.id},'priority',this.value)">${prOpts}</select></td>
                         <td>${task.total_minutes||0} хв</td>
-                        <td><button class="btn btn-danger" style="padding:2px 8px" onclick="adminDelTask(${task.id})">✕</button></td>
+                        <td style="white-space:nowrap">
+                            <button class="btn" style="padding:2px 8px" title="Редагувати" onclick="openEditTask(${task.id})">✎</button>
+                            <button class="btn btn-danger" style="padding:2px 8px" onclick="adminDelTask(${task.id})">✕</button>
+                        </td>
                     </tr>`;
                 }).join('');
             } catch (e) {
@@ -1180,6 +1186,138 @@
                 tb.innerHTML = `<tr><td colspan="5" style="color:#ef4444">${e}</td></tr>`;
             }
         }
+
+        function fillMemberSelectEl(sel, selected, allowEmpty) {
+            const ms = (loadedUsers || []).filter(u => u.role !== 'admin' || u.is_oncall);
+            let h = allowEmpty ? '<option value="">—</option>' : '';
+            ms.forEach(u => { h += `<option value="${u.name}" ${u.name===selected?'selected':''}>${u.name}</option>`; });
+            sel.innerHTML = h;
+        }
+        function closeEditEntity() {
+            document.getElementById('edit-entity-modal').style.display = 'none';
+        }
+        async function openEditTask(id) {
+            await ensureUsersLoaded();
+            const task = (window._adminTasksCache || []).find(x => x.id === id);
+            if (!task) { alert('Задачу не знайдено, оновіть список'); return; }
+            document.getElementById('edit-entity-kind').value = 'task';
+            document.getElementById('edit-entity-id').value = id;
+            document.getElementById('edit-entity-title').textContent = 'Редагування задачі #' + id;
+            document.getElementById('edit-date').value = task.date || '';
+            document.getElementById('edit-desc').value = task.task_description || '';
+            document.getElementById('edit-due').value = task.due_date || '';
+            document.getElementById('edit-visible').value = task.visible_from || '';
+            document.getElementById('edit-type-wrap').style.display = 'none';
+            document.getElementById('edit-dur-wrap').style.display = 'none';
+            document.getElementById('edit-src-wrap').style.display = 'none';
+            document.getElementById('edit-resp-wrap').style.display = '';
+            document.getElementById('edit-due-wrap').style.display = '';
+            document.getElementById('edit-vis-wrap').style.display = '';
+            fillMemberSelectEl(document.getElementById('edit-user'), task.user_name || '', true);
+            fillMemberSelectEl(document.getElementById('edit-resp'), task.responsible || '', true);
+            const statuses = ['Нова','У роботі','На паузі','До перевірки','Виконана','Перевідкрита','Архів'];
+            const prios = ['Базова','Термінова','Надкритична','Техборг','У шухляду'];
+            document.getElementById('edit-status').innerHTML = statuses.map(s => `<option ${s===(task.status||'Нова')?'selected':''}>${s}</option>`).join('');
+            document.getElementById('edit-priority').innerHTML = prios.map(s => `<option ${s===(task.priority||'Базова')?'selected':''}>${s}</option>`).join('');
+            document.getElementById('edit-entity-modal').style.display = 'flex';
+        }
+        async function openEditInc(id) {
+            await ensureUsersLoaded();
+            const inc = (window._adminIncsCache || []).find(x => x.id === id);
+            if (!inc) { alert('Звернення не знайдено, оновіть список'); return; }
+            document.getElementById('edit-entity-kind').value = 'incident';
+            document.getElementById('edit-entity-id').value = id;
+            document.getElementById('edit-entity-title').textContent = 'Редагування звернення #' + id;
+            document.getElementById('edit-date').value = inc.date || '';
+            document.getElementById('edit-desc').value = inc.description || '';
+            document.getElementById('edit-duration').value = inc.duration_minutes || 15;
+            document.getElementById('edit-type-wrap').style.display = '';
+            document.getElementById('edit-dur-wrap').style.display = '';
+            document.getElementById('edit-src-wrap').style.display = '';
+            document.getElementById('edit-resp-wrap').style.display = 'none';
+            document.getElementById('edit-due-wrap').style.display = 'none';
+            document.getElementById('edit-vis-wrap').style.display = 'none';
+            document.getElementById('edit-type').value = inc.type || 'Звернення';
+            document.getElementById('edit-source').value = inc.source || 'self';
+            fillMemberSelectEl(document.getElementById('edit-user'), inc.user_name || '', true);
+            const statuses = ['Нове','В роботі','На паузі','Вирішено','Архів'];
+            const prios = ['Звичайний','Підвищений','Високий','Критичний','Терміновий'];
+            if (inc.priority && !prios.includes(inc.priority)) prios.push(inc.priority);
+            document.getElementById('edit-status').innerHTML = statuses.map(s => `<option ${s===(inc.status||'Нове')?'selected':''}>${s}</option>`).join('');
+            document.getElementById('edit-priority').innerHTML = prios.map(s => `<option ${s===(inc.priority||'Звичайний')?'selected':''}>${s}</option>`).join('');
+            document.getElementById('edit-entity-modal').style.display = 'flex';
+        }
+        async function saveEditEntity() {
+            const kind = document.getElementById('edit-entity-kind').value;
+            const id = parseInt(document.getElementById('edit-entity-id').value, 10);
+            const actor = (currentUser && currentUser.name) || 'admin';
+            if (kind === 'task') {
+                const body = {
+                    id, role: 'admin', actor,
+                    date: document.getElementById('edit-date').value,
+                    user_name: document.getElementById('edit-user').value,
+                    responsible: document.getElementById('edit-resp').value,
+                    status: document.getElementById('edit-status').value,
+                    priority: document.getElementById('edit-priority').value,
+                    task_description: document.getElementById('edit-desc').value,
+                    due_date: document.getElementById('edit-due').value,
+                    visible_from: document.getElementById('edit-visible').value
+                };
+                const r = await fetch('/api/admin/tasks', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+                if (!r.ok) { alert(await r.text() || 'Помилка'); return; }
+                closeEditEntity();
+                loadAdminTasks();
+            } else {
+                const body = {
+                    id, role: 'admin', actor,
+                    date: document.getElementById('edit-date').value,
+                    user_name: document.getElementById('edit-user').value,
+                    status: document.getElementById('edit-status').value,
+                    priority: document.getElementById('edit-priority').value,
+                    description: document.getElementById('edit-desc').value,
+                    duration_minutes: parseInt(document.getElementById('edit-duration').value, 10) || 15,
+                    type: document.getElementById('edit-type').value,
+                    source: document.getElementById('edit-source').value
+                };
+                const r = await fetch('/api/incidents', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+                if (!r.ok) { alert(await r.text() || 'Помилка'); return; }
+                closeEditEntity();
+                loadIncArchive();
+            }
+        }
 </script>
+
+    <div class="modal" id="edit-entity-modal" style="display:none">
+        <div class="modal-content" style="max-width:560px">
+            <h3 id="edit-entity-title">Редагування</h3>
+            <input type="hidden" id="edit-entity-kind">
+            <input type="hidden" id="edit-entity-id">
+            <div class="form-group"><label>Дата</label><input type="date" id="edit-date"></div>
+            <div class="form-group" id="edit-type-wrap" style="display:none"><label>Тип</label>
+                <select id="edit-type">
+                    <option>Звернення</option><option>Інцидент</option><option>Консультація</option>
+                </select>
+            </div>
+            <div class="form-group"><label>Виконавець</label><select id="edit-user"></select></div>
+            <div class="form-group" id="edit-resp-wrap"><label>Відповідальний</label><select id="edit-resp"></select></div>
+            <div class="form-group"><label>Статус</label><select id="edit-status"></select></div>
+            <div class="form-group"><label>Пріоритет</label><select id="edit-priority"></select></div>
+            <div class="form-group" id="edit-dur-wrap" style="display:none"><label>Тривалість (хв)</label><input type="number" id="edit-duration" min="1" step="1"></div>
+            <div class="form-group" id="edit-due-wrap"><label>Дедлайн</label><input type="date" id="edit-due"></div>
+            <div class="form-group" id="edit-vis-wrap"><label>Видима з</label><input type="date" id="edit-visible"></div>
+            <div class="form-group" id="edit-src-wrap" style="display:none"><label>Source</label>
+                <select id="edit-source">
+                    <option value="self">self</option><option value="guest">guest</option>
+                    <option value="team_lead">team_lead</option><option value="jira">jira</option><option value="bot">bot</option>
+                </select>
+            </div>
+            <div class="form-group"><label>Опис</label><textarea id="edit-desc" rows="4" style="width:100%;padding:8px;border:1px solid #e2e8f0;border-radius:6px"></textarea></div>
+            <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
+                <button class="btn" onclick="closeEditEntity()">Скасувати</button>
+                <button class="btn btn-primary" onclick="saveEditEntity()">Зберегти</button>
+            </div>
+        </div>
+    </div>
+
 </body>
 </html>
