@@ -175,6 +175,80 @@ func clientIP(r *http.Request) string {
 	return r.RemoteAddr
 }
 
+
+// ipAllowed: empty allowlist = allow all (bootstrap). Always allow loopback.
+func ipAllowed(ip string) bool {
+	ip = strings.TrimSpace(ip)
+	if ip == "" || ip == "127.0.0.1" || ip == "::1" || ip == "localhost" {
+		return true
+	}
+	// strip port if present
+	if h, _, err := net.SplitHostPort(ip); err == nil {
+		ip = h
+	}
+	var n int
+	_ = db.QueryRow(`SELECT COUNT(*) FROM allowed_ips WHERE enabled=1`).Scan(&n)
+	if n == 0 {
+		return true // no rules → open
+	}
+	// exact match or simple prefix (CIDR without full parser: store exact IP or "x.x.x.x/32")
+	rows, err := db.Query(`SELECT cidr FROM allowed_ips WHERE enabled=1`)
+	if err != nil {
+		return true
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cidr string
+		rows.Scan(&cidr)
+		cidr = strings.TrimSpace(cidr)
+		if cidr == ip {
+			return true
+		}
+		// support trailing .* wildcard e.g. 217.24.169.*
+		if strings.HasSuffix(cidr, ".*") {
+			pref := strings.TrimSuffix(cidr, ".*")
+			if strings.HasPrefix(ip, pref) {
+				return true
+			}
+		}
+		// support /24 style by prefix of 3 octets: 1.2.3.0/24
+		if strings.Contains(cidr, "/") {
+			parts := strings.SplitN(cidr, "/", 2)
+			base := parts[0]
+			oct := strings.Split(base, ".")
+			ipo := strings.Split(ip, ".")
+			if len(oct) == 4 && len(ipo) == 4 {
+				if parts[1] == "24" && oct[0] == ipo[0] && oct[1] == ipo[1] && oct[2] == ipo[2] {
+					return true
+				}
+				if parts[1] == "16" && oct[0] == ipo[0] && oct[1] == ipo[1] {
+					return true
+				}
+				if parts[1] == "8" && oct[0] == ipo[0] {
+					return true
+				}
+				if parts[1] == "32" && base == ip {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+func withIPAllow(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ip := clientIP(r)
+		if !ipAllowed(ip) {
+			logAudit("-", "IP_BLOCKED", ip, r.URL.Path)
+			http.Error(w, "Access denied: IP not in allowlist", http.StatusForbidden)
+			return
+		}
+		next(w, r)
+	}
+}
+
+
 func cleanupDuplicateIncidentTasks() {
 	rows, err := db.Query(`SELECT id, task_description FROM daily_tasks WHERE task_description LIKE '[зі звернення #%]' ORDER BY id ASC`)
 	if err != nil || rows == nil {
@@ -355,6 +429,13 @@ func initDB() {
 			is_system INTEGER DEFAULT 0,
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)`,
+		`CREATE TABLE IF NOT EXISTS allowed_ips (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			cidr TEXT NOT NULL UNIQUE,
+			label TEXT DEFAULT '',
+			enabled INTEGER DEFAULT 1,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
 	}
 	for _, s := range stmts {
 		if _, err := db.Exec(s); err != nil {
@@ -422,35 +503,38 @@ func main() {
 	initDB()
 	defer db.Close()
 
-	http.HandleFunc("/api/login", handleLogin)
-	http.HandleFunc("/api/data", handleGetData)
-	http.HandleFunc("/api/request-absence", handleRequestAbsence)
-	http.HandleFunc("/api/incidents", handleIncidents)
-	http.HandleFunc("/api/daily-tasks", handleDailyTasks)
+	http.HandleFunc("/api/login", withIPAllow(handleLogin))
+	http.HandleFunc("/api/data", withIPAllow(handleGetData))
+	http.HandleFunc("/api/request-absence", withIPAllow(handleRequestAbsence))
+	http.HandleFunc("/api/incidents", withIPAllow(handleIncidents))
+	http.HandleFunc("/api/daily-tasks", withIPAllow(handleDailyTasks))
 
-	http.HandleFunc("/api/admin/users", handleAdminUsers)
-	http.HandleFunc("/api/admin/roles", handleAdminRoles)
-	http.HandleFunc("/api/admin/team-roles", handleAdminRoles) // alias for admin UI
-	http.HandleFunc("/api/admin/absence-types", handleAdminAbsenceTypes)
-	http.HandleFunc("/api/admin/requests", handleAdminRequests)
-	http.HandleFunc("/api/admin/logs", handleAdminLogs)
-	http.HandleFunc("/api/admin/project/audit-logs", handleAdminLogs) // alias
-	http.HandleFunc("/api/admin/tasks", handleAdminTasks)
-	http.HandleFunc("/api/admin/project/unlock", handleDBUnlock)
-	http.HandleFunc("/api/admin/project/db-stats", handleDBStats)
-	http.HandleFunc("/api/admin/project/app-logs", handleAppLogs)
-	http.HandleFunc("/api/admin/project/table", handleTableInspect)
-	http.HandleFunc("/api/admin/project/query", handleReadOnlyQuery)
-	http.HandleFunc("/api/admin/regenerate-shifts", handleRegenerateShifts)
-	http.HandleFunc("/api/comments", handleComments)
-	http.HandleFunc("/api/admin/queues", handleAdminQueues)
+	http.HandleFunc("/api/admin/users", withIPAllow(handleAdminUsers))
+	http.HandleFunc("/api/admin/roles", withIPAllow(handleAdminRoles))
+	http.HandleFunc("/api/admin/team-roles", withIPAllow(handleAdminRoles))
+	http.HandleFunc("/api/admin/absence-types", withIPAllow(handleAdminAbsenceTypes))
+	http.HandleFunc("/api/admin/requests", withIPAllow(handleAdminRequests))
+	http.HandleFunc("/api/admin/logs", withIPAllow(handleAdminLogs))
+	http.HandleFunc("/api/admin/project/audit-logs", withIPAllow(handleAdminLogs))
+	http.HandleFunc("/api/admin/tasks", withIPAllow(handleAdminTasks))
+	http.HandleFunc("/api/admin/project/unlock", withIPAllow(handleDBUnlock))
+	http.HandleFunc("/api/admin/project/db-stats", withIPAllow(handleDBStats))
+	http.HandleFunc("/api/admin/project/app-logs", withIPAllow(handleAppLogs))
+	http.HandleFunc("/api/admin/project/table", withIPAllow(handleTableInspect))
+	http.HandleFunc("/api/admin/project/query", withIPAllow(handleReadOnlyQuery))
+	http.HandleFunc("/api/admin/regenerate-shifts", withIPAllow(handleRegenerateShifts))
+	http.HandleFunc("/api/comments", withIPAllow(handleComments))
+	http.HandleFunc("/api/admin/queues", withIPAllow(handleAdminQueues))
+	http.HandleFunc("/api/admin/allowed-ips", withIPAllow(handleAdminAllowedIPs))
 
 	// Зовнішні інтеграції: Jira / боти / Slack
-	http.HandleFunc("/api/webhooks/incidents", handleWebhookIncidents)
-	http.HandleFunc("/api/webhooks/health", handleWebhookHealth)
+	http.HandleFunc("/api/webhooks/incidents", withIPAllow(handleWebhookIncidents))
+	http.HandleFunc("/api/webhooks/health", withIPAllow(handleWebhookHealth))
 
 	fs := http.FileServer(http.Dir("./static"))
-	http.Handle("/", fs)
+	http.HandleFunc("/", withIPAllow(func(w http.ResponseWriter, r *http.Request) {
+		fs.ServeHTTP(w, r)
+	}))
 
 	port := os.Getenv("PORT")
 	if port == "" {
