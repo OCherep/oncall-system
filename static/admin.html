@@ -213,7 +213,29 @@
             border: 1px solid var(--border-color);
             border-radius: 4px;
         }
-    </style>
+    
+:root, [data-theme="light"] {
+  --bg: #f8fafc; --card: #ffffff; --text: #0f172a; --muted: #64748b;
+  --border: #e2e8f0; --primary: #2563eb; --nav: #ffffff; --side: #f1f5f9;
+  --input-bg: #fff; --table-head: #f8fafc;
+}
+[data-theme="dark"] {
+  --bg: #0f172a; --card: #1e293b; --text: #e2e8f0; --muted: #94a3b8;
+  --border: #334155; --primary: #3b82f6; --nav: #1e293b; --side: #0f172a;
+  --input-bg: #1e293b; --table-head: #1e293b;
+}
+html, body { background: var(--bg) !important; color: var(--text) !important; }
+.navbar { background: var(--nav) !important; color: var(--text) !important; border-color: var(--border) !important; }
+.sidebar { background: var(--side) !important; }
+.card, .modal-content { background: var(--card) !important; color: var(--text) !important; border-color: var(--border) !important; }
+table th { background: var(--table-head) !important; }
+input, select, textarea { background: var(--input-bg) !important; color: var(--text) !important; border-color: var(--border) !important; }
+.theme-toggle { display:inline-flex; gap:4px; align-items:center; margin-right:12px; }
+.theme-toggle button { padding:4px 8px; font-size:12px; border-radius:6px; border:1px solid var(--border); background:var(--card); color:var(--text); cursor:pointer; }
+.theme-toggle button.active { background:var(--primary); color:#fff; border-color:var(--primary); }
+.log-box, #app-log-box { background:#0f172a !important; color:#e2e8f0 !important; }
+
+</style>
 </head>
 <body>
 
@@ -234,7 +256,7 @@
             </div>
         </div>
 
-        <div class="nav-right">
+        <div class="nav-right"><span id="theme-slot"></span>
             <span id="user-info" style="font-weight: 500;"></span>
             <button class="btn btn-primary" onclick="logout()">Sign Out</button>
         </div>
@@ -295,6 +317,46 @@
     </div>
 
     <script>
+
+(function(){
+  const KEY='oncall_theme';
+  function sysTheme(){ return window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark':'light'; }
+  function applyTheme(mode){
+    const m = mode||localStorage.getItem(KEY)||'system';
+    const resolved = m==='system' ? sysTheme() : m;
+    document.documentElement.setAttribute('data-theme', resolved);
+    document.querySelectorAll('.theme-toggle button').forEach(b=>b.classList.toggle('active', b.dataset.theme===m));
+  }
+  window.setTheme = function(mode){
+    localStorage.setItem(KEY, mode);
+    document.cookie = 'oncall_theme='+encodeURIComponent(mode)+'; Path=/; Max-Age='+(30*24*3600)+'; SameSite=Lax';
+    applyTheme(mode);
+  };
+  function isLastDayOfMonth(d){ const t=new Date(d.getFullYear(), d.getMonth()+1, 0); return d.getDate()===t.getDate(); }
+  function clearServiceCookies(){
+    const keep=new Set(['oncall_user','oncall_name']);
+    document.cookie.split(';').forEach(c=>{
+      const name=c.split('=')[0].trim();
+      if(!name||keep.has(name)) return;
+      if(name.startsWith('oncall_')) document.cookie=name+'=; Path=/; Max-Age=0; SameSite=Lax';
+    });
+  }
+  const now=new Date();
+  const marker=now.getFullYear()+'-'+(now.getMonth()+1);
+  if(isLastDayOfMonth(now)){
+    if(localStorage.getItem('oncall_cookie_reset')!==marker){ clearServiceCookies(); localStorage.setItem('oncall_cookie_reset', marker); }
+  }
+  applyTheme();
+  try{ window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', ()=>{ if((localStorage.getItem(KEY)||'system')==='system') applyTheme('system'); }); }catch(e){}
+})();
+function themeToggleHTML(){
+  return '<span class="theme-toggle">'+
+    '<button type="button" data-theme="system" onclick="setTheme(\'system\')">Авто</button>'+
+    '<button type="button" data-theme="light" onclick="setTheme(\'light\')">☀</button>'+
+    '<button type="button" data-theme="dark" onclick="setTheme(\'dark\')">🌙</button></span>';
+}
+
+
         let currentUser = null;
         let currentMainMenu = 'management';
         let currentSubPage = 'approval';
@@ -464,19 +526,35 @@
                 breadcrumbs.innerHTML = `Головна / Адміністрування / Налаштування / Система / <b>Довідники</b>`;
                 container.innerHTML = `
                     <div class="card">
-                        <div class="card-header"><h2>Члени команди</h2><button class="btn btn-primary" onclick="openUserModal()">+ Додати користувача</button></div>
-                        <table><thead><tr><th>Ім'я</th><th>Логін</th><th>Роль</th><th>Командна роль</th><th>Чергує?</th><th>Дії</th></tr></thead><tbody id="users-table"></tbody></table>
+                        <div class="card-header"><h2>Члени команди</h2>
+                        <button class="btn btn-primary" onclick="showAddUser()">+ Користувач</button></div>
+                        <table><thead><tr><th>ID</th><th>Логін</th><th>Ім'я</th><th>Роль</th><th>Команда</th><th>On-call</th><th>Дії</th></tr></thead>
+                        <tbody id="users-table"></tbody></table>
                     </div>
-                    <div class="card">
-                        <div class="card-header"><h2>Довідник ролей</h2><button class="btn btn-primary" onclick="openRoleModal()">+ Додати роль</button></div>
+                    <div class="card" style="margin-top:16px">
+                        <div class="card-header"><h2>Довідник ролей</h2>
+                        <button class="btn btn-primary" onclick="showAddRole()">+ Роль</button></div>
                         <table><thead><tr><th>ID</th><th>Назва ролі</th><th>Дії</th></tr></thead><tbody id="roles-table"></tbody></table>
                     </div>
-                    <div class="card">
-                        <div class="card-header"><h2>Типи відсутностей</h2><button class="btn btn-primary" onclick="openAbsModal()">+ Додати тип</button></div>
-                        <table><thead><tr><th>ID</th><th>Назва</th><th>Код</th><th>Дії</th></tr></thead><tbody id="abs-types-table"></tbody></table>
+                    <div class="card" style="margin-top:16px">
+                        <div class="card-header"><h2>Типи відсутностей</h2>
+                        <button class="btn btn-primary" onclick="showAddAbsenceType()">+ Тип</button></div>
+                        <table><thead><tr><th>ID</th><th>Назва</th><th>Код</th><th>Дії</th></tr></thead><tbody id="absence-types-table"></tbody></table>
+                    </div>
+                    <div class="card" style="margin-top:16px">
+                        <div class="card-header"><h2>Дозволені IP-адреси</h2>
+                        <button class="btn btn-primary" onclick="addAllowedIP()">+ IP / CIDR</button></div>
+                        <p style="font-size:13px;color:var(--muted,#64748b);margin:8px 0">
+                          Якщо список <b>порожній</b> — доступ відкритий для всіх (режим налаштування).
+                          Після додавання хоча б одного запису доступ мають лише перелічені IP (loopback завжди дозволений).
+                          Формати: <code>1.2.3.4</code>, <code>1.2.3.*</code>, <code>1.2.3.0/24</code>.
+                        </p>
+                        <table><thead><tr><th>ID</th><th>CIDR / IP</th><th>Мітка</th><th>Увімк.</th><th>Створено</th><th>Дії</th></tr></thead>
+                        <tbody id="allowed-ips-table"><tr><td colspan="6">Завантаження…</td></tr></tbody></table>
                     </div>
                 `;
                 loadDictionariesData();
+                loadAllowedIPs();
             } else if (sub === 'proj-logs') {
                 breadcrumbs.innerHTML = `Головна / Адміністрування / Налаштування / Проєкт / <b>Логи</b>`;
                 container.innerHTML = `
@@ -1325,5 +1403,6 @@
         </div>
     </div>
 
+<script>document.addEventListener("DOMContentLoaded",function(){var tb=document.getElementById("theme-slot");if(tb){tb.innerHTML=themeToggleHTML();setTheme(localStorage.getItem("oncall_theme")||"system");}});</script>
 </body>
 </html>
