@@ -265,6 +265,31 @@ function membersList(){return (D.team_members||[]).filter(m=>m.role!=='admin'||m
    - due_date === today
    - visible_from <= today і дата <= today, статус не фінальний (відкритий backlog)
 */
+
+function incidentSourceId(desc){
+  const m=String(desc||'').match(/\[зі звернення #(\d+)\]/);
+  return m?parseInt(m[1],10):null;
+}
+/** Keep one task per source incident (lowest id); drop Архів from boards */
+function dedupeTasks(list){
+  const sorted=[...(list||[])].slice().sort((a,b)=>(a.id||0)-(b.id||0));
+  const seenInc=new Set();
+  const out=[];
+  for(const t of sorted){
+    if(t.status==='Архів') continue;
+    const iid=incidentSourceId(t.task_description);
+    if(iid!=null){
+      if(seenInc.has(iid)) continue;
+      seenInc.add(iid);
+    }
+    out.push(t);
+  }
+  return out;
+}
+function visibleIncidents(list){
+  return (list||[]).filter(i=>!(i.converted_to_task_id>0));
+}
+
 function collectTodayTasks(){
   const td=D.today||today();
   const done=new Set(['Виконана','Архів']);
@@ -272,22 +297,23 @@ function collectTodayTasks(){
   const out=[];
   Object.values(D.daily_tasks||{}).forEach(list=>{(list||[]).forEach(t=>{
     if(seen.has(t.id)) return;
+    if(done.has(t.status)) return; // never show Архів/Виконана on today board
     const vis=t.visible_from||t.date||'';
     const isTodayDate=t.date===td;
     const isDueToday=t.due_date===td;
-    const isOpenBacklog=!done.has(t.status) && vis && vis<=td && t.date && t.date<=td;
+    const isOpenBacklog=vis && vis<=td && t.date && t.date<=td;
     if(isTodayDate||isDueToday||isOpenBacklog){
       seen.add(t.id);
       out.push(t);
     }
   })});
-  return out;
+  return dedupeTasks(out);
 }
 
 function renderTodayIncs(){
   const el=document.getElementById('today-incs');
   const td=D.today||today();
-  const incs=(D.incidents||{})[td]||[];
+  const incs=visibleIncidents((D.incidents||{})[td]||[]);
   const by={'(без виконавця)':[]};
   membersList().forEach(m=>by[m.name]=[]);
   incs.forEach(i=>{const k=i.user_name||'(без виконавця)'; if(!by[k]) by[k]=[]; by[k].push(i)});
@@ -343,7 +369,7 @@ async function openCol(kind, name){
   document.getElementById('col-title').innerText=(kind==='inc'?'Звернення':'Задачі з дейлі')+' · '+name+' · '+td;
   const body=document.getElementById('col-body');
   if(kind==='inc'){
-    let incs=((D.incidents||{})[td]||[]).filter(i=>(i.user_name||'(без виконавця)')===name);
+    let incs=visibleIncidents((D.incidents||{})[td]||[]).filter(i=>(i.user_name||'(без виконавця)')===name);
     if(!incs.length){body.innerHTML='<p>Немає звернень</p>'; document.getElementById('m-col').style.display='flex'; return}
     let html='';
     for(const i of incs){
@@ -470,8 +496,8 @@ function showPerson(name){
   const ds=today();
   document.getElementById('person-title').innerText=name+' · '+ds;
   let abs=uniqueAbsByUser((D.absences||[]).filter(a=>a.user_name===name&&ds>=a.start_date&&ds<=a.end_date));
-  const tasks=collectTodayTasks().filter(t=>t.user_name===name||t.responsible===name||t.created_by===name);
-  const incs=((D.incidents||{})[ds]||[]).filter(i=>i.user_name===name||i.reported_for===name);
+  const tasks=dedupeTasks(collectTodayTasks().filter(t=>t.user_name===name||t.responsible===name||t.created_by===name));
+  const incs=visibleIncidents((D.incidents||{})[ds]||[]).filter(i=>i.user_name===name||i.reported_for===name);
   const sh=D.shifts&&D.shifts[ds];
   let h='';
   if(sh&&(sh.primary_user===name||sh.backup_user===name))
@@ -520,7 +546,7 @@ function day(ds){
   document.getElementById('ds').innerHTML=s?`<b>Основний:</b> ${esc(s.primary_user)}`+(s.backup_user?`<br><b>Дублюючий:</b> ${esc(s.backup_user)}`:'<br><em style="color:#94a3b8">Лише один черговий</em>'):'Чергування не призначено';
   let al=uniqueAbsByUser(abs.filter(a=>ds>=a.start_date&&ds<=a.end_date));
   document.getElementById('da').innerHTML=al.length?al.map(a=>{const col=absColor(a.type);return `<span class="ba" style="background:${col}22;color:${col};border:1px solid ${col}55;margin-right:6px"><b>${esc(a.user_name)}</b> (${esc(a.type)})</span>`}).join(''):'Немає';
-  const tasks=(D.daily_tasks||{})[ds]||[];
+  const tasks=dedupeTasks(((D.daily_tasks||{})[ds]||[]).filter(t=>t.status!=='Архів'));
   if(tasks.length){
     let html='<table><thead><tr><th>Виконавець</th><th>Відп.</th><th>Задача</th><th>Статус</th><th>Пріоритет</th><th>Час</th><th></th></tr></thead><tbody>';
     tasks.forEach(t=>{
@@ -543,7 +569,7 @@ function day(ds){
     html+='</tbody></table>'; document.getElementById('dtasks').innerHTML=html;
   } else document.getElementById('dtasks').innerHTML='Задач немає';
   const sel=document.getElementById('inc-filter');
-  const names=[...new Set(((D.incidents||{})[ds]||[]).map(i=>i.user_name||'(без)'))].sort();
+  const names=[...new Set(visibleIncidents((D.incidents||{})[ds]||[]).map(i=>i.user_name||'(без)'))].sort();
   sel.innerHTML='<option value="">Усі</option>'+names.map(n=>`<option>${n}</option>`).join('');
   renderDayIncs(); document.getElementById('m-day').style.display='flex';
 }
@@ -556,7 +582,7 @@ function toggleDayCmt(etype,eid){
 }
 function renderDayIncs(){
   const ds=_day, filter=document.getElementById('inc-filter').value;
-  let incs=((D.incidents||{})[ds]||[]).slice();
+  let incs=visibleIncidents((D.incidents||{})[ds]||[]).slice();
   if(filter)incs=incs.filter(i=>(i.user_name||'(без)')===filter);
   if(!incs.length){document.getElementById('di').innerHTML='Немає';return}
   let html='<table><thead><tr><th>Виконавець</th><th>Пріоритет</th><th>Source</th><th>Статус</th><th>Час</th><th>Опис</th><th></th></tr></thead><tbody>';
