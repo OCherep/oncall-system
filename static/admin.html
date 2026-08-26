@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="uk">
 <head>
+<script data-theme-boot>(function(){try{var m=localStorage.getItem('oncall_theme')||'system';var r=m==='system'?(window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'):m;document.documentElement.setAttribute('data-theme',r);}catch(e){}})();</script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Адміністрування - OnCall System</title>
@@ -234,6 +235,24 @@ input, select, textarea { background: var(--input-bg) !important; color: var(--t
 .theme-toggle button { padding:4px 8px; font-size:12px; border-radius:6px; border:1px solid var(--border); background:var(--card); color:var(--text); cursor:pointer; }
 .theme-toggle button.active { background:var(--primary); color:#fff; border-color:var(--primary); }
 .log-box, #app-log-box { background:#0f172a !important; color:#e2e8f0 !important; }
+
+
+[data-theme="dark"] .sidebar { background: #0f172a !important; border-color: #334155 !important; color: #e2e8f0 !important; }
+[data-theme="dark"] .sidebar-item { color: #e2e8f0 !important; }
+[data-theme="dark"] .sidebar-item:hover, [data-theme="dark"] .sidebar-item.active { background: #1e293b !important; color: #93c5fd !important; }
+[data-theme="dark"] .sidebar-section { color: #94a3b8 !important; }
+[data-theme="dark"] .main-content, [data-theme="dark"] .content, [data-theme="dark"] #page-container { background: #0f172a !important; color: #e2e8f0 !important; }
+[data-theme="dark"] .card { background: #1e293b !important; border-color: #334155 !important; color: #e2e8f0 !important; box-shadow: none !important; }
+[data-theme="dark"] .card-header h2, [data-theme="dark"] h2, [data-theme="dark"] h3 { color: #e2e8f0 !important; }
+[data-theme="dark"] table { background: #1e293b !important; }
+[data-theme="dark"] table th { background: #0f172a !important; color: #94a3b8 !important; border-color: #334155 !important; }
+[data-theme="dark"] table td { border-color: #334155 !important; color: #e2e8f0 !important; }
+[data-theme="dark"] .btn { border-color: #475569; }
+[data-theme="dark"] .btn-primary { background: #2563eb; color: #fff; }
+[data-theme="dark"] .main-menu-btn { background: transparent; color: #e2e8f0; border-color: #475569; }
+[data-theme="dark"] .main-menu-btn.active { background: #1e3a5f; color: #93c5fd; border-color: #3b82f6; }
+[data-theme="dark"] #breadcrumbs { color: #94a3b8 !important; }
+[data-theme="dark"] .log-box, [data-theme="dark"] #app-log-box { background: #020617 !important; color: #e2e8f0 !important; }
 
 </style>
 </head>
