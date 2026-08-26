@@ -21,7 +21,7 @@ type User struct {
 	TeamRoleID *int   `json:"team_role_id"`
 	TeamRole   string `json:"team_role"`
 	IsOncall   bool   `json:"is_oncall"`
-	SlackID    string `json:"slack_id,omitempty"`
+	SlackID    string `json:"slack_id,omitempty"` // Slack member ID (U…) для особистих сповіщень
 }
 
 type TeamRole struct {
@@ -66,18 +66,21 @@ type IncidentReport struct {
 	Description     string `json:"description"`
 	CreatedAt       string `json:"created_at,omitempty"`
 	Role            string `json:"role,omitempty"`
-	Status          string `json:"status,omitempty"`
-	Priority        string `json:"priority,omitempty"`
-	Source          string `json:"source,omitempty"`
+	Status          string `json:"status,omitempty"`   // Нове | В роботі | На паузі | Вирішено | Архів
+	Priority        string `json:"priority,omitempty"` // Звичайний / ...
+	Source          string `json:"source,omitempty"`   // self | team_lead | jira | bot
 	TotalMinutes    int    `json:"total_minutes,omitempty"`
 	CreatedBy       string `json:"created_by,omitempty"`
 	ReportedFor     string `json:"reported_for,omitempty"`
-	ExternalID      string `json:"external_id,omitempty"`
+	ExternalID      string `json:"external_id,omitempty"` // JIRA key (OPS-123) для двостороннього sync
 }
 
+// Status: Нова | У роботі | На паузі | До перевірки | Виконана | Перевідкрита | Архів
+// User flow: Нова → У роботі ⇄ На паузі → До перевірки → Виконана
+// Unassigned executor (empty user_name) = «на розгляді» — only admin can change status
 type DailyTask struct {
 	ID              int    `json:"id,omitempty"`
-	UserName        string `json:"user_name"`
+	UserName        string `json:"user_name"` // виконавець; порожнє = «на розгляді»
 	Date            string `json:"date"`
 	TaskDescription string `json:"task_description"`
 	Status          string `json:"status"`
@@ -88,7 +91,7 @@ type DailyTask struct {
 	VisibleFrom     string `json:"visible_from,omitempty"`
 	DueDate         string `json:"due_date,omitempty"`
 	CreatedBy       string `json:"created_by,omitempty"`
-	Responsible     string `json:"responsible,omitempty"`
+	Responsible     string `json:"responsible,omitempty"` // відповідальна особа
 }
 
 type TableStat struct {
@@ -118,6 +121,7 @@ func initDB() {
 	if dbPath == "" {
 		dbPath = "./data/oncall.db"
 	}
+	// ensure directory exists so volume mount works across rebuilds
 	if i := strings.LastIndex(dbPath, "/"); i > 0 {
 		_ = os.MkdirAll(dbPath[:i], 0755)
 	}
@@ -273,11 +277,14 @@ func main() {
 	http.HandleFunc("/api/request-absence", handleRequestAbsence)
 	http.HandleFunc("/api/incidents", handleIncidents)
 	http.HandleFunc("/api/daily-tasks", handleDailyTasks)
+
 	http.HandleFunc("/api/admin/users", handleAdminUsers)
 	http.HandleFunc("/api/admin/roles", handleAdminRoles)
+	http.HandleFunc("/api/admin/team-roles", handleAdminRoles) // alias for admin UI
 	http.HandleFunc("/api/admin/absence-types", handleAdminAbsenceTypes)
 	http.HandleFunc("/api/admin/requests", handleAdminRequests)
 	http.HandleFunc("/api/admin/logs", handleAdminLogs)
+	http.HandleFunc("/api/admin/project/audit-logs", handleAdminLogs) // alias
 	http.HandleFunc("/api/admin/tasks", handleAdminTasks)
 	http.HandleFunc("/api/admin/project/unlock", handleDBUnlock)
 	http.HandleFunc("/api/admin/project/db-stats", handleDBStats)
@@ -285,6 +292,8 @@ func main() {
 	http.HandleFunc("/api/admin/regenerate-shifts", handleRegenerateShifts)
 	http.HandleFunc("/api/comments", handleComments)
 	http.HandleFunc("/api/admin/queues", handleAdminQueues)
+
+	// Зовнішні інтеграції: Jira / боти / Slack
 	http.HandleFunc("/api/webhooks/incidents", handleWebhookIncidents)
 	http.HandleFunc("/api/webhooks/health", handleWebhookHealth)
 
