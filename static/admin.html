@@ -985,26 +985,23 @@
             if (status) q.set('status', status);
             try {
                 const r = await fetch('/api/admin/tasks?' + q.toString());
-                const list = await safeJson(r);
-                // hide archived duplicates from same incident (keep lowest id visible)
+                let list = await safeJson(r);
+                if (!Array.isArray(list)) list = [];
+                // hide duplicate tasks from same incident (keep lowest id)
                 const byInc = new Map();
                 const filtered = [];
-                [...list].sort((a,b)=>a.id-b.id).forEach(t => {
-                  const m = String(t.task_description||'').match(/\[зі звернення #(\d+)\]/);
+                [...list].sort((a,b)=>(a.id||0)-(b.id||0)).forEach(task => {
+                  const m = String(task.task_description||'').match(/\[зі звернення #(\d+)\]/);
                   if (m) {
                     const iid = +m[1];
-                    if (byInc.has(iid)) {
-                      if (t.status === 'Архів') return; // skip archived dups
-                      // keep first only in UI
-                      return;
-                    }
-                    byInc.set(iid, t.id);
+                    if (byInc.has(iid)) return;
+                    byInc.set(iid, task.id);
                   }
-                  filtered.push(t);
+                  filtered.push(task);
                 });
                 list = filtered;
                 window._adminTasksCache = list;
-                if (!Array.isArray(list) || !list.length) {
+                if (!list.length) {
                     tb.innerHTML = '<tr><td colspan="9" style="color:#64748b">Немає задач</td></tr>';
                     return;
                 }
@@ -1017,10 +1014,10 @@
                     const assignees = (task.assignees||[]).map(a => a.user_name).filter(Boolean);
                     const asHtml = assignees.length
                         ? assignees.map(a => {
-                            const mins = (task.assignees.find(x=>x.user_name===a)||{}).total_minutes||0;
+                            const mins = ((task.assignees||[]).find(x=>x.user_name===a)||{}).total_minutes||0;
                             return `<span style="display:inline-block;background:#e0f2fe;padding:1px 6px;border-radius:4px;margin:1px;font-size:12px">${a} (${mins}хв)</span>`;
                           }).join('')
-                        : '<span style="color:#94a3b8">—</span>';
+                        : '';
                     return `<tr>
                         <td>#${task.id}</td>
                         <td>${task.date||''}</td>
@@ -1043,18 +1040,7 @@
                 tb.innerHTML = `<tr><td colspan="9" style="color:#ef4444">${e}</td></tr>`;
             }
         }
-        async function adminEditAssignees(id) {
-            await ensureUsersLoaded();
-            const names = (loadedUsers||[]).map(u => u.name).filter(Boolean);
-            const picked = prompt('Виконавці через кому (напр. devops1, devops2):', '');
-            if (picked === null) return;
-            const list = picked.split(',').map(s => s.trim()).filter(Boolean);
-            const body = { id, role: 'admin', actor: (currentUser && currentUser.name) || 'admin', assignees: list };
-            if (list[0]) body.user_name = list[0];
-            const r = await fetch('/api/admin/tasks', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-            if (!r.ok) alert(await r.text() || 'Помилка');
-            else loadAdminTasks();
-        }
+
         async function adminUpdTask(id, field, val) {
             const body = { id, role: 'admin', actor: (currentUser && currentUser.name) || 'admin' };
             body[field] = val;
