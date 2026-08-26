@@ -334,20 +334,13 @@ func handleAdminLogs(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(list)
 }
 
-// handleAppLogs — логи програми (таблиця app_logs або fallback на audit)
+// handleAppLogs — app_logs або fallback audit_logs з фільтром за категорією
 func handleAppLogs(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	filter := r.URL.Query().Get("app")
-	// try app_logs table
-	q := `SELECT COALESCE(datetime(created_at,'localtime'),''), COALESCE(level,'info'), COALESCE(service,''), COALESCE(message,'')
-		FROM app_logs WHERE 1=1`
-	args := []interface{}{}
-	if filter != "" && filter != "All" && filter != "all" {
-		q += " AND service LIKE ?"
-		args = append(args, "%"+filter+"%")
+	filter := strings.TrimSpace(r.URL.Query().Get("app"))
+	if filter == "" {
+		filter = "All"
 	}
-	q += " ORDER BY id DESC LIMIT 200"
-	rows, err := db.Query(q, args...)
 	type line struct {
 		Time    string `json:"time"`
 		Level   string `json:"level"`
@@ -355,6 +348,17 @@ func handleAppLogs(w http.ResponseWriter, r *http.Request) {
 		Message string `json:"message"`
 	}
 	var list []line
+
+	// 1) app_logs table
+	q := `SELECT COALESCE(datetime(created_at,'localtime'),''), COALESCE(level,'info'), COALESCE(service,''), COALESCE(message,'')
+		FROM app_logs WHERE 1=1`
+	args := []interface{}{}
+	if filter != "All" && filter != "all" {
+		q += " AND (service LIKE ? OR message LIKE ?)"
+		args = append(args, "%"+filter+"%", "%"+filter+"%")
+	}
+	q += " ORDER BY id DESC LIMIT 200"
+	rows, err := db.Query(q, args...)
 	if err == nil && rows != nil {
 		for rows.Next() {
 			var L line
@@ -363,16 +367,58 @@ func handleAppLogs(w http.ResponseWriter, r *http.Request) {
 		}
 		rows.Close()
 	}
-	// fallback: mirror recent audit_logs as text lines
+
+	// 2) fallback: audit_logs, map filter → action patterns
 	if len(list) == 0 {
-		arows, _ := db.Query(`SELECT COALESCE(datetime(timestamp,'localtime'),''), user_name, action, ip, details
-			FROM audit_logs ORDER BY id DESC LIMIT 100`)
+		aq := `SELECT COALESCE(datetime(timestamp,'localtime'),''), user_name, action, ip, details FROM audit_logs WHERE 1=1`
+		aargs := []interface{}{}
+		switch strings.ToLower(filter) {
+		case "all", "":
+			// no extra filter
+		case "auth", "auth service", "login":
+			aq += " AND (action LIKE ? OR action LIKE ? OR action LIKE ?)"
+			aargs = append(aargs, "%LOGIN%", "%AUTH%", "%LOGOUT%")
+		case "incidents", "incident", "звернення":
+			aq += " AND (action LIKE ? OR action LIKE ?)"
+			aargs = append(aargs, "%INCIDENT%", "%CONVERT%")
+		case "tasks", "task", "задачі", "admin tasks":
+			aq += " AND (action LIKE ? OR action LIKE ?)"
+			aargs = append(aargs, "%TASK%", "%DAILY%")
+		case "admin", "admin panel":
+			aq += " AND (action LIKE ? OR action LIKE ? OR action LIKE ?)"
+			aargs = append(aargs, "%ADMIN%", "%UPDATE_USER%", "%UPDATE_ROLE%")
+		case "absence", "відсутності":
+			aq += " AND (action LIKE ? OR action LIKE ?)"
+			aargs = append(aargs, "%ABSENCE%", "%REQUEST%")
+		case "oncall core", "oncall":
+			// all audit = core
+		default:
+			// free-text match on action or details
+			aq += " AND (action LIKE ? OR details LIKE ? OR user_name LIKE ?)"
+			aargs = append(aargs, "%"+filter+"%", "%"+filter+"%", "%"+filter+"%")
+		}
+		aq += " ORDER BY id DESC LIMIT 200"
+		arows, _ := db.Query(aq, aargs...)
 		if arows != nil {
 			for arows.Next() {
 				var ts, user, action, ip, details string
 				arows.Scan(&ts, &user, &action, &ip, &details)
+				svc := "OnCall Core"
+				al := strings.ToUpper(action)
+				switch {
+				case strings.Contains(al, "LOGIN") || strings.Contains(al, "AUTH"):
+					svc = "Auth"
+				case strings.Contains(al, "INCIDENT") || strings.Contains(al, "CONVERT"):
+					svc = "Incidents"
+				case strings.Contains(al, "TASK") || strings.Contains(al, "DAILY"):
+					svc = "Tasks"
+				case strings.Contains(al, "ABSENCE") || strings.Contains(al, "REQUEST"):
+					svc = "Absence"
+				case strings.Contains(al, "ADMIN") || strings.Contains(al, "USER") || strings.Contains(al, "ROLE"):
+					svc = "Admin"
+				}
 				list = append(list, line{
-					Time: ts, Level: "info", Service: "OnCall Core",
+					Time: ts, Level: "info", Service: svc,
 					Message: fmt.Sprintf("[%s] %s @ %s — %s", action, user, ip, details),
 				})
 			}
