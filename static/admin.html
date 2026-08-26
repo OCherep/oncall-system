@@ -262,8 +262,17 @@ input, select, textarea { background: var(--input-bg) !important; color: var(--t
 .row-converted { background: #fef2f2; }
 .btn-conv-ok { padding:2px 8px; background:#dcfce7; color:#166534; border:1px solid #86efac; }
 .btn-conv-done { padding:2px 8px; background:#fecaca; color:#7f1d1d; border:1px solid #f87171; opacity:0.85; cursor:not-allowed; }
-[data-theme="dark"] .row-converted { background: #3f1d1d !important; color: #fecaca !important; }
-[data-theme="dark"] .row-converted td { color: #e2e8f0 !important; }
+[data-theme="dark"] table tbody tr.row-converted,
+[data-theme="dark"] table tbody tr.row-converted td {
+  background-color: #1c1212 !important;
+  color: #94a3b8 !important;
+  opacity: 0.92;
+}
+[data-theme="dark"] table tbody tr.row-converted td code,
+[data-theme="dark"] table tbody tr.row-converted select {
+  color: #cbd5e1 !important;
+  background: #0f172a !important;
+}
 [data-theme="dark"] .btn-conv-ok { background:#14532d; color:#bbf7d0; border-color:#166534; }
 [data-theme="dark"] .btn-conv-done { background:#7f1d1d; color:#fecaca; border-color:#991b1b; }
 [data-theme="dark"] table tr:nth-child(even):not(.row-converted) { background: rgba(15,23,42,0.45); }
@@ -273,6 +282,8 @@ input, select, textarea { background: var(--input-bg) !important; color: var(--t
 [data-theme="dark"] .btn-danger { background: #7f1d1d; color: #fecaca; border-color: #991b1b; }
 [data-theme="dark"] .btn-primary { background: #2563eb !important; color: #fff !important; border-color: #2563eb; }
 
+[data-theme="dark"] tr.q-row:hover{background:#1e3a5f!important}
+tr.q-row:hover{background:#eff6ff}
 </style>
 </head>
 <body>
@@ -918,13 +929,15 @@ function themeToggleHTML(){
                 const r = await fetch('/api/admin/queues');
                 if (!r.ok) { alert('Помилка завантаження черг: ' + (await r.text())); return; }
                 const d = await r.json();
+                window._queuesCache = d;
                 const sum = document.getElementById('queues-summary');
                 if (sum) {
+                    const incAll = (d.incidents_today_by_status && d.incidents_today_by_status['усі']) || 0;
                     sum.innerHTML = `
-                        <div class="card" style="padding:14px;text-align:center"><div style="font-size:11px;color:#64748b">Сьогодні</div><div style="font-size:22px;font-weight:700">${d.today||'—'}</div></div>
-                        <div class="card" style="padding:14px;text-align:center;border-left:4px solid #ef4444"><div style="font-size:11px;color:#64748b">Прострочені</div><div style="font-size:22px;font-weight:700;color:#ef4444">${d.tasks_overdue||0}</div></div>
-                        <div class="card" style="padding:14px;text-align:center;border-left:4px solid #f59e0b"><div style="font-size:11px;color:#64748b">Due сьогодні</div><div style="font-size:22px;font-weight:700;color:#f59e0b">${d.tasks_due_today||0}</div></div>
-                        <div class="card" style="padding:14px;text-align:center;border-left:4px solid #2563eb"><div style="font-size:11px;color:#64748b">Звернення сьогодні</div><div style="font-size:22px;font-weight:700;color:#2563eb">${(d.incidents_today_by_status&&d.incidents_today_by_status['усі'])||0}</div></div>
+                        <div class="card" style="padding:14px;text-align:center"><div style="font-size:11px;color:var(--muted,#64748b)">Сьогодні</div><div style="font-size:22px;font-weight:700">${d.today||'—'}</div></div>
+                        <div class="card" style="padding:14px;text-align:center;border-left:4px solid #ef4444"><div style="font-size:11px;color:var(--muted,#64748b)">Прострочені</div><div style="font-size:22px;font-weight:700;color:#ef4444">${d.tasks_overdue||0}</div></div>
+                        <div class="card" style="padding:14px;text-align:center;border-left:4px solid #f59e0b"><div style="font-size:11px;color:var(--muted,#64748b)">Due сьогодні</div><div style="font-size:22px;font-weight:700;color:#f59e0b">${d.tasks_due_today||0}</div></div>
+                        <div class="card" style="padding:14px;text-align:center;border-left:4px solid #2563eb"><div style="font-size:11px;color:var(--muted,#64748b)">Звернення сьогодні</div><div style="font-size:22px;font-weight:700;color:#2563eb">${incAll}</div></div>
                     `;
                 }
                 const stBody = document.getElementById('queues-by-status');
@@ -933,29 +946,164 @@ function themeToggleHTML(){
                     const order = ['Нова','У роботі','На паузі','До перевірки','Виконана','Перевідкрита'];
                     const keys = [...order.filter(k=>by[k]!=null), ...Object.keys(by).filter(k=>!order.includes(k))];
                     stBody.innerHTML = keys.length
-                        ? keys.map(k=>`<tr><td><span class="badge badge-secondary">${k}</span></td><td><b>${by[k]}</b></td></tr>`).join('')
+                        ? keys.map(k=>`<tr class="q-row" style="cursor:pointer" onclick="openQueueTasksByStatus('${String(k).replace(/'/g,"\\'")}')"><td><span class="badge badge-secondary">${k}</span></td><td><b>${by[k]}</b></td></tr>`).join('')
                         : '<tr><td colspan="2">Немає задач</td></tr>';
                 }
                 const asBody = document.getElementById('queues-by-assignee');
                 if (asBody) {
                     const list = d.tasks_by_assignee || [];
                     asBody.innerHTML = list.length
-                        ? list.map(a=>`<tr><td>${a.name}</td><td>${a.count}</td><td><b style="color:${a.open>0?'#ef4444':'#16a34a'}">${a.open}</b></td></tr>`).join('')
-                        : '<tr><td colspan="3">Немає</td></tr>';
+                        ? list.map(a => {
+                            const name = a.user_name || a.name || '—';
+                            return `<tr class="q-row" style="cursor:pointer" onclick="openQueueTasksByAssignee('${String(name).replace(/'/g,"\\'")}')"><td>${name}</td><td>${a.total||a.count||0}</td><td style="color:#ef4444"><b>${a.open||a.open_count||0}</b></td></tr>`;
+                          }).join('')
+                        : '<tr><td colspan="3">Немає даних</td></tr>';
                 }
                 const incBody = document.getElementById('queues-inc-status');
                 if (incBody) {
                     const by = d.incidents_today_by_status || {};
-                    const order = ['Нове','В роботі','На паузі','Вирішено','Архів'];
-                    const keys = [...order.filter(k=>by[k]!=null), ...Object.keys(by).filter(k=>k!=='усі'&&!order.includes(k))];
+                    const order = ['Нове','В роботі','На паузі','Вирішено'];
+                    const keys = [...order.filter(k=>by[k]!=null && k!=='усі'), ...Object.keys(by).filter(k=>k!=='усі'&&!order.includes(k))];
                     incBody.innerHTML = keys.length
-                        ? keys.map(k=>`<tr><td><span class="badge badge-secondary">${k}</span></td><td><b>${by[k]}</b></td></tr>`).join('')
+                        ? keys.map(k=>`<tr class="q-row" style="cursor:pointer" onclick="openQueueIncsByStatus('${String(k).replace(/'/g,"\\'")}')"><td><span class="badge badge-secondary">${k}</span></td><td><b>${by[k]}</b></td></tr>`).join('')
                         : '<tr><td colspan="2">Немає звернень сьогодні</td></tr>';
                 }
             } catch (e) {
                 alert('Помилка: ' + e.message);
             }
         }
+
+        function ensureQueueModal() {
+            let m = document.getElementById('queue-detail-modal');
+            if (m) return m;
+            m = document.createElement('div');
+            m.id = 'queue-detail-modal';
+            m.className = 'modal';
+            m.style.cssText = 'display:none;position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:2000;align-items:center;justify-content:center';
+            m.innerHTML = `<div class="modal-content card" style="max-width:900px;width:92%;max-height:85vh;overflow:auto;padding:20px">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+                    <h3 id="queue-detail-title" style="margin:0">Деталі черги</h3>
+                    <button class="btn" onclick="document.getElementById('queue-detail-modal').style.display='none'">Закрити</button>
+                </div>
+                <div id="queue-detail-body">Завантаження…</div>
+            </div>`;
+            document.body.appendChild(m);
+            m.addEventListener('click', e => { if (e.target === m) m.style.display = 'none'; });
+            return m;
+        }
+
+        async function openQueueTasksByStatus(status) {
+            const m = ensureQueueModal();
+            document.getElementById('queue-detail-title').textContent = 'Задачі · статус «' + status + '»';
+            document.getElementById('queue-detail-body').textContent = 'Завантаження…';
+            m.style.display = 'flex';
+            try {
+                const r = await fetch('/api/admin/tasks?status=' + encodeURIComponent(status));
+                let list = await safeJson(r);
+                if (!Array.isArray(list)) list = [];
+                // exclude final done if user asked for open statuses - still show what API returns for this status
+                const byUser = {};
+                list.forEach(t => {
+                    const u = t.user_name || '(на розгляді)';
+                    if (!byUser[u]) byUser[u] = [];
+                    byUser[u].push(t);
+                });
+                let h = '';
+                const users = Object.keys(byUser).sort();
+                if (!users.length) h = '<p style="color:#94a3b8">Немає задач у цьому статусі</p>';
+                users.forEach(u => {
+                    h += `<h4 style="margin:16px 0 8px">${u} <span style="color:#94a3b8;font-weight:400">(${byUser[u].length})</span></h4>`;
+                    h += '<table><thead><tr><th>ID</th><th>Дата</th><th>Опис</th><th>Пріоритет</th><th>Due</th><th>Хв</th></tr></thead><tbody>';
+                    byUser[u].forEach(t => {
+                        h += `<tr><td>#${t.id}</td><td>${t.date||''}</td><td style="max-width:280px">${(t.task_description||'').replace(/</g,'&lt;')}</td><td>${t.priority||''}</td><td>${t.due_date||'—'}</td><td>${t.total_minutes||0}</td></tr>`;
+                    });
+                    h += '</tbody></table>';
+                });
+                document.getElementById('queue-detail-body').innerHTML = h;
+            } catch (e) {
+                document.getElementById('queue-detail-body').textContent = 'Помилка: ' + e;
+            }
+        }
+
+        async function openQueueTasksByAssignee(name) {
+            const m = ensureQueueModal();
+            document.getElementById('queue-detail-title').textContent = 'Задачі · виконавець «' + name + '»';
+            document.getElementById('queue-detail-body').textContent = 'Завантаження…';
+            m.style.display = 'flex';
+            try {
+                const q = name === '(на розгляді)' || name === '—' ? '' : name;
+                const r = await fetch('/api/admin/tasks?' + (q ? 'user=' + encodeURIComponent(q) : ''));
+                let list = await safeJson(r);
+                if (!Array.isArray(list)) list = [];
+                if (name === '(на розгляді)' || name === '—') list = list.filter(t => !t.user_name);
+                else list = list.filter(t => t.user_name === name);
+                // open only preferred but show all with status
+                let h = '<table><thead><tr><th>ID</th><th>Опис</th><th>Статус</th><th>Пріоритет</th><th>Хв</th><th>Коментарі / зміни статусу</th></tr></thead><tbody>';
+                if (!list.length) h += '<tr><td colspan="6">Немає задач</td></tr>';
+                for (const t of list) {
+                    let cmts = '';
+                    try {
+                        const cr = await fetch('/api/comments?entity_type=task&entity_id=' + t.id);
+                        const cl = await safeJson(cr);
+                        if (Array.isArray(cl) && cl.length) {
+                            cmts = cl.map(c => {
+                                const body = (c.body||'');
+                                const isSt = /Статус|статус/.test(body) || c.is_system;
+                                return `<div style="font-size:12px;margin:2px 0;${isSt?'color:#94a3b8;font-style:italic':''}"><b>${(c.author_name||'')}</b> ${c.created_at||''}: ${(body).replace(/</g,'&lt;')}</div>`;
+                            }).join('');
+                        } else cmts = '<span style="color:#94a3b8;font-size:12px">—</span>';
+                    } catch (e) { cmts = '—'; }
+                    h += `<tr>
+                        <td>#${t.id}</td>
+                        <td style="max-width:220px">${(t.task_description||'').replace(/</g,'&lt;')}</td>
+                        <td><span class="badge badge-secondary">${t.status||''}</span></td>
+                        <td>${t.priority||''}</td>
+                        <td>${t.total_minutes||0}</td>
+                        <td style="max-width:320px">${cmts}</td>
+                    </tr>`;
+                }
+                h += '</tbody></table>';
+                h += '<p style="font-size:12px;color:#94a3b8;margin-top:10px">Час у статусах відображається через системні коментарі змін статусу (якщо є).</p>';
+                document.getElementById('queue-detail-body').innerHTML = h;
+            } catch (e) {
+                document.getElementById('queue-detail-body').textContent = 'Помилка: ' + e;
+            }
+        }
+
+        async function openQueueIncsByStatus(status) {
+            const m = ensureQueueModal();
+            document.getElementById('queue-detail-title').textContent = 'Звернення сьогодні · «' + status + '»';
+            document.getElementById('queue-detail-body').textContent = 'Завантаження…';
+            m.style.display = 'flex';
+            try {
+                const today = (window._queuesCache && window._queuesCache.today) || new Date().toISOString().slice(0,10);
+                const r = await fetch('/api/incidents?limit=200&status=' + encodeURIComponent(status));
+                let list = await safeJson(r);
+                if (!Array.isArray(list)) list = [];
+                list = list.filter(i => i.date === today && (i.status||'Нове') === status);
+                const byUser = {};
+                list.forEach(i => {
+                    const u = i.user_name || '(без виконавця)';
+                    if (!byUser[u]) byUser[u] = [];
+                    byUser[u].push(i);
+                });
+                let h = '';
+                const users = Object.keys(byUser).sort();
+                if (!users.length) h = '<p style="color:#94a3b8">Немає звернень</p>';
+                users.forEach(u => {
+                    h += `<h4 style="margin:16px 0 8px">${u} <span style="color:#94a3b8;font-weight:400">(${byUser[u].length})</span></h4>`;
+                    h += '<table><thead><tr><th>ID</th><th>Опис</th><th>Пріоритет</th><th>Source</th><th>Хв</th></tr></thead><tbody>';
+                    byUser[u].forEach(i => {
+                        h += `<tr><td>#${i.id}</td><td style="max-width:280px">${(i.description||'').replace(/</g,'&lt;')}</td><td>${i.priority||''}</td><td>${i.source||''}</td><td>${i.duration_minutes||i.total_minutes||0}</td></tr>`;
+                    });
+                    h += '</tbody></table>';
+                });
+                document.getElementById('queue-detail-body').innerHTML = h;
+            } catch (e) {
+                document.getElementById('queue-detail-body').textContent = 'Помилка: ' + e;
+            }
+        }
+
     
         async function loadIncArchive() {
             await ensureUsersLoaded();
