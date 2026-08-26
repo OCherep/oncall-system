@@ -337,6 +337,7 @@
                 sidebar.innerHTML = `
                     <div class="sidebar-section">Менеджмент</div>
                     <div class="sidebar-item ${currentSubPage==='queues'?'active':''}" onclick="loadSubPage('queues')">Черги задач</div>
+                    <div class="sidebar-item ${currentSubPage==='tasks'?'active':''}" onclick="loadSubPage('tasks')">Усі задачі</div>
                     <div class="sidebar-item ${currentSubPage==='inc-archive'?'active':''}" onclick="loadSubPage('inc-archive')">Архів звернень</div>
                     <div class="sidebar-item ${currentSubPage==='approval'?'active':''}" onclick="loadSubPage('approval')">Для затвердження</div>
                 `;
@@ -397,6 +398,31 @@
                     </div>
                 `;
                 loadQueuesData();
+            } else if (sub === 'tasks') {
+                breadcrumbs.innerHTML = `Головна / Адміністрування / Менеджмент / <b>Усі задачі</b>`;
+                container.innerHTML = `
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px">
+                        <h2 style="margin:0">Адміністрування задач</h2>
+                        <div style="display:flex;gap:8px;flex-wrap:wrap">
+                            <input type="text" id="task-filter-user" placeholder="Виконавець" style="padding:6px 10px;border:1px solid #e2e8f0;border-radius:6px">
+                            <select id="task-filter-status" style="padding:6px 10px;border:1px solid #e2e8f0;border-radius:6px">
+                                <option value="">Усі статуси</option>
+                                <option>Нова</option><option>У роботі</option><option>На паузі</option>
+                                <option>До перевірки</option><option>Виконана</option><option>Архів</option>
+                            </select>
+                            <button class="btn btn-primary" onclick="loadAdminTasks()">Оновити</button>
+                        </div>
+                    </div>
+                    <div class="card" style="overflow-x:auto">
+                        <table>
+                            <thead><tr>
+                                <th>ID</th><th>Дата</th><th>Виконавець</th><th>Відп.</th><th>Опис</th>
+                                <th>Статус</th><th>Пріоритет</th><th>Час</th><th>Дії</th>
+                            </tr></thead>
+                            <tbody id="admin-tasks-table"><tr><td colspan="9">Завантаження…</td></tr></tbody>
+                        </table>
+                    </div>`;
+                loadAdminTasks();
             } else if (sub === 'inc-archive') {
                 breadcrumbs.innerHTML = `Головна / Адміністрування / Менеджмент / <b>Архів звернень</b>`;
                 container.innerHTML = `
@@ -490,11 +516,25 @@
         }
 
         // --- TODO: DICTIONARY CRUD FUNCTIONS ---
+        async function safeJson(res) {
+            if (!res.ok) {
+                console.error('API', res.url, res.status);
+                return [];
+            }
+            try { return await res.json(); } catch (e) { console.error(e); return []; }
+        }
         async function loadDictionariesData() {
-            const [uRes, rRes, aRes] = await Promise.all([fetch('/api/admin/users'), fetch('/api/admin/team-roles'), fetch('/api/admin/absence-types')]);
-            loadedUsers = await uRes.json();
-            loadedRoles = await rRes.json();
-            loadedAbsTypes = await aRes.json();
+            const [uRes, rRes, aRes] = await Promise.all([
+                fetch('/api/admin/users'),
+                fetch('/api/admin/roles'),
+                fetch('/api/admin/absence-types')
+            ]);
+            loadedUsers = await safeJson(uRes);
+            loadedRoles = await safeJson(rRes);
+            loadedAbsTypes = await safeJson(aRes);
+            if (!Array.isArray(loadedUsers)) loadedUsers = [];
+            if (!Array.isArray(loadedRoles)) loadedRoles = [];
+            if (!Array.isArray(loadedAbsTypes)) loadedAbsTypes = [];
 
             // Render Users
             document.getElementById('users-table').innerHTML = (loadedUsers || []).map(u => `
@@ -614,14 +654,14 @@
             const id = document.getElementById('role-id').value;
             const payload = { id: id ? parseInt(id) : 0, name: document.getElementById('role-name').value };
             const method = id ? 'PUT' : 'POST';
-            await fetch('/api/admin/team-roles', { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+            await fetch('/api/admin/roles', { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
             closeModal('role-modal');
             loadDictionariesData();
         }
 
         async function deleteRole(id) {
             if (!confirm('Видалити роль?')) return;
-            await fetch(`/api/admin/team-roles?id=${id}`, { method: 'DELETE' });
+            await fetch(`/api/admin/roles?id=${id}`, { method: 'DELETE' });
             loadDictionariesData();
         }
 
@@ -849,6 +889,58 @@
             } catch (e) {
                 body.innerHTML = '<span style="color:#ef4444">' + e + '</span>';
             }
+        }
+
+        async function loadAdminTasks() {
+            const tb = document.getElementById('admin-tasks-table');
+            if (!tb) return;
+            tb.innerHTML = '<tr><td colspan="9">Завантаження…</td></tr>';
+            const user = (document.getElementById('task-filter-user') || {}).value || '';
+            const status = (document.getElementById('task-filter-status') || {}).value || '';
+            const q = new URLSearchParams();
+            if (user) q.set('user', user);
+            if (status) q.set('status', status);
+            try {
+                const r = await fetch('/api/admin/tasks?' + q.toString());
+                const list = await safeJson(r);
+                if (!Array.isArray(list) || !list.length) {
+                    tb.innerHTML = '<tr><td colspan="9" style="color:#64748b">Немає задач</td></tr>';
+                    return;
+                }
+                const statuses = ['Нова','У роботі','На паузі','До перевірки','Виконана','Перевідкрита','Архів'];
+                const prios = ['Базова','Термінова','Надкритична','Техборг','У шухляду'];
+                tb.innerHTML = list.map(t => {
+                    const stOpts = statuses.map(s => `<option ${s===(t.status||'Нова')?'selected':''}>${s}</option>`).join('');
+                    const prOpts = prios.map(s => `<option ${s===(t.priority||'Базова')?'selected':''}>${s}</option>`).join('');
+                    const desc = (t.task_description||'').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+                    const un = (t.user_name||'').replace(/"/g,'&quot;');
+                    return `<tr>
+                        <td>#${t.id}</td>
+                        <td>${t.date||''}</td>
+                        <td><input style="width:100px;padding:4px" value="${un}" onchange="adminUpdTask(${t.id},'user_name',this.value)"></td>
+                        <td>${(t.responsible||'—')}</td>
+                        <td style="max-width:280px">${desc}</td>
+                        <td><select onchange="adminUpdTask(${t.id},'status',this.value)">${stOpts}</select></td>
+                        <td><select onchange="adminUpdTask(${t.id},'priority',this.value)">${prOpts}</select></td>
+                        <td>${t.total_minutes||0} хв</td>
+                        <td><button class="btn btn-danger" style="padding:2px 8px" onclick="adminDelTask(${t.id})">✕</button></td>
+                    </tr>`;
+                }).join('');
+            } catch (e) {
+                tb.innerHTML = `<tr><td colspan="9" style="color:#ef4444">${e}</td></tr>`;
+            }
+        }
+        async function adminUpdTask(id, field, val) {
+            const body = { id, role: 'admin', actor: (currentUser && currentUser.name) || 'admin' };
+            body[field] = val;
+            const r = await fetch('/api/admin/tasks', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+            if (!r.ok) alert(await r.text() || 'Помилка');
+            else loadAdminTasks();
+        }
+        async function adminDelTask(id) {
+            if (!confirm('Видалити задачу #' + id + '?')) return;
+            await fetch('/api/admin/tasks?id=' + id, { method: 'DELETE' });
+            loadAdminTasks();
         }
 </script>
 </body>
