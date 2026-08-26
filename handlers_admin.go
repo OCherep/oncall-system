@@ -794,3 +794,102 @@ func handleRegenerateShifts(w http.ResponseWriter, r *http.Request) {
 	db.Exec(`DELETE FROM shifts`)
 	json.NewEncoder(w).Encode(map[string]string{"status": "shifts cleared — reload calendar to regenerate"})
 }
+
+
+// handleAdminAllowedIPs — CRUD довідника дозволених IP
+func handleAdminAllowedIPs(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	switch r.Method {
+	case http.MethodGet:
+		rows, err := db.Query(`SELECT id, cidr, COALESCE(label,''), COALESCE(enabled,1), COALESCE(datetime(created_at,'localtime'),'') FROM allowed_ips ORDER BY id`)
+		if err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
+		defer rows.Close()
+		type row struct {
+			ID      int    `json:"id"`
+			CIDR    string `json:"cidr"`
+			Label   string `json:"label"`
+			Enabled bool   `json:"enabled"`
+			Created string `json:"created_at"`
+		}
+		var list []row
+		for rows.Next() {
+			var x row
+			var en int
+			rows.Scan(&x.ID, &x.CIDR, &x.Label, &en, &x.Created)
+			x.Enabled = en == 1
+			list = append(list, x)
+		}
+		if list == nil {
+			list = []row{}
+		}
+		json.NewEncoder(w).Encode(list)
+	case http.MethodPost:
+		var req struct {
+			CIDR    string `json:"cidr"`
+			Label   string `json:"label"`
+			Enabled *bool  `json:"enabled"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, err.Error(), 400)
+			return
+		}
+		req.CIDR = strings.TrimSpace(req.CIDR)
+		if req.CIDR == "" {
+			http.Error(w, "cidr required", 400)
+			return
+		}
+		en := 1
+		if req.Enabled != nil && !*req.Enabled {
+			en = 0
+		}
+		res, err := db.Exec(`INSERT INTO allowed_ips (cidr, label, enabled) VALUES (?,?,?)`, req.CIDR, req.Label, en)
+		if err != nil {
+			http.Error(w, err.Error(), 400)
+			return
+		}
+		id, _ := res.LastInsertId()
+		logAudit("admin", "ALLOWED_IP_ADD", clientIP(r), req.CIDR)
+		json.NewEncoder(w).Encode(map[string]interface{}{"id": id, "cidr": req.CIDR})
+	case http.MethodPut:
+		var req struct {
+			ID      int    `json:"id"`
+			CIDR    string `json:"cidr"`
+			Label   string `json:"label"`
+			Enabled *bool  `json:"enabled"`
+		}
+		json.NewDecoder(r.Body).Decode(&req)
+		if req.ID <= 0 {
+			http.Error(w, "id required", 400)
+			return
+		}
+		if req.CIDR != "" {
+			db.Exec(`UPDATE allowed_ips SET cidr=? WHERE id=?`, strings.TrimSpace(req.CIDR), req.ID)
+		}
+		if req.Label != "" || req.CIDR != "" {
+			db.Exec(`UPDATE allowed_ips SET label=? WHERE id=?`, req.Label, req.ID)
+		}
+		if req.Enabled != nil {
+			en := 0
+			if *req.Enabled {
+				en = 1
+			}
+			db.Exec(`UPDATE allowed_ips SET enabled=? WHERE id=?`, en, req.ID)
+		}
+		logAudit("admin", "ALLOWED_IP_UPDATE", clientIP(r), fmt.Sprintf("id=%d", req.ID))
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	case http.MethodDelete:
+		id := r.URL.Query().Get("id")
+		if id == "" {
+			http.Error(w, "id required", 400)
+			return
+		}
+		db.Exec(`DELETE FROM allowed_ips WHERE id=?`, id)
+		logAudit("admin", "ALLOWED_IP_DELETE", clientIP(r), "id="+id)
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	default:
+		http.Error(w, "method not allowed", 405)
+	}
+}
