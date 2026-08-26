@@ -301,15 +301,21 @@
         let loadedUsers = [], loadedRoles = [], loadedAbsTypes = [];
 
         window.onload = function() {
-            const saved = localStorage.getItem('currentUser');
+            // index.html stores session as 'u'; keep fallback to 'currentUser'
+            const saved = localStorage.getItem('u') || localStorage.getItem('currentUser');
             if (!saved) { window.location.href = '/'; return; }
-            currentUser = JSON.parse(saved);
-
+            try { currentUser = JSON.parse(saved); } catch (e) { window.location.href = '/'; return; }
+            if (!currentUser || currentUser.role !== 'admin') {
+                alert('Доступ лише для admin');
+                window.location.href = '/';
+                return;
+            }
             document.getElementById('user-info').innerText = `${currentUser.name} (${currentUser.role})`;
             switchMainMenu('management');
         };
 
         function logout() {
+            localStorage.removeItem('u');
             localStorage.removeItem('currentUser');
             window.location.href = '/';
         }
