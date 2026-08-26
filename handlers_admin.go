@@ -596,8 +596,30 @@ func handleAdminTasks(w http.ResponseWriter, r *http.Request) {
 		if userName == "" {
 			userName = cur.UserName
 		}
-		db.Exec(`UPDATE daily_tasks SET status=?, priority=?, work_started_at=?, total_minutes=?, user_name=? WHERE id=?`,
-			newStatus, newPriority, workArg, total, userName, t.ID)
+		// Full admin edit fields
+		date := cur.Date
+		if t.Date != "" {
+			date = t.Date
+		}
+		desc := cur.TaskDescription
+		if t.TaskDescription != "" {
+			desc = t.TaskDescription
+		}
+		resp := cur.Responsible
+		if _, ok := raw["responsible"]; ok {
+			resp = t.Responsible
+		}
+		vis := cur.VisibleFrom
+		if t.VisibleFrom != "" {
+			vis = t.VisibleFrom
+		}
+		due := cur.DueDate
+		if t.DueDate != "" {
+			due = t.DueDate
+		}
+		db.Exec(`UPDATE daily_tasks SET status=?, priority=?, work_started_at=?, total_minutes=?, user_name=?,
+			date=?, task_description=?, responsible=?, visible_from=?, due_date=? WHERE id=?`,
+			newStatus, newPriority, workArg, total, userName, date, desc, resp, vis, due, t.ID)
 		// Multi-assignees
 		if arr, ok := raw["assignees"].([]interface{}); ok {
 			names := []string{}
