@@ -484,10 +484,13 @@
                         <div class="card-header">
                             <h2>Логи програм та сервісів</h2>
                             <select id="app-log-filter" onchange="fetchAppLogs()">
-                                <option value="All">Усі сервіси</option>
-                                <option value="OnCall Core">OnCall Core</option>
-                                <option value="Auth Service">Auth Service</option>
-                                <option value="Admin Panel">Admin Panel</option>
+                                <option value="All">Усі</option>
+                                <option value="Auth">Auth / логіни</option>
+                                <option value="Incidents">Звернення</option>
+                                <option value="Tasks">Задачі</option>
+                                <option value="Absence">Відсутності</option>
+                                <option value="Admin">Адмін-дії</option>
+                                <option value="OnCall Core">OnCall Core (усі audit)</option>
                             </select>
                         </div>
                         <pre id="app-log-box" style="background:#0f172a;color:#e2e8f0;padding:16px;border-radius:8px;max-height:480px;overflow:auto;font-size:12px;line-height:1.5;margin:0">Завантаження логів…</pre>
@@ -983,6 +986,23 @@
             try {
                 const r = await fetch('/api/admin/tasks?' + q.toString());
                 const list = await safeJson(r);
+                // hide archived duplicates from same incident (keep lowest id visible)
+                const byInc = new Map();
+                const filtered = [];
+                [...list].sort((a,b)=>a.id-b.id).forEach(t => {
+                  const m = String(t.task_description||'').match(/\[зі звернення #(\d+)\]/);
+                  if (m) {
+                    const iid = +m[1];
+                    if (byInc.has(iid)) {
+                      if (t.status === 'Архів') return; // skip archived dups
+                      // keep first only in UI
+                      return;
+                    }
+                    byInc.set(iid, t.id);
+                  }
+                  filtered.push(t);
+                });
+                list = filtered;
                 window._adminTasksCache = list;
                 if (!Array.isArray(list) || !list.length) {
                     tb.innerHTML = '<tr><td colspan="9" style="color:#64748b">Немає задач</td></tr>';
@@ -1057,7 +1077,7 @@
                 const r = await fetch('/api/admin/project/app-logs?app=' + encodeURIComponent(filter));
                 const list = await safeJson(r);
                 if (!Array.isArray(list) || !list.length) {
-                    box.textContent = 'Логів немає (порожня таблиця app_logs; показано лише якщо є audit).';
+                    box.textContent = 'Немає записів для обраного фільтра.';
                     return;
                 }
                 box.textContent = list.map(L => {
