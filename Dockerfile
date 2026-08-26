@@ -32,6 +32,6 @@ RUN mkdir -p /app/data
 COPY --from=builder /app/main .
 COPY --from=builder /app/static ./static
 
-EXPOSE 8084
+EXPOSE 8085
 
 CMD ["./main"]
