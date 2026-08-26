@@ -3,6 +3,7 @@ package main
 import (
 	"database/sql"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -73,7 +74,11 @@ type IncidentReport struct {
 	CreatedBy       string `json:"created_by,omitempty"`
 	ReportedFor     string `json:"reported_for,omitempty"`
 	ExternalID      string `json:"external_id,omitempty"` // JIRA key (OPS-123) для двостороннього sync
+	ConvertedToTaskID int   `json:"converted_to_task_id,omitempty"`
 }
+
+// TaskAssignee — виконавець задачі з окремим обліком часу
+
 
 // Status: Нова | У роботі | На паузі | До перевірки | Виконана | Перевідкрита | Архів
 // User flow: Нова → У роботі ⇄ На паузі → До перевірки → Виконана
@@ -91,7 +96,15 @@ type DailyTask struct {
 	VisibleFrom     string `json:"visible_from,omitempty"`
 	DueDate         string `json:"due_date,omitempty"`
 	CreatedBy       string `json:"created_by,omitempty"`
-	Responsible     string `json:"responsible,omitempty"` // відповідальна особа
+	Responsible     string         `json:"responsible,omitempty"` // відповідальна особа
+	Assignees       []TaskAssignee `json:"assignees,omitempty"`
+}
+
+// TaskAssignee — виконавець з окремим обліком часу
+type TaskAssignee struct {
+	UserName      string `json:"user_name"`
+	TotalMinutes  int    `json:"total_minutes"`
+	WorkStartedAt string `json:"work_started_at,omitempty"`
 }
 
 type TableStat struct {
@@ -113,6 +126,21 @@ type AuditLog struct {
 func logAudit(user, action, ip, details string) {
 	db.Exec(`INSERT INTO audit_logs (user_name, action, ip, details, timestamp) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)`,
 		user, action, ip, details)
+}
+
+// Real client IP behind nginx: X-Forwarded-For / X-Real-IP, else RemoteAddr host
+func clientIP(r *http.Request) string {
+	if x := r.Header.Get("X-Forwarded-For"); x != "" {
+		return strings.TrimSpace(strings.Split(x, ",")[0])
+	}
+	if x := r.Header.Get("X-Real-IP"); x != "" {
+		return strings.TrimSpace(x)
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err == nil && host != "" {
+		return host
+	}
+	return r.RemoteAddr
 }
 
 func initDB() {
@@ -243,11 +271,26 @@ func initDB() {
 	db.Exec("ALTER TABLE daily_tasks ADD COLUMN responsible TEXT")
 	db.Exec("ALTER TABLE users ADD COLUMN is_oncall INTEGER DEFAULT 1")
 	db.Exec("ALTER TABLE users ADD COLUMN slack_id TEXT DEFAULT ''")
-	db.Exec("CREATE INDEX IF NOT EXISTS idx_comments_entity ON comments(entity_type, entity_id)")
+		db.Exec("ALTER TABLE incidents ADD COLUMN converted_to_task_id INTEGER DEFAULT 0")
+	db.Exec(`CREATE TABLE IF NOT EXISTS task_assignees (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		task_id INTEGER NOT NULL,
+		user_name TEXT NOT NULL,
+		total_minutes INTEGER DEFAULT 0,
+		work_started_at TEXT,
+		UNIQUE(task_id, user_name)
+	)`)
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_task_assignees_task ON task_assignees(task_id)")
+	// backfill converted_to_task_id from existing tasks
+	db.Exec(`UPDATE incidents SET converted_to_task_id = (
+		SELECT dt.id FROM daily_tasks dt WHERE dt.task_description LIKE '[зі звернення #' || incidents.id || ']%' LIMIT 1
+	) WHERE COALESCE(converted_to_task_id,0)=0
+	  AND EXISTS (SELECT 1 FROM daily_tasks dt WHERE dt.task_description LIKE '[зі звернення #' || incidents.id || ']%')`)
+db.Exec("CREATE INDEX IF NOT EXISTS idx_comments_entity ON comments(entity_type, entity_id)")
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_incidents_source ON incidents(source)")
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_incidents_date ON incidents(date)")
 
-	tables := []string{"users", "team_roles", "absence_types", "shifts", "absences", "incidents", "daily_tasks", "audit_logs", "app_logs", "comments"}
+	tables := []string{"users", "team_roles", "absence_types", "shifts", "absences", "incidents", "daily_tasks", "task_assignees", "audit_logs", "app_logs", "comments"}
 	for _, t := range tables {
 		db.Exec("INSERT OR IGNORE INTO table_tracker (table_name, last_action, last_update) VALUES (?, 'INIT', CURRENT_TIMESTAMP)", t)
 		for _, act := range []string{"INSERT", "UPDATE", "DELETE"} {
@@ -288,6 +331,8 @@ func main() {
 	http.HandleFunc("/api/admin/tasks", handleAdminTasks)
 	http.HandleFunc("/api/admin/project/unlock", handleDBUnlock)
 	http.HandleFunc("/api/admin/project/db-stats", handleDBStats)
+	http.HandleFunc("/api/admin/project/app-logs", handleAppLogs)
+	http.HandleFunc("/api/admin/project/table", handleTableInspect)
 	http.HandleFunc("/api/admin/project/query", handleReadOnlyQuery)
 	http.HandleFunc("/api/admin/regenerate-shifts", handleRegenerateShifts)
 	http.HandleFunc("/api/comments", handleComments)
