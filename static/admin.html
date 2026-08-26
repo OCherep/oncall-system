@@ -338,7 +338,7 @@
                     <div class="sidebar-section">Менеджмент</div>
                     <div class="sidebar-item ${currentSubPage==='queues'?'active':''}" onclick="loadSubPage('queues')">Черги задач</div>
                     <div class="sidebar-item ${currentSubPage==='tasks'?'active':''}" onclick="loadSubPage('tasks')">Усі задачі</div>
-                    <div class="sidebar-item ${currentSubPage==='inc-archive'?'active':''}" onclick="loadSubPage('inc-archive')">Архів звернень</div>
+                    <div class="sidebar-item ${currentSubPage==='inc-archive'?'active':''}" onclick="loadSubPage('inc-archive')">Усі звернення</div>
                     <div class="sidebar-item ${currentSubPage==='approval'?'active':''}" onclick="loadSubPage('approval')">Для затвердження</div>
                 `;
             } else if (currentMainMenu === 'settings') {
@@ -424,22 +424,37 @@
                     </div>`;
                 loadAdminTasks();
             } else if (sub === 'inc-archive') {
-                breadcrumbs.innerHTML = `Головна / Адміністрування / Менеджмент / <b>Архів звернень</b>`;
+                breadcrumbs.innerHTML = `Головна / Адміністрування / Менеджмент / <b>Усі звернення</b>`;
                 container.innerHTML = `
                     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px">
-                        <h2 style="margin:0">Архів / історія звернень</h2>
-                        <div style="display:flex;gap:8px;align-items:center">
-                            <select id="inc-arch-status" onchange="loadIncArchive()">
-                                <option value="all">Усі</option>
-                                <option value="Вирішено" selected>Вирішено</option>
-                                <option value="Архів">Архів</option>
+                        <h2 style="margin:0">Адміністрування звернень</h2>
+                        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+                            <input type="text" id="inc-filter-user" placeholder="Виконавець" style="padding:6px 10px;border:1px solid #e2e8f0;border-radius:6px">
+                            <select id="inc-arch-status" style="padding:6px 10px;border:1px solid #e2e8f0;border-radius:6px">
+                                <option value="all" selected>Усі статуси</option>
                                 <option value="Нове">Нове</option>
                                 <option value="В роботі">В роботі</option>
+                                <option value="На паузі">На паузі</option>
+                                <option value="Вирішено">Вирішено</option>
+                                <option value="Архів">Архів</option>
                             </select>
-                            <button class="btn btn-s" onclick="loadIncArchive()">Оновити</button>
+                            <button class="btn btn-primary" onclick="loadIncArchive()">Оновити</button>
                         </div>
                     </div>
-                    <div id="inc-archive-list">Завантаження…</div>`;
+                    <div class="card" style="overflow-x:auto">
+                        <table>
+                            <thead><tr>
+                                <th>ID</th><th>Дата</th><th>Виконавець</th><th>Статус</th>
+                                <th>Пріоритет</th><th>Source</th><th>Опис</th><th>Хв</th><th>Дії</th>
+                            </tr></thead>
+                            <tbody id="admin-incs-table"><tr><td colspan="9">Завантаження…</td></tr></tbody>
+                        </table>
+                    </div>
+                    <div id="inc-cmt-panel" style="display:none;margin-top:16px" class="card">
+                        <div class="card-header"><h3 id="inc-cmt-title" style="margin:0">Коментарі</h3>
+                        <button class="btn" onclick="document.getElementById('inc-cmt-panel').style.display='none'">Закрити</button></div>
+                        <div id="inc-cmt-body"></div>
+                    </div>`;
                 loadIncArchive();
             } else if (sub === 'approval') {
                 breadcrumbs.innerHTML = `Головна / Адміністрування / Менеджмент / <b>Для затвердження</b>`;
@@ -830,33 +845,98 @@
     
         async function loadIncArchive() {
             const st = (document.getElementById('inc-arch-status') || {}).value || 'all';
-            const box = document.getElementById('inc-archive-list');
-            if (!box) return;
-            box.innerHTML = 'Завантаження…';
+            const user = (document.getElementById('inc-filter-user') || {}).value || '';
+            const tb = document.getElementById('admin-incs-table');
+            if (!tb) return;
+            tb.innerHTML = '<tr><td colspan="9">Завантаження…</td></tr>';
+            const q = new URLSearchParams({ limit: '200' });
+            if (st && st !== 'all') q.set('status', st);
+            if (user) q.set('user', user);
             try {
-                const r = await fetch('/api/incidents?status=' + encodeURIComponent(st) + '&limit=100');
-                const list = await r.json();
+                const r = await fetch('/api/incidents?' + q.toString());
+                const list = await safeJson(r);
                 if (!Array.isArray(list) || !list.length) {
-                    box.innerHTML = '<p style="color:#64748b">Немає звернень</p>';
+                    tb.innerHTML = '<tr><td colspan="9" style="color:#64748b">Немає звернень</td></tr>';
                     return;
                 }
-                let h = '<table><thead><tr><th>ID</th><th>Дата</th><th>Виконавець</th><th>Статус</th><th>Source</th><th>Опис</th><th></th></tr></thead><tbody>';
-                list.forEach(i => {
-                    h += `<tr>
-                        <td>#${i.id}</td>
-                        <td>${escHtml(i.date)}</td>
-                        <td>${escHtml(i.user_name || '—')}</td>
-                        <td>${escHtml(i.status)}</td>
-                        <td>${escHtml(i.source)}</td>
-                        <td>${escHtml(i.description || '')}</td>
-                        <td><button class="btn btn-s" style="padding:2px 8px" onclick="toggleArchCmt(${i.id})">💬</button></td>
-                    </tr>
-                    <tr id="arch-cmt-${i.id}" style="display:none"><td colspan="7"><div id="arch-cmt-body-${i.id}" style="padding:8px 12px;background:#f8fafc;font-size:13px">…</div></td></tr>`;
-                });
-                h += '</tbody></table>';
-                box.innerHTML = h;
+                const statuses = ['Нове','В роботі','На паузі','Вирішено','Архів'];
+                const prios = ['Звичайний','Підвищений','Критичний','Терміновий'];
+                // fallback if API uses other priority names from incident_priorities
+                const extraP = [];
+                list.forEach(i => { if (i.priority && !statuses.includes(i.priority) && !prios.includes(i.priority) && !extraP.includes(i.priority)) extraP.push(i.priority); });
+                const allPrios = prios.concat(extraP);
+                tb.innerHTML = list.map(inc => {
+                    const stOpts = statuses.map(s => `<option ${s===(inc.status||'Нове')?'selected':''}>${s}</option>`).join('');
+                    const prOpts = allPrios.map(s => `<option ${s===(inc.priority||'Звичайний')?'selected':''}>${s}</option>`).join('');
+                    const desc = (inc.description||'').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+                    const un = (inc.user_name||'').replace(/"/g,'&quot;');
+                    return `<tr>
+                        <td>#${inc.id}</td>
+                        <td>${inc.date||''}</td>
+                        <td><input style="width:100px;padding:4px" value="${un}" placeholder="—" onchange="adminUpdInc(${inc.id},'user_name',this.value)"></td>
+                        <td><select onchange="adminUpdInc(${inc.id},'status',this.value)">${stOpts}</select></td>
+                        <td><select onchange="adminUpdInc(${inc.id},'priority',this.value)">${prOpts}</select></td>
+                        <td>${(inc.source||'').replace(/</g,'&lt;')}</td>
+                        <td style="max-width:260px" title="${desc}">${desc.length>80?desc.slice(0,80)+'…':desc}</td>
+                        <td>${inc.duration_minutes||inc.total_minutes||0}</td>
+                        <td style="white-space:nowrap">
+                            <button class="btn" style="padding:2px 8px" title="Коментарі" onclick="adminShowIncCmts(${inc.id})">💬</button>
+                            <button class="btn" style="padding:2px 8px" title="→ задача" onclick="adminConvertInc(${inc.id})">→задача</button>
+                            <button class="btn btn-danger" style="padding:2px 8px" onclick="adminDelInc(${inc.id})">✕</button>
+                        </td>
+                    </tr>`;
+                }).join('');
             } catch (e) {
-                box.innerHTML = '<p style="color:#ef4444">Помилка: ' + e + '</p>';
+                tb.innerHTML = `<tr><td colspan="9" style="color:#ef4444">${e}</td></tr>`;
+            }
+        }
+        async function adminUpdInc(id, field, val) {
+            const body = { id, role: 'admin', actor: (currentUser && currentUser.name) || 'admin' };
+            body[field] = val;
+            const r = await fetch('/api/incidents', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+            if (!r.ok) alert(await r.text() || 'Помилка');
+            else loadIncArchive();
+        }
+        async function adminDelInc(id) {
+            if (!confirm('Видалити звернення #' + id + '?')) return;
+            const r = await fetch('/api/incidents?id=' + id, { method: 'DELETE' });
+            if (!r.ok) alert(await r.text() || 'Помилка');
+            loadIncArchive();
+        }
+        async function adminConvertInc(id) {
+            if (!confirm('Перетворити звернення #' + id + ' у задачу?')) return;
+            const body = { id, convert_to_task: true, role: 'admin', actor: (currentUser && currentUser.name) || 'admin' };
+            const r = await fetch('/api/incidents', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+            if (!r.ok) alert(await r.text() || 'Помилка');
+            else {
+                const d = await r.json();
+                alert('Створено задачу #' + (d.task_id||'?') + (d.comments_copied ? ', скопійовано коментарів: '+d.comments_copied : ''));
+                loadIncArchive();
+            }
+        }
+        async function adminShowIncCmts(id) {
+            const panel = document.getElementById('inc-cmt-panel');
+            const body = document.getElementById('inc-cmt-body');
+            const title = document.getElementById('inc-cmt-title');
+            if (!panel) return;
+            panel.style.display = 'block';
+            title.textContent = 'Коментарі до звернення #' + id;
+            body.innerHTML = 'Завантаження…';
+            try {
+                const r = await fetch('/api/comments?entity_type=incident&entity_id=' + id);
+                const list = await safeJson(r);
+                if (!Array.isArray(list) || !list.length) {
+                    body.innerHTML = '<p style="color:#64748b">Немає коментарів</p>';
+                } else {
+                    body.innerHTML = list.map(c => {
+                        const when = (c.created_at||'').replace('T',' ').slice(0,19);
+                        const who = c.is_system ? 'система' : (c.author_name||'');
+                        const txt = (c.body||'').replace(/</g,'&lt;');
+                        return `<div style="padding:8px 0;border-bottom:1px solid #e2e8f0"><b>${who}</b> <span style="color:#94a3b8;font-size:12px">${when}</span><div>${txt}</div></div>`;
+                    }).join('');
+                }
+            } catch (e) {
+                body.innerHTML = '<p style="color:#ef4444">'+e+'</p>';
             }
         }
         function escHtml(s) {
