@@ -38,6 +38,11 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	u.IsOncall = isOncallInt == 1
 	logAudit(u.Username, "LOGIN_SUCCESS", clientIP(r), "Успішна авторизація")
+	// Довгоживучі cookie (~30 днів) для ідентифікації в UI / nginx
+	maxAge := 30 * 24 * 3600
+	http.SetCookie(w, &http.Cookie{Name: "oncall_user", Value: u.Username, Path: "/", MaxAge: maxAge, SameSite: http.SameSiteLaxMode})
+	http.SetCookie(w, &http.Cookie{Name: "oncall_name", Value: u.Name, Path: "/", MaxAge: maxAge, SameSite: http.SameSiteLaxMode})
+	http.SetCookie(w, &http.Cookie{Name: "oncall_role", Value: u.Role, Path: "/", MaxAge: maxAge, SameSite: http.SameSiteLaxMode})
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(u)
 }
