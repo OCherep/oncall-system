@@ -59,7 +59,21 @@ textarea{min-height:60px;resize:vertical}
   .board{grid-template-columns:repeat(auto-fill,minmax(120px,1fr))}
   table{font-size:12px}th,td{padding:6px 8px}
 }
+
+[data-theme="dark"]{--p:#3b82f6;--bg:#0f172a;--t:#e2e8f0;--b:#334155;--card:#1e293b}
+[data-theme="dark"] body,[data-theme="dark"] html{background:var(--bg)!important;color:var(--t)!important}
+[data-theme="dark"] .bar,[data-theme="dark"] .navbar,[data-theme="dark"] nav{background:#1e293b!important;color:var(--t)!important;border-color:var(--b)!important}
+[data-theme="dark"] .bcol,[data-theme="dark"] .mc,[data-theme="dark"] .card,[data-theme="dark"] .modal .mc{background:#1e293b!important;color:var(--t)!important;border-color:var(--b)!important}
+[data-theme="dark"] input,[data-theme="dark"] select,[data-theme="dark"] textarea{background:#0f172a!important;color:var(--t)!important;border-color:var(--b)!important}
+[data-theme="dark"] table th{background:#1e293b!important;color:#94a3b8!important}
+[data-theme="dark"] .day{background:#1e293b;border-color:var(--b);color:var(--t)}
+.theme-toggle{display:inline-flex;gap:4px}
+.theme-toggle button{padding:4px 8px;font-size:12px;border-radius:6px;border:1px solid var(--b,#e2e8f0);background:var(--card,#fff);color:var(--t,#0f172a);cursor:pointer}
+.theme-toggle button.active{background:var(--p,#2563eb);color:#fff;border-color:var(--p,#2563eb)}
+
 </style></head><body>
+<div id="theme-slot" style="position:fixed;top:10px;right:12px;z-index:9999"></div>
+
 <div class="navbar"><div class="nav-l"><strong>On-Call</strong><span id="user-info" style="color:#64748b;font-size:13px"></span></div>
 <div class="nav-r">
 <button class="btn btn-push" id="btn-push" style="display:none" onclick="enablePush()">🔔 Сповіщення</button>
@@ -136,6 +150,72 @@ textarea{min-height:60px;resize:vertical}
 <button class="btn" style="margin-top:12px" onclick="cl('m-col')">Закрити</button></div></div>
 
 <script>
+
+/* Theme + cookies (доступно всім, без ролей) */
+(function(){
+  const KEY='oncall_theme';
+  function sysTheme(){ return window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark':'light'; }
+  function applyTheme(mode){
+    const m = mode||localStorage.getItem(KEY)||'system';
+    const resolved = m==='system' ? sysTheme() : m;
+    document.documentElement.setAttribute('data-theme', resolved);
+    document.querySelectorAll('.theme-toggle button').forEach(b=>{
+      b.classList.toggle('active', b.dataset.theme===m);
+    });
+  }
+  window.setTheme = function(mode){
+    localStorage.setItem(KEY, mode);
+    document.cookie = 'oncall_theme='+encodeURIComponent(mode)+'; Path=/; Max-Age='+(30*24*3600)+'; SameSite=Lax';
+    applyTheme(mode);
+  };
+  window.cycleTheme = function(){
+    const order=['system','light','dark'];
+    const cur=localStorage.getItem(KEY)||'system';
+    const next=order[(order.indexOf(cur)+1)%order.length];
+    setTheme(next);
+  };
+  // monthly reset of service cookies (keep oncall_user / oncall_name)
+  function isLastDayOfMonth(d){
+    const t=new Date(d.getFullYear(), d.getMonth()+1, 0);
+    return d.getDate()===t.getDate();
+  }
+  function clearServiceCookies(){
+    const keep=new Set(['oncall_user','oncall_name']);
+    document.cookie.split(';').forEach(c=>{
+      const name=c.split('=')[0].trim();
+      if(!name) return;
+      if(keep.has(name)) return;
+      if(name.startsWith('oncall_')){
+        document.cookie=name+'=; Path=/; Max-Age=0; SameSite=Lax';
+      }
+    });
+  }
+  const now=new Date();
+  const marker=now.getFullYear()+'-'+(now.getMonth()+1);
+  if(isLastDayOfMonth(now)){
+    const done=localStorage.getItem('oncall_cookie_reset');
+    if(done!==marker){
+      clearServiceCookies();
+      localStorage.setItem('oncall_cookie_reset', marker);
+    }
+  }
+  // apply theme ASAP
+  applyTheme();
+  if(window.matchMedia){
+    try{ window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', ()=>{ if((localStorage.getItem(KEY)||'system')==='system') applyTheme('system'); }); }catch(e){}
+  }
+  window.__oncallThemeReady=true;
+})();
+function themeToggleHTML(){
+  return '<span class="theme-toggle" title="Тема">'+
+    '<button type="button" data-theme="system" onclick="setTheme(\'system\')">Авто</button>'+
+    '<button type="button" data-theme="light" onclick="setTheme(\'light\')">☀</button>'+
+    '<button type="button" data-theme="dark" onclick="setTheme(\'dark\')">🌙</button></span>';
+}
+
+document.addEventListener('DOMContentLoaded',function(){const tb=document.getElementById('theme-slot');if(tb){tb.innerHTML=themeToggleHTML();setTheme(localStorage.getItem('oncall_theme')||'system');}});
+
+
 const STATUSES=['Нова','У роботі','На паузі','До перевірки','Виконана','Перевідкрита','Архів'];
 const PRIOS=['Надкритична','Термінова','Базова','Техборг','У шухляду'];
 let U=null,Y=new Date().getFullYear(),M=new Date().getMonth()+1,AT=[],IP=[],D={},_day='',_sw=null,_colKind='',_colName='';
@@ -168,6 +248,8 @@ function esc(s){const d=document.createElement('div');d.textContent=s||'';return
 function cl(id){document.getElementById(id).style.display='none'}
 
 function sess(){
+  const tb=document.getElementById('theme-slot'); if(tb){tb.innerHTML=themeToggleHTML(); if(window.setTheme) setTheme(localStorage.getItem('oncall_theme')||'system');}
+
   try{U=JSON.parse(localStorage.getItem('u'))}catch(e){U=null}
   const i=document.getElementById('user-info'),a=document.getElementById('btn-auth');
   const pushBtn=document.getElementById('btn-push');
@@ -189,7 +271,7 @@ function toggleAuth(){if(U){U=null;localStorage.removeItem('u');sess();load()}el
 async function doLogin(){
   const r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({username:document.getElementById('lu').value,password:document.getElementById('lp').value})});
-  if(r.ok){U=await r.json();localStorage.setItem('u',JSON.stringify(U));cl('m-login');sess();load()}else alert('Помилка входу');
+  if(r.ok){U=await r.json();localStorage.setItem('u',JSON.stringify(U));document.cookie='oncall_user='+encodeURIComponent(U.username||'')+'; Path=/; Max-Age='+(30*24*3600)+'; SameSite=Lax';document.cookie='oncall_name='+encodeURIComponent(U.name||'')+'; Path=/; Max-Age='+(30*24*3600)+'; SameSite=Lax';cl('m-login');sess();load()}else alert('Помилка входу');
 }
 
 function updatePushBtn(){
