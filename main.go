@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"fmt"
 	"log"
 	"net"
 	"net/http"
@@ -143,6 +144,30 @@ func clientIP(r *http.Request) string {
 	return r.RemoteAddr
 }
 
+func backfillConvertedTaskIDs() {
+	rows, err := db.Query(`SELECT id, task_description FROM daily_tasks WHERE task_description LIKE '[зі звернення #%]'`)
+	if err != nil || rows == nil {
+		return
+	}
+	type pair struct{ tid, iid int }
+	var pairs []pair
+	for rows.Next() {
+		var tid int
+		var desc string
+		if rows.Scan(&tid, &desc) != nil {
+			continue
+		}
+		var iid int
+		if _, err := fmt.Sscanf(desc, "[зі звернення #%d]", &iid); err == nil && iid > 0 {
+			pairs = append(pairs, pair{tid, iid})
+		}
+	}
+	rows.Close()
+	for _, p := range pairs {
+		db.Exec(`UPDATE incidents SET converted_to_task_id=? WHERE id=? AND COALESCE(converted_to_task_id,0)=0`, p.tid, p.iid)
+	}
+}
+
 func initDB() {
 	var err error
 	dbPath := os.Getenv("DB_PATH")
@@ -159,6 +184,8 @@ func initDB() {
 	}
 	log.Printf("sqlite: %s", dbPath)
 	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+	db.SetConnMaxLifetime(0)
 
 	stmts := []string{
 		`CREATE TABLE IF NOT EXISTS users (
@@ -281,11 +308,8 @@ func initDB() {
 		UNIQUE(task_id, user_name)
 	)`)
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_task_assignees_task ON task_assignees(task_id)")
-	// backfill converted_to_task_id from existing tasks
-	db.Exec(`UPDATE incidents SET converted_to_task_id = (
-		SELECT dt.id FROM daily_tasks dt WHERE dt.task_description LIKE '[зі звернення #' || incidents.id || ']%' LIMIT 1
-	) WHERE COALESCE(converted_to_task_id,0)=0
-	  AND EXISTS (SELECT 1 FROM daily_tasks dt WHERE dt.task_description LIKE '[зі звернення #' || incidents.id || ']%')`)
+	// backfill converted_to_task_id from existing tasks (cursor closed before UPDATE)
+	backfillConvertedTaskIDs()
 db.Exec("CREATE INDEX IF NOT EXISTS idx_comments_entity ON comments(entity_type, entity_id)")
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_incidents_source ON incidents(source)")
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_incidents_date ON incidents(date)")
