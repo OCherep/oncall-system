@@ -112,6 +112,43 @@ func scanDailyTask(scanner interface{ Scan(...interface{}) error }) (DailyTask, 
 	return t, err
 }
 
+
+// parseIncidentIDFromTaskDesc extracts N from "[зі звернення #N] ..."
+func parseIncidentIDFromTaskDesc(desc string) int {
+	const p = "[зі звернення #"
+	i := strings.Index(desc, p)
+	if i < 0 {
+		return 0
+	}
+	rest := desc[i+len(p):]
+	n := 0
+	for _, c := range rest {
+		if c < '0' || c > '9' {
+			break
+		}
+		n = n*10 + int(c-'0')
+	}
+	return n
+}
+
+// dedupeTasksByIncident keeps lowest task id per source incident id
+func dedupeTasksByIncident(list []DailyTask) []DailyTask {
+	seen := map[int]bool{}
+	var out []DailyTask
+	// assume list ordered by id ASC
+	for _, t := range list {
+		iid := parseIncidentIDFromTaskDesc(t.TaskDescription)
+		if iid > 0 {
+			if seen[iid] {
+				continue
+			}
+			seen[iid] = true
+		}
+		out = append(out, t)
+	}
+	return out
+}
+
 func allowedNextStatuses(cur, role string) []string {
 	isAdmin := role == "admin"
 	var next []string
@@ -306,11 +343,15 @@ func handleGetData(w http.ResponseWriter, r *http.Request) {
 		FROM daily_tasks WHERE date LIKE ? ORDER BY id`, monthPattern)
 	dailyTasks := make(map[string][]DailyTask)
 	if taskRows != nil {
-		defer taskRows.Close()
 		for taskRows.Next() {
 			t, _ := scanDailyTask(taskRows)
 			dailyTasks[t.Date] = append(dailyTasks[t.Date], t)
 		}
+		taskRows.Close()
+	}
+	// no duplicate tasks from the same incident in UI payloads
+	for day, list := range dailyTasks {
+		dailyTasks[day] = dedupeTasksByIncident(list)
 	}
 	atRows, _ := db.Query(`SELECT id, name, code FROM absence_types ORDER BY name`)
 	var absenceTypes []AbsenceType
