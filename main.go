@@ -8,9 +8,10 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
+	"time"
 
-	_ "github.com/mattn/go-sqlite3"
-)
+	_ "github.com/mattn/go-sqlite3")
 
 var db *sql.DB
 
@@ -124,9 +125,39 @@ type AuditLog struct {
 	Timestamp string `json:"timestamp"`
 }
 
+var (
+	auditFileMu   sync.Mutex
+	auditLogPath  = envOr("AUDIT_LOG_PATH", "/var/log/oncall-app/app.log")
+)
+
+func envOr(k, def string) string {
+	if v := os.Getenv(k); v != "" {
+		return v
+	}
+	return def
+}
+
 func logAudit(user, action, ip, details string) {
 	db.Exec(`INSERT INTO audit_logs (user_name, action, ip, details, timestamp) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)`,
 		user, action, ip, details)
+	appendAuditFile(user, action, ip, details)
+}
+
+// appendAuditFile дублює audit_logs у файл на хості (volume /var/log/oncall-app)
+func appendAuditFile(user, action, ip, details string) {
+	auditFileMu.Lock()
+	defer auditFileMu.Unlock()
+	path := auditLogPath
+	if i := strings.LastIndex(path, "/"); i > 0 {
+		_ = os.MkdirAll(path[:i], 0755)
+	}
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	ts := time.Now().Format("2006-01-02 15:04:05")
+	fmt.Fprintf(f, "%s | user=%s | action=%s | ip=%s | %s\n", ts, user, action, ip, details)
 }
 
 // Real client IP behind nginx: X-Forwarded-For / X-Real-IP, else RemoteAddr host
