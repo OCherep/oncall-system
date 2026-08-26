@@ -485,52 +485,76 @@
                             <h2>Логи програм та сервісів</h2>
                             <select id="app-log-filter" onchange="fetchAppLogs()">
                                 <option value="All">Усі сервіси</option>
-                                <option value="Auth Service">Auth Service</option>
                                 <option value="OnCall Core">OnCall Core</option>
+                                <option value="Auth Service">Auth Service</option>
                                 <option value="Admin Panel">Admin Panel</option>
-                                <option value="Nginx Proxy">Nginx Proxy</option>
                             </select>
                         </div>
-                        <div class="console-box" id="app-logs-box">Завантаження логів...</div>
-                    </div>
-                `;
+                        <pre id="app-log-box" style="background:#0f172a;color:#e2e8f0;padding:16px;border-radius:8px;max-height:480px;overflow:auto;font-size:12px;line-height:1.5;margin:0">Завантаження логів…</pre>
+                    </div>`;
                 fetchAppLogs();
             } else if (sub === 'proj-db') {
                 breadcrumbs.innerHTML = `Головна / Адміністрування / Налаштування / Проєкт / <b>База й таблиці</b>`;
                 container.innerHTML = `
                     <div class="card">
-                        <div class="card-header"><h2>Моніторингова таблиця дій з БД</h2></div>
+                        <div class="card-header"><h2>Таблиці SQLite</h2>
+                        <button class="btn" onclick="fetchDBStats()">Оновити</button></div>
                         <table>
-                            <thead><tr><th>Таблиця</th><th>Кількість записів</th><th>Остання дія</th><th>Дата та час останньої зміни</th></tr></thead>
-                            <tbody id="db-stats-table"></tbody>
+                            <thead><tr><th>Таблиця</th><th>Кількість записів</th><th>Остання дія</th><th>Оновлено</th></tr></thead>
+                            <tbody id="db-tables-body"><tr><td colspan="4">Завантаження…</td></tr></tbody>
                         </table>
                     </div>
-                    <div class="card">
-                        <div class="card-header"><h2>Read-Only SQL Console</h2></div>
-                        <div class="form-group">
-                            <textarea id="sql-query" rows="3" placeholder="SELECT * FROM users LIMIT 10;"></textarea>
-                        </div>
-                        <button class="btn btn-primary" onclick="runSqlQuery()" style="margin-top:10px;">Виконати SELECT</button>
-                        <div id="sql-results" style="margin-top:15px;"></div>
+                    <div class="card" id="table-detail" style="display:none;margin-top:16px">
+                        <div class="card-header"><h2 id="table-detail-title">Таблиця</h2>
+                        <button class="btn" onclick="document.getElementById('table-detail').style.display='none'">Закрити</button></div>
+                        <h3 style="margin:12px 0 8px">Схема</h3>
+                        <div id="table-schema" style="overflow-x:auto"></div>
+                        <h3 style="margin:16px 0 8px">Дані (до 100 рядків)</h3>
+                        <div id="table-rows" style="overflow-x:auto"></div>
                     </div>
-                `;
+                    <div class="card" style="margin-top:16px">
+                        <div class="card-header"><h2>Read-Only SQL Console</h2></div>
+                        <textarea id="sql-input" rows="3" style="width:100%;padding:10px;border:1px solid #e2e8f0;border-radius:8px;font-family:monospace" placeholder="SELECT * FROM users LIMIT 10;"></textarea>
+                        <button class="btn btn-primary" style="margin-top:8px" onclick="runSQL()">Виконати SELECT</button>
+                        <div id="sql-result" style="margin-top:12px;overflow-x:auto"></div>
+                    </div>`;
                 fetchDBStats();
             } else if (sub === 'proj-traffic') {
                 breadcrumbs.innerHTML = `Головна / Адміністрування / Налаштування / Проєкт / <b>Трафік та логіни</b>`;
                 container.innerHTML = `
                     <div class="card">
-                        <div class="card-header"><h2>Журнал дій та авторизацій у системі</h2></div>
+                        <div class="card-header"><h2>Журнал дій та авторизацій</h2></div>
+                        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px">
+                            <input type="date" id="audit-from" style="padding:6px 10px;border:1px solid #e2e8f0;border-radius:6px">
+                            <input type="date" id="audit-to" style="padding:6px 10px;border:1px solid #e2e8f0;border-radius:6px">
+                            <input type="text" id="audit-user" placeholder="Користувач" style="padding:6px 10px;border:1px solid #e2e8f0;border-radius:6px">
+                            <input type="text" id="audit-action" placeholder="Дія (LOGIN, CREATE…)" style="padding:6px 10px;border:1px solid #e2e8f0;border-radius:6px">
+                            <input type="text" id="audit-ip" placeholder="IP" style="padding:6px 10px;border:1px solid #e2e8f0;border-radius:6px">
+                            <button class="btn btn-primary" onclick="fetchAuditLogs()">Фільтр</button>
+                        </div>
                         <table>
-                            <thead><tr><th>Час</th><th>Користувач</th><th>Дія</th><th>IP адреса</th><th>Деталі</th></tr></thead>
-                            <tbody id="audit-logs-table"></tbody>
+                            <thead><tr><th>Час</th><th>Користувач</th><th>Дія</th><th>IP</th><th>Деталі</th></tr></thead>
+                            <tbody id="audit-body"><tr><td colspan="5">Завантаження…</td></tr></tbody>
                         </table>
-                    </div>
-                `;
+                    </div>`;
                 fetchAuditLogs();
             }
         }
 
         // --- TODO: DICTIONARY CRUD FUNCTIONS ---
+        function memberSelectHtml(selected, onchange, emptyLabel) {
+            const opts = ['<option value="">' + (emptyLabel || '—') + '</option>']
+                .concat((loadedUsers || []).filter(u => u.role !== 'admin' || u.is_oncall).map(u =>
+                    `<option value="${u.name}" ${u.name===selected?'selected':''}>${u.name}</option>`
+                ));
+            return `<select style="min-width:110px;padding:4px" onchange="${onchange}">${opts.join('')}</select>`;
+        }
+        async function ensureUsersLoaded() {
+            if (loadedUsers && loadedUsers.length) return;
+            const r = await fetch('/api/admin/users');
+            loadedUsers = await safeJson(r);
+            if (!Array.isArray(loadedUsers)) loadedUsers = [];
+        }
         async function safeJson(res) {
             if (!res.ok) {
                 console.error('API', res.url, res.status);
@@ -717,27 +741,7 @@
         }
 
         // --- OTHER FETCHERS ---
-        async function fetchAppLogs() {
-            const filter = document.getElementById('app-log-filter').value;
-            const res = await fetch(`/api/admin/project/app-logs?app=${filter}`);
-            const data = await res.json();
-            const box = document.getElementById('app-logs-box');
-            if (data && data.length > 0) {
-                box.innerText = data.map(l => `[${l.timestamp}] [${l.app}] [${l.level}]: ${l.message}`).join('\n');
-            } else {
-                box.innerText = 'Логи відсутні';
-            }
-        }
 
-        async function fetchDBStats() {
-            const res = await fetch('/api/admin/project/db-stats');
-            const data = await res.json();
-            const tbody = document.getElementById('db-stats-table');
-            tbody.innerHTML = '';
-            data.forEach(s => {
-                tbody.innerHTML += `<tr><td><code>${s.table_name}</code></td><td>${s.row_count}</td><td><span class="badge badge-secondary">${s.last_action}</span></td><td>${s.last_update}</td></tr>`;
-            });
-        }
 
         async function runSqlQuery() {
             const query = document.getElementById('sql-query').value;
@@ -766,15 +770,6 @@
             div.innerHTML = html;
         }
 
-        async function fetchAuditLogs() {
-            const res = await fetch('/api/admin/project/audit-logs');
-            const data = await res.json();
-            const tbody = document.getElementById('audit-logs-table');
-            tbody.innerHTML = '';
-            data.forEach(l => {
-                tbody.innerHTML += `<tr><td>${l.timestamp}</td><td><strong>${l.user_name}</strong></td><td><span class="badge badge-warning">${l.action}</span></td><td>${l.ip}</td><td>${l.details}</td></tr>`;
-            });
-        }
 
         async function loadRequestsData() {
             const [reqRes, typesRes] = await Promise.all([fetch('/api/admin/requests'), fetch('/api/admin/absence-types')]);
@@ -844,6 +839,7 @@
         }
     
         async function loadIncArchive() {
+            await ensureUsersLoaded();
             const st = (document.getElementById('inc-arch-status') || {}).value || 'all';
             const user = (document.getElementById('inc-filter-user') || {}).value || '';
             const tb = document.getElementById('admin-incs-table');
@@ -860,20 +856,21 @@
                     return;
                 }
                 const statuses = ['Нове','В роботі','На паузі','Вирішено','Архів'];
-                const prios = ['Звичайний','Підвищений','Критичний','Терміновий'];
-                // fallback if API uses other priority names from incident_priorities
-                const extraP = [];
-                list.forEach(i => { if (i.priority && !statuses.includes(i.priority) && !prios.includes(i.priority) && !extraP.includes(i.priority)) extraP.push(i.priority); });
-                const allPrios = prios.concat(extraP);
+                const prios = ['Звичайний','Підвищений','Високий','Критичний','Терміновий'];
+                list.forEach(i => { if (i.priority && !prios.includes(i.priority)) prios.push(i.priority); });
                 tb.innerHTML = list.map(inc => {
                     const stOpts = statuses.map(s => `<option ${s===(inc.status||'Нове')?'selected':''}>${s}</option>`).join('');
-                    const prOpts = allPrios.map(s => `<option ${s===(inc.priority||'Звичайний')?'selected':''}>${s}</option>`).join('');
+                    const prOpts = prios.map(s => `<option ${s===(inc.priority||'Звичайний')?'selected':''}>${s}</option>`).join('');
                     const desc = (inc.description||'').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-                    const un = (inc.user_name||'').replace(/"/g,'&quot;');
-                    return `<tr>
+                    const converted = !!(inc.converted_to_task_id && inc.converted_to_task_id > 0);
+                    const convBtn = converted
+                        ? `<button class="btn" disabled title="Вже задача #${inc.converted_to_task_id}" style="padding:2px 8px;background:#fecaca;color:#7f1d1d;border:1px solid #f87171;opacity:0.85;cursor:not-allowed">✓ #${inc.converted_to_task_id}</button>`
+                        : `<button class="btn" style="padding:2px 8px;background:#dcfce7;color:#166534;border:1px solid #86efac" title="Перевести в задачу" onclick="adminConvertInc(${inc.id})">→задача</button>`;
+                    const rowBg = converted ? 'background:#fef2f2' : '';
+                    return `<tr style="${rowBg}">
                         <td>#${inc.id}</td>
                         <td>${inc.date||''}</td>
-                        <td><input style="width:100px;padding:4px" value="${un}" placeholder="—" onchange="adminUpdInc(${inc.id},'user_name',this.value)"></td>
+                        <td>${memberSelectHtml(inc.user_name||'', `adminUpdInc(${inc.id},'user_name',this.value)`, '—')}</td>
                         <td><select onchange="adminUpdInc(${inc.id},'status',this.value)">${stOpts}</select></td>
                         <td><select onchange="adminUpdInc(${inc.id},'priority',this.value)">${prOpts}</select></td>
                         <td>${(inc.source||'').replace(/</g,'&lt;')}</td>
@@ -881,7 +878,7 @@
                         <td>${inc.duration_minutes||inc.total_minutes||0}</td>
                         <td style="white-space:nowrap">
                             <button class="btn" style="padding:2px 8px" title="Коментарі" onclick="adminShowIncCmts(${inc.id})">💬</button>
-                            <button class="btn" style="padding:2px 8px" title="→ задача" onclick="adminConvertInc(${inc.id})">→задача</button>
+                            ${convBtn}
                             <button class="btn btn-danger" style="padding:2px 8px" onclick="adminDelInc(${inc.id})">✕</button>
                         </td>
                     </tr>`;
@@ -972,6 +969,7 @@
         }
 
         async function loadAdminTasks() {
+            await ensureUsersLoaded();
             const tb = document.getElementById('admin-tasks-table');
             if (!tb) return;
             tb.innerHTML = '<tr><td colspan="9">Завантаження…</td></tr>';
@@ -989,26 +987,47 @@
                 }
                 const statuses = ['Нова','У роботі','На паузі','До перевірки','Виконана','Перевідкрита','Архів'];
                 const prios = ['Базова','Термінова','Надкритична','Техборг','У шухляду'];
-                tb.innerHTML = list.map(t => {
-                    const stOpts = statuses.map(s => `<option ${s===(t.status||'Нова')?'selected':''}>${s}</option>`).join('');
-                    const prOpts = prios.map(s => `<option ${s===(t.priority||'Базова')?'selected':''}>${s}</option>`).join('');
-                    const desc = (t.task_description||'').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-                    const un = (t.user_name||'').replace(/"/g,'&quot;');
+                tb.innerHTML = list.map(task => {
+                    const stOpts = statuses.map(s => `<option ${s===(task.status||'Нова')?'selected':''}>${s}</option>`).join('');
+                    const prOpts = prios.map(s => `<option ${s===(task.priority||'Базова')?'selected':''}>${s}</option>`).join('');
+                    const desc = (task.task_description||'').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+                    const assignees = (task.assignees||[]).map(a => a.user_name).filter(Boolean);
+                    const asHtml = assignees.length
+                        ? assignees.map(a => {
+                            const mins = (task.assignees.find(x=>x.user_name===a)||{}).total_minutes||0;
+                            return `<span style="display:inline-block;background:#e0f2fe;padding:1px 6px;border-radius:4px;margin:1px;font-size:12px">${a} (${mins}хв)</span>`;
+                          }).join('')
+                        : '<span style="color:#94a3b8">—</span>';
                     return `<tr>
-                        <td>#${t.id}</td>
-                        <td>${t.date||''}</td>
-                        <td><input style="width:100px;padding:4px" value="${un}" onchange="adminUpdTask(${t.id},'user_name',this.value)"></td>
-                        <td>${(t.responsible||'—')}</td>
+                        <td>#${task.id}</td>
+                        <td>${task.date||''}</td>
+                        <td>${memberSelectHtml(task.user_name||'', `adminUpdTask(${task.id},'user_name',this.value)`, '— на розгляді —')}
+                            <div style="margin-top:4px">${asHtml}</div>
+                            <button class="btn" style="padding:1px 6px;font-size:11px;margin-top:2px" onclick="adminEditAssignees(${task.id})">+ виконавці</button>
+                        </td>
+                        <td>${(task.responsible||'—')}</td>
                         <td style="max-width:280px">${desc}</td>
-                        <td><select onchange="adminUpdTask(${t.id},'status',this.value)">${stOpts}</select></td>
-                        <td><select onchange="adminUpdTask(${t.id},'priority',this.value)">${prOpts}</select></td>
-                        <td>${t.total_minutes||0} хв</td>
-                        <td><button class="btn btn-danger" style="padding:2px 8px" onclick="adminDelTask(${t.id})">✕</button></td>
+                        <td><select onchange="adminUpdTask(${task.id},'status',this.value)">${stOpts}</select></td>
+                        <td><select onchange="adminUpdTask(${task.id},'priority',this.value)">${prOpts}</select></td>
+                        <td>${task.total_minutes||0} хв</td>
+                        <td><button class="btn btn-danger" style="padding:2px 8px" onclick="adminDelTask(${task.id})">✕</button></td>
                     </tr>`;
                 }).join('');
             } catch (e) {
                 tb.innerHTML = `<tr><td colspan="9" style="color:#ef4444">${e}</td></tr>`;
             }
+        }
+        async function adminEditAssignees(id) {
+            await ensureUsersLoaded();
+            const names = (loadedUsers||[]).map(u => u.name).filter(Boolean);
+            const picked = prompt('Виконавці через кому (напр. devops1, devops2):', '');
+            if (picked === null) return;
+            const list = picked.split(',').map(s => s.trim()).filter(Boolean);
+            const body = { id, role: 'admin', actor: (currentUser && currentUser.name) || 'admin', assignees: list };
+            if (list[0]) body.user_name = list[0];
+            const r = await fetch('/api/admin/tasks', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+            if (!r.ok) alert(await r.text() || 'Помилка');
+            else loadAdminTasks();
         }
         async function adminUpdTask(id, field, val) {
             const body = { id, role: 'admin', actor: (currentUser && currentUser.name) || 'admin' };
@@ -1021,6 +1040,145 @@
             if (!confirm('Видалити задачу #' + id + '?')) return;
             await fetch('/api/admin/tasks?id=' + id, { method: 'DELETE' });
             loadAdminTasks();
+        }
+
+        async function fetchAppLogs() {
+            const box = document.getElementById('app-log-box');
+            if (!box) return;
+            box.textContent = 'Завантаження логів…';
+            const filter = (document.getElementById('app-log-filter') || {}).value || 'All';
+            try {
+                const r = await fetch('/api/admin/project/app-logs?app=' + encodeURIComponent(filter));
+                const list = await safeJson(r);
+                if (!Array.isArray(list) || !list.length) {
+                    box.textContent = 'Логів немає (порожня таблиця app_logs; показано лише якщо є audit).';
+                    return;
+                }
+                box.textContent = list.map(L => {
+                    const ts = L.time || '';
+                    const lv = (L.level || 'info').toUpperCase();
+                    const svc = L.service || '';
+                    const msg = L.message || '';
+                    return `${ts}  [${lv}]  ${svc}  ${msg}`;
+                }).join('\n');
+            } catch (e) {
+                box.textContent = 'Помилка: ' + e;
+            }
+        }
+        async function fetchDBStats() {
+            const tb = document.getElementById('db-tables-body');
+            if (!tb) return;
+            tb.innerHTML = '<tr><td colspan="4">Завантаження…</td></tr>';
+            try {
+                const r = await fetch('/api/admin/project/db-stats');
+                const list = await safeJson(r);
+                if (!Array.isArray(list) || !list.length) {
+                    tb.innerHTML = '<tr><td colspan="4" style="color:#64748b">Немає таблиць</td></tr>';
+                    return;
+                }
+                tb.innerHTML = list.map(t => `
+                    <tr style="cursor:pointer" onclick="openTable('${t.table_name}')">
+                        <td><b style="color:#2563eb">${t.table_name}</b></td>
+                        <td>${t.row_count||0}</td>
+                        <td>${t.last_action||'—'}</td>
+                        <td>${t.last_update||'—'}</td>
+                    </tr>`).join('');
+            } catch (e) {
+                tb.innerHTML = `<tr><td colspan="4" style="color:#ef4444">${e}</td></tr>`;
+            }
+        }
+        async function openTable(name) {
+            const panel = document.getElementById('table-detail');
+            const title = document.getElementById('table-detail-title');
+            const schemaEl = document.getElementById('table-schema');
+            const rowsEl = document.getElementById('table-rows');
+            if (!panel) return;
+            panel.style.display = 'block';
+            title.textContent = 'Таблиця: ' + name;
+            schemaEl.innerHTML = rowsEl.innerHTML = 'Завантаження…';
+            try {
+                const r = await fetch('/api/admin/project/table?name=' + encodeURIComponent(name) + '&limit=100');
+                const d = await r.json();
+                if (!r.ok) { schemaEl.innerHTML = '<span style="color:#ef4444">'+(d.message||r.status)+'</span>'; return; }
+                const schema = d.schema || [];
+                schemaEl.innerHTML = `<table><thead><tr><th>#</th><th>Колонка</th><th>Тип</th><th>NOT NULL</th><th>PK</th></tr></thead><tbody>` +
+                    schema.map(c => `<tr><td>${c.cid}</td><td>${c.name}</td><td>${c.type}</td><td>${c.notnull?'так':'ні'}</td><td>${c.pk?'✓':''}</td></tr>`).join('') +
+                    `</tbody></table>`;
+                const cols = d.columns || [];
+                const rows = d.rows || [];
+                if (!rows.length) {
+                    rowsEl.innerHTML = '<p style="color:#64748b">Порожня таблиця</p>';
+                    return;
+                }
+                rowsEl.innerHTML = `<table><thead><tr>${cols.map(c=>`<th>${c}</th>`).join('')}</tr></thead><tbody>` +
+                    rows.map(row => `<tr>${cols.map(c => {
+                        let v = row[c];
+                        if (v === null || v === undefined) v = '';
+                        v = String(v).replace(/</g,'&lt;');
+                        if (v.length > 120) v = v.slice(0,120)+'…';
+                        return `<td>${v}</td>`;
+                    }).join('')}</tr>`).join('') + `</tbody></table>`;
+            } catch (e) {
+                schemaEl.innerHTML = '<span style="color:#ef4444">'+e+'</span>';
+            }
+        }
+        async function runSQL() {
+            const sql = (document.getElementById('sql-input') || {}).value || '';
+            const out = document.getElementById('sql-result');
+            if (!out) return;
+            out.innerHTML = '…';
+            try {
+                const r = await fetch('/api/admin/project/query', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-DB-Admin-Password': (window.DB_ADMIN_PASSWORD || 'db-admin-change-me') },
+                    body: JSON.stringify({ query: sql })
+                });
+                const d = await r.json().catch(() => ({ error: 'bad json' }));
+                if (!r.ok) { out.innerHTML = `<span style="color:#ef4444">${d.error || d.message || r.status}</span>`; return; }
+                // flexible shape
+                const cols = d.columns || (d.rows && d.rows[0] ? Object.keys(d.rows[0]) : []);
+                const rows = d.rows || d.data || [];
+                if (!rows.length) { out.innerHTML = '<p>Порожній результат</p>'; return; }
+                out.innerHTML = `<table><thead><tr>${cols.map(c=>`<th>${c}</th>`).join('')}</tr></thead><tbody>` +
+                    rows.map(row => `<tr>${cols.map(c => `<td>${String(row[c]??'').replace(/</g,'&lt;')}</td>`).join('')}</tr>`).join('') +
+                    `</tbody></table>`;
+            } catch (e) {
+                out.innerHTML = `<span style="color:#ef4444">${e}</span>`;
+            }
+        }
+        async function fetchAuditLogs() {
+            const tb = document.getElementById('audit-body');
+            if (!tb) return;
+            tb.innerHTML = '<tr><td colspan="5">Завантаження…</td></tr>';
+            const q = new URLSearchParams();
+            const from = (document.getElementById('audit-from') || {}).value;
+            const to = (document.getElementById('audit-to') || {}).value;
+            const user = (document.getElementById('audit-user') || {}).value;
+            const action = (document.getElementById('audit-action') || {}).value;
+            const ip = (document.getElementById('audit-ip') || {}).value;
+            if (from) q.set('from', from);
+            if (to) q.set('to', to);
+            if (user) q.set('user', user);
+            if (action) q.set('action', action);
+            if (ip) q.set('ip', ip);
+            q.set('limit', '300');
+            try {
+                const r = await fetch('/api/admin/logs?' + q.toString());
+                const list = await safeJson(r);
+                if (!Array.isArray(list) || !list.length) {
+                    tb.innerHTML = '<tr><td colspan="5" style="color:#64748b">Немає записів</td></tr>';
+                    return;
+                }
+                tb.innerHTML = list.map(a => `<tr>
+                    <td>${a.timestamp||''}</td>
+                    <td>${a.user_name||''}</td>
+                    <td>${a.action||''}</td>
+                    <td>${a.ip||''}</td>
+                    <td style="max-width:360px">${(a.details||'').replace(/</g,'&lt;')}</td>
+                </tr>`).join('');
+            } catch (e) {
+                tb.innerHTML = `<tr><td colspan="5" style="color:#ef4444">${e}</td></tr>`;
+            }
         }
 </script>
 </body>
