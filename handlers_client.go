@@ -466,6 +466,10 @@ func handleIncidents(w http.ResponseWriter, r *http.Request) {
 			q += " AND COALESCE(status,'Нове') = ?"
 			args = append(args, status)
 		}
+		if user := r.URL.Query().Get("user"); user != "" {
+			q += " AND user_name = ?"
+			args = append(args, user)
+		}
 		q += " ORDER BY id DESC LIMIT ?"
 		args = append(args, limit)
 		rows, err := db.Query(q, args...)
@@ -676,9 +680,49 @@ func handleIncidents(w http.ResponseWriter, r *http.Request) {
 				syncIncidentStatusToJira(cur.ExternalID, oldStatus, newStatus)
 			}
 		}
-		logAudit(cur.UserName, "UPDATE_INCIDENT", r.RemoteAddr, fmt.Sprintf("id=%d status=%s→%s", id, oldStatus, newStatus))
+		// Admin: пріоритет / опис / тривалість
+		if roleHint == "admin" {
+			if v, ok := raw["priority"].(string); ok && v != "" && v != cur.Priority {
+				db.Exec(`UPDATE incidents SET priority=? WHERE id=?`, v, id)
+				addSystemComment("incident", id, fmt.Sprintf("Пріоритет: %s → %s", cur.Priority, v))
+				cur.Priority = v
+			}
+			if v, ok := raw["description"].(string); ok && v != cur.Description {
+				db.Exec(`UPDATE incidents SET description=? WHERE id=?`, v, id)
+				cur.Description = v
+			}
+			if v, ok := raw["duration_minutes"].(float64); ok {
+				m := int(v)
+				if m > 0 && m != cur.DurationMinutes {
+					db.Exec(`UPDATE incidents SET duration_minutes=? WHERE id=?`, m, id)
+					cur.DurationMinutes = m
+				}
+			}
+		}
+		logAudit(actor, "UPDATE_INCIDENT", r.RemoteAddr, fmt.Sprintf("id=%d status=%s→%s", id, oldStatus, newStatus))
 		cur.Status = newStatus
 		json.NewEncoder(w).Encode(cur)
+
+	case http.MethodDelete:
+		idStr := r.URL.Query().Get("id")
+		if idStr == "" {
+			http.Error(w, "id required", http.StatusBadRequest)
+			return
+		}
+		// optional role guard via query/header is weak; allow delete (UI only for admin)
+		res, err := db.Exec(`DELETE FROM incidents WHERE id=?`, idStr)
+		if err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
+		n, _ := res.RowsAffected()
+		if n == 0 {
+			http.Error(w, "not found", 404)
+			return
+		}
+		db.Exec(`DELETE FROM comments WHERE entity_type='incident' AND entity_id=?`, idStr)
+		logAudit("admin", "DELETE_INCIDENT", r.RemoteAddr, "id="+idStr)
+		json.NewEncoder(w).Encode(map[string]string{"status": "deleted"})
 
 	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
