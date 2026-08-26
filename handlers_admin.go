@@ -9,6 +9,8 @@ import (
 	"strings"
 )
 
+// dbAdminPassword returns the secondary password required for DB tools.
+// Set via env DB_ADMIN_PASSWORD (default: "db-admin-change-me").
 func dbAdminPassword() string {
 	p := os.Getenv("DB_ADMIN_PASSWORD")
 	if p == "" {
@@ -21,6 +23,9 @@ func checkDBAdminPassword(r *http.Request) bool {
 	p := r.Header.Get("X-DB-Admin-Password")
 	if p == "" {
 		p = r.URL.Query().Get("db_password")
+	}
+	if p == "" && r.Method == http.MethodPost {
+		// try form / json body field without consuming body — use header primarily
 	}
 	return p != "" && p == dbAdminPassword()
 }
@@ -39,11 +44,11 @@ func handleDBUnlock(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.Password != dbAdminPassword() {
-		logAudit("admin", "DB_UNLOCK_FAILED", r.RemoteAddr, "wrong password")
+		logAudit("admin", "DB_UNLOCK_FAILED", clientIP(r), "wrong password")
 		http.Error(w, "Невірний пароль доступу до бази", 403)
 		return
 	}
-	logAudit("admin", "DB_UNLOCK_OK", r.RemoteAddr, "db tools unlocked")
+	logAudit("admin", "DB_UNLOCK_OK", clientIP(r), "db tools unlocked")
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
 
@@ -85,7 +90,7 @@ func handleAdminUsers(w http.ResponseWriter, r *http.Request) {
 		}
 		id, _ := res.LastInsertId()
 		u.ID = int(id)
-		logAudit("admin", "CREATE_USER", r.RemoteAddr, u.Username)
+		logAudit("admin", "CREATE_USER", clientIP(r), u.Username)
 		w.WriteHeader(201)
 		json.NewEncoder(w).Encode(u)
 	case http.MethodPut:
@@ -105,7 +110,7 @@ func handleAdminUsers(w http.ResponseWriter, r *http.Request) {
 			db.Exec(`UPDATE users SET username=?, name=?, role=?, team_role_id=?, is_oncall=?, slack_id=? WHERE id=?`,
 				u.Username, u.Name, u.Role, u.TeamRoleID, on, u.SlackID, u.ID)
 		}
-		logAudit("admin", "UPDATE_USER", r.RemoteAddr, fmt.Sprintf("id=%d slack_id=%s", u.ID, u.SlackID))
+		logAudit("admin", "UPDATE_USER", clientIP(r), fmt.Sprintf("id=%d slack_id=%s", u.ID, u.SlackID))
 		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 	case http.MethodDelete:
 		id := r.URL.Query().Get("id")
@@ -196,6 +201,7 @@ func handleAdminAbsenceTypes(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// absTypeRank: Лікарняний (здоров'я) > Відпустка > Вихідний
 func absTypeRank(typeName string) int {
 	n := strings.ToLower(typeName)
 	if strings.Contains(n, "ікарн") || strings.Contains(n, "sick") {
@@ -248,6 +254,7 @@ func handleAdminRequests(w http.ResponseWriter, r *http.Request) {
 		}
 		db.Exec(`UPDATE absences SET status=? WHERE id=?`, req.Status, req.ID)
 		rejected := 0
+		// При approve вищої пріоритетності — авто-відхилити нижчі перетинаючі заявки того ж користувача
 		if req.Status == "Approved" {
 			rank := absTypeRank(cur.Type)
 			rows, _ := db.Query(`SELECT id, type, start_date, end_date, status FROM absences
@@ -265,13 +272,13 @@ func handleAdminRequests(w http.ResponseWriter, r *http.Request) {
 						continue
 					}
 					db.Exec(`UPDATE absences SET status='Rejected' WHERE id=?`, oid)
-					logAudit("admin", "AUTO_REJECT_ABSENCE", r.RemoteAddr,
+					logAudit("admin", "AUTO_REJECT_ABSENCE", clientIP(r),
 						fmt.Sprintf("id=%d type=%s rejected due to higher %s id=%d", oid, otype, cur.Type, cur.ID))
 					rejected++
 				}
 			}
 		}
-		logAudit("admin", "UPDATE_REQUEST", r.RemoteAddr, fmt.Sprintf("id=%d status=%s auto_rejected=%d", req.ID, req.Status, rejected))
+		logAudit("admin", "UPDATE_REQUEST", clientIP(r), fmt.Sprintf("id=%d status=%s auto_rejected=%d", req.ID, req.Status, rejected))
 		json.NewEncoder(w).Encode(map[string]interface{}{"status": "ok", "auto_rejected": rejected})
 	default:
 		http.Error(w, "Method not allowed", 405)
@@ -280,9 +287,40 @@ func handleAdminRequests(w http.ResponseWriter, r *http.Request) {
 
 func handleAdminLogs(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	rows, _ := db.Query(`SELECT id, user_name, action, ip, details, COALESCE(datetime(timestamp,'localtime'),'') FROM audit_logs ORDER BY id DESC LIMIT 200`)
+	q := `SELECT id, user_name, action, ip, details, COALESCE(datetime(timestamp,'localtime'),'') FROM audit_logs WHERE 1=1`
+	args := []interface{}{}
+	if v := r.URL.Query().Get("user"); v != "" {
+		q += " AND user_name LIKE ?"
+		args = append(args, "%"+v+"%")
+	}
+	if v := r.URL.Query().Get("action"); v != "" {
+		q += " AND action LIKE ?"
+		args = append(args, "%"+v+"%")
+	}
+	if v := r.URL.Query().Get("from"); v != "" {
+		q += " AND date(timestamp) >= date(?)"
+		args = append(args, v)
+	}
+	if v := r.URL.Query().Get("to"); v != "" {
+		q += " AND date(timestamp) <= date(?)"
+		args = append(args, v)
+	}
+	if v := r.URL.Query().Get("ip"); v != "" {
+		q += " AND ip LIKE ?"
+		args = append(args, "%"+v+"%")
+	}
+	limit := 200
+	if v := r.URL.Query().Get("limit"); v != "" {
+		fmt.Sscanf(v, "%d", &limit)
+		if limit <= 0 || limit > 1000 {
+			limit = 200
+		}
+	}
+	q += " ORDER BY id DESC LIMIT ?"
+	args = append(args, limit)
+	rows, err := db.Query(q, args...)
 	var list []AuditLog
-	if rows != nil {
+	if err == nil && rows != nil {
 		defer rows.Close()
 		for rows.Next() {
 			var a AuditLog
@@ -290,7 +328,139 @@ func handleAdminLogs(w http.ResponseWriter, r *http.Request) {
 			list = append(list, a)
 		}
 	}
+	if list == nil {
+		list = []AuditLog{}
+	}
 	json.NewEncoder(w).Encode(list)
+}
+
+// handleAppLogs — логи програми (таблиця app_logs або fallback на audit)
+func handleAppLogs(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	filter := r.URL.Query().Get("app")
+	// try app_logs table
+	q := `SELECT COALESCE(datetime(created_at,'localtime'),''), COALESCE(level,'info'), COALESCE(service,''), COALESCE(message,'')
+		FROM app_logs WHERE 1=1`
+	args := []interface{}{}
+	if filter != "" && filter != "All" && filter != "all" {
+		q += " AND service LIKE ?"
+		args = append(args, "%"+filter+"%")
+	}
+	q += " ORDER BY id DESC LIMIT 200"
+	rows, err := db.Query(q, args...)
+	type line struct {
+		Time    string `json:"time"`
+		Level   string `json:"level"`
+		Service string `json:"service"`
+		Message string `json:"message"`
+	}
+	var list []line
+	if err == nil && rows != nil {
+		defer rows.Close()
+		for rows.Next() {
+			var L line
+			rows.Scan(&L.Time, &L.Level, &L.Service, &L.Message)
+			list = append(list, L)
+		}
+	}
+	// fallback: mirror recent audit_logs as text lines
+	if len(list) == 0 {
+		arows, _ := db.Query(`SELECT COALESCE(datetime(timestamp,'localtime'),''), user_name, action, ip, details
+			FROM audit_logs ORDER BY id DESC LIMIT 100`)
+		if arows != nil {
+			defer arows.Close()
+			for arows.Next() {
+				var ts, user, action, ip, details string
+				arows.Scan(&ts, &user, &action, &ip, &details)
+				list = append(list, line{
+					Time: ts, Level: "info", Service: "OnCall Core",
+					Message: fmt.Sprintf("[%s] %s @ %s — %s", action, user, ip, details),
+				})
+			}
+		}
+	}
+	if list == nil {
+		list = []line{}
+	}
+	json.NewEncoder(w).Encode(list)
+}
+
+// handleTableInspect — schema + rows for one table
+func handleTableInspect(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		http.Error(w, "name required", 400)
+		return
+	}
+	// whitelist tables
+	allowed := map[string]bool{}
+	trows, _ := db.Query(`SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'`)
+	if trows != nil {
+		defer trows.Close()
+		for trows.Next() {
+			var n string
+			trows.Scan(&n)
+			allowed[n] = true
+		}
+	}
+	if !allowed[name] {
+		http.Error(w, "unknown table", 404)
+		return
+	}
+	// schema
+	var schema []map[string]interface{}
+	cols, _ := db.Query(`PRAGMA table_info(` + name + `)`)
+	if cols != nil {
+		defer cols.Close()
+		for cols.Next() {
+			var cid, notnull, pk int
+			var cname, ctype string
+			var dflt interface{}
+			cols.Scan(&cid, &cname, &ctype, &notnull, &dflt, &pk)
+			schema = append(schema, map[string]interface{}{
+				"cid": cid, "name": cname, "type": ctype, "notnull": notnull, "pk": pk, "dflt": dflt,
+			})
+		}
+	}
+	limit := 100
+	if v := r.URL.Query().Get("limit"); v != "" {
+		fmt.Sscanf(v, "%d", &limit)
+		if limit <= 0 || limit > 500 {
+			limit = 100
+		}
+	}
+	rows, err := db.Query(`SELECT * FROM ` + name + ` LIMIT ?`, limit)
+	var data []map[string]interface{}
+	var colnames []string
+	if err == nil && rows != nil {
+		defer rows.Close()
+		colnames, _ = rows.Columns()
+		for rows.Next() {
+			raw := make([]interface{}, len(colnames))
+			ptrs := make([]interface{}, len(colnames))
+			for i := range raw {
+				ptrs[i] = &raw[i]
+			}
+			rows.Scan(ptrs...)
+			m := map[string]interface{}{}
+			for i, c := range colnames {
+				switch v := raw[i].(type) {
+				case []byte:
+					m[c] = string(v)
+				default:
+					m[c] = v
+				}
+			}
+			data = append(data, m)
+		}
+	}
+	if data == nil {
+		data = []map[string]interface{}{}
+	}
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"table": name, "schema": schema, "columns": colnames, "rows": data, "limit": limit,
+	})
 }
 
 func handleAdminTasks(w http.ResponseWriter, r *http.Request) {
@@ -353,7 +523,11 @@ func handleAdminTasks(w http.ResponseWriter, r *http.Request) {
 			if resp.Valid {
 				t.Responsible = resp.String
 			}
+			t.Assignees = loadTaskAssignees(t.ID)
 			list = append(list, t)
+		}
+		if list == nil {
+			list = []DailyTask{}
 		}
 		json.NewEncoder(w).Encode(list)
 	case http.MethodPut:
@@ -366,8 +540,11 @@ func handleAdminTasks(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "id required", 400)
 			return
 		}
+		// Admin path: reuse client handler logic by calling through HTTP is overkill;
+		// forward fields into client-style update via direct SQL + status rules
 		raw["role"] = "admin"
 		body, _ := json.Marshal(raw)
+		// Simulate client PUT by reusing same DB rules: minimal update path
 		var cur DailyTask
 		var ws, ca, visN, dueN, respN sql.NullString
 		err := db.QueryRow(`SELECT id, user_name, date, task_description, COALESCE(status,'Нова'), COALESCE(priority,'Базова'),
@@ -402,6 +579,10 @@ func handleAdminTasks(w http.ResponseWriter, r *http.Request) {
 			total = tmp.TotalMinutes
 			workStarted = ""
 		}
+		if newStatus == "У роботі" && cur.Status != "У роботі" {
+			workStarted = ""
+			// set later if needed
+		}
 		var workArg interface{}
 		if workStarted == "" {
 			workArg = nil
@@ -414,10 +595,28 @@ func handleAdminTasks(w http.ResponseWriter, r *http.Request) {
 		}
 		db.Exec(`UPDATE daily_tasks SET status=?, priority=?, work_started_at=?, total_minutes=?, user_name=? WHERE id=?`,
 			newStatus, newPriority, workArg, total, userName, t.ID)
+		// Multi-assignees
+		if arr, ok := raw["assignees"].([]interface{}); ok {
+			names := []string{}
+			for _, x := range arr {
+				if s, ok := x.(string); ok {
+					names = append(names, s)
+				}
+			}
+			setTaskAssignees(t.ID, names)
+			if userName == "" && len(names) > 0 {
+				db.Exec(`UPDATE daily_tasks SET user_name=? WHERE id=?`, names[0], t.ID)
+			}
+		} else if userName != "" {
+			// ensure primary is in assignees
+			db.Exec(`INSERT OR IGNORE INTO task_assignees (task_id, user_name, total_minutes) VALUES (?,?,0)`, t.ID, userName)
+		}
 		_ = body
-		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+		json.NewEncoder(w).Encode(map[string]interface{}{"status": "ok", "assignees": loadTaskAssignees(t.ID)})
 	case http.MethodDelete:
-		db.Exec("DELETE FROM daily_tasks WHERE id=?", r.URL.Query().Get("id"))
+		id := r.URL.Query().Get("id")
+		db.Exec("DELETE FROM task_assignees WHERE task_id=?", id)
+		db.Exec("DELETE FROM daily_tasks WHERE id=?", id)
 		json.NewEncoder(w).Encode(map[string]string{"status": "deleted"})
 	default:
 		http.Error(w, "Method not allowed", 405)
@@ -426,22 +625,34 @@ func handleAdminTasks(w http.ResponseWriter, r *http.Request) {
 
 func handleDBStats(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	if !checkDBAdminPassword(r) {
-		http.Error(w, "Потрібен пароль доступу до бази (заголовок X-DB-Admin-Password)", 403)
-		return
+	// Повний перелік таблиць з sqlite_master + live COUNT + tracker meta
+	meta := map[string]TableStat{}
+	mrows, _ := db.Query(`SELECT table_name, COALESCE(row_count,0), COALESCE(last_action,''), COALESCE(datetime(last_update,'localtime'),'') FROM table_tracker`)
+	if mrows != nil {
+		defer mrows.Close()
+		for mrows.Next() {
+			var ts TableStat
+			mrows.Scan(&ts.TableName, &ts.RowCount, &ts.LastAction, &ts.LastUpdate)
+			meta[ts.TableName] = ts
+		}
 	}
-	rows, _ := db.Query(`SELECT table_name, COALESCE(row_count,0), COALESCE(last_action,''), COALESCE(datetime(last_update,'localtime'),'') FROM table_tracker`)
+	rows, err := db.Query(`SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name`)
 	var list []TableStat
-	if rows != nil {
+	if err == nil && rows != nil {
 		defer rows.Close()
 		for rows.Next() {
-			var t TableStat
-			rows.Scan(&t.TableName, &t.RowCount, &t.LastAction, &t.LastUpdate)
+			var name string
+			rows.Scan(&name)
+			ts := meta[name]
+			ts.TableName = name
 			var cnt int
-			db.QueryRow("SELECT COUNT(*) FROM " + t.TableName).Scan(&cnt)
-			t.RowCount = cnt
-			list = append(list, t)
+			db.QueryRow("SELECT COUNT(*) FROM `" + name + "`").Scan(&cnt)
+			ts.RowCount = cnt
+			list = append(list, ts)
 		}
+	}
+	if list == nil {
+		list = []TableStat{}
 	}
 	json.NewEncoder(w).Encode(list)
 }
