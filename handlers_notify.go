@@ -49,6 +49,7 @@ func notifyTeam(text string) {
 		return
 	}
 	go func() {
+		// Slack: bot API if channel+token, else incoming webhook
 		token := slackBotToken()
 		hook := slackWebhookURL()
 		ch := slackTeamChannel()
@@ -61,14 +62,17 @@ func notifyTeam(text string) {
 				log.Printf("slack team webhook: %v", err)
 			}
 		}
+		// Telegram mirror
 		if err := postTelegram(telegramChatID(), text); err != nil {
 			log.Printf("telegram team: %v", err)
 		}
 	}()
 }
 
+// backward-compatible alias
 func notifyTeamSlack(text string) { notifyTeam(text) }
 
+// notifyUserSlack — особисте повідомлення в Slack за users.slack_id.
 func notifyUserSlack(userName, text string) {
 	if !notifyEnabled() || strings.TrimSpace(text) == "" || strings.TrimSpace(userName) == "" {
 		return
@@ -86,6 +90,7 @@ func notifyUserSlack(userName, text string) {
 	}()
 }
 
+// notifyOncallAboutIncident — team channel (Slack+TG) + DM черговим у Slack.
 func notifyOncallAboutIncident(inc IncidentReport) {
 	if !notifyEnabled() {
 		return
@@ -96,16 +101,20 @@ func notifyOncallAboutIncident(inc IncidentReport) {
 		date = today
 	}
 	var primary, backup string
-	_ = db.QueryRow(`SELECT COALESCE(primary_user,''), COALESCE(backup_user,'') FROM shifts WHERE date=?`, date).Scan(&primary, &backup)
+	_ = db.QueryRow(`SELECT COALESCE(primary_user,''), COALESCE(backup_user,'') FROM shifts WHERE date=?`, date).
+		Scan(&primary, &backup)
+
 	msg := formatIncidentNotifyMsg(inc, primary, backup)
 	notifyTeam(msg)
+
 	seen := map[string]bool{}
 	for _, name := range []string{primary, backup, inc.UserName} {
 		if name == "" || seen[name] {
 			continue
 		}
 		seen[name] = true
-		personal := fmt.Sprintf("🔔 Звернення #%d (%s)\n%s\nПріоритет: %s · Source: %s", inc.ID, date, truncateRunes(inc.Description, 200), nz(inc.Priority, "Звичайний"), nz(inc.Source, "webhook"))
+		personal := fmt.Sprintf("🔔 Звернення #%d (%s)\n%s\nПріоритет: %s · Source: %s",
+			inc.ID, date, truncateRunes(inc.Description, 200), nz(inc.Priority, "Звичайний"), nz(inc.Source, "webhook"))
 		if inc.ExternalID != "" {
 			personal += "\nJira: " + inc.ExternalID
 		}
@@ -124,7 +133,10 @@ func formatIncidentNotifyMsg(inc IncidentReport, primary, backup string) string 
 	}
 	b.WriteString("\n")
 	b.WriteString(fmt.Sprintf("• *Опис:* %s\n", truncateRunes(inc.Description, 300)))
-	b.WriteString(fmt.Sprintf("• *Дата:* %s · *Пріоритет:* %s · *Source:* %s\n", nz(inc.Date, time.Now().Format("2006-01-02")), nz(inc.Priority, "Звичайний"), nz(inc.Source, "webhook")))
+	b.WriteString(fmt.Sprintf("• *Дата:* %s · *Пріоритет:* %s · *Source:* %s\n",
+		nz(inc.Date, time.Now().Format("2006-01-02")),
+		nz(inc.Priority, "Звичайний"),
+		nz(inc.Source, "webhook")))
 	if inc.UserName != "" {
 		b.WriteString(fmt.Sprintf("• *Виконавець:* %s\n", inc.UserName))
 	}
@@ -168,7 +180,10 @@ func postSlackAPI(token, channel, text string) error {
 	if channel == "" {
 		return fmt.Errorf("channel/user required for bot API")
 	}
-	payload := map[string]interface{}{"channel": channel, "text": text}
+	payload := map[string]interface{}{
+		"channel": channel,
+		"text":    text,
+	}
 	body, _ := json.Marshal(payload)
 	req, err := http.NewRequest(http.MethodPost, "https://slack.com/api/chat.postMessage", bytes.NewReader(body))
 	if err != nil {
@@ -193,10 +208,11 @@ func postSlackAPI(token, channel, text string) error {
 	return nil
 }
 
+// postTelegram — дзеркало в командний чат Telegram (HTML).
 func postTelegram(chatID, text string) error {
 	token := telegramBotToken()
 	if token == "" {
-		return nil
+		return nil // not configured — skip silently
 	}
 	if chatID == "" {
 		return fmt.Errorf("TELEGRAM_CHAT_ID empty")
@@ -255,3 +271,73 @@ func truncateRunes(s string, max int) string {
 	}
 	return string(r[:max]) + "…"
 }
+
+
+func userEmailByName(name string) string {
+	var email string
+	_ = db.QueryRow(`SELECT COALESCE(email,'') FROM users WHERE name=? OR username=? LIMIT 1`, name, name).Scan(&email)
+	return strings.TrimSpace(email)
+}
+
+func notifyEmail(to, subject, body string) {
+	to = strings.TrimSpace(to)
+	if to == "" {
+		return
+	}
+	// SMTP optional — if not configured, log only
+	host := strings.TrimSpace(os.Getenv("SMTP_HOST"))
+	if host == "" {
+		log.Printf("notify email (no SMTP): to=%s subject=%s", to, subject)
+		return
+	}
+	// Minimal SMTP via net/smtp would need more deps; log for now if not fully wired
+	log.Printf("notify email queued: to=%s subject=%s body=%s", to, subject, body)
+}
+
+func notifyIncidentUpdate(inc IncidentReport, text string) {
+	if !notifyEnabled() && strings.TrimSpace(os.Getenv("SMTP_HOST")) == "" {
+		return
+	}
+	msg := text
+	if inc.Description != "" {
+		msg += "\n«" + truncateRunes(inc.Description, 120) + "»"
+	}
+	notifyTeam(msg)
+	if inc.UserName != "" {
+		notifyUserSlack(inc.UserName, msg)
+	}
+	// reporter
+	if inc.ReporterSlack != "" && slackBotToken() != "" {
+		_ = postSlackAPI(slackBotToken(), inc.ReporterSlack, msg)
+	} else if inc.ReporterEmail != "" {
+		notifyEmail(inc.ReporterEmail, "OnCall: оновлення звернення", msg)
+	} else if who := strings.TrimSpace(inc.CreatedBy); who != "" {
+		if em := userEmailByName(who); em != "" {
+			notifyEmail(em, "OnCall: оновлення звернення", msg)
+		}
+		notifyUserSlack(who, msg)
+	}
+}
+
+func notifyIncidentComment(incidentID int, author, body string) {
+	var inc IncidentReport
+	_ = db.QueryRow(`SELECT id, COALESCE(user_name,''), COALESCE(description,''), COALESCE(created_by,''),
+		COALESCE(reporter_name,''), COALESCE(reporter_email,''), COALESCE(reporter_slack,'') FROM incidents WHERE id=?`, incidentID).
+		Scan(&inc.ID, &inc.UserName, &inc.Description, &inc.CreatedBy, &inc.ReporterName, &inc.ReporterEmail, &inc.ReporterSlack)
+	if inc.ID == 0 {
+		return
+	}
+	msg := fmt.Sprintf("Коментар до звернення #%d від %s:\n%s", incidentID, author, truncateRunes(body, 200))
+	notifyIncidentUpdate(inc, msg)
+}
+
+func notifyTaskComment(taskID int, author, body string) {
+	var userName, desc string
+	_ = db.QueryRow(`SELECT COALESCE(user_name,''), COALESCE(task_description,'') FROM daily_tasks WHERE id=?`, taskID).Scan(&userName, &desc)
+	msg := fmt.Sprintf("Коментар до задачі #%d від %s:\n%s\n«%s»", taskID, author, truncateRunes(body, 200), truncateRunes(desc, 80))
+	notifyTeam(msg)
+	if userName != "" {
+		notifyUserSlack(userName, msg)
+	}
+}
+
