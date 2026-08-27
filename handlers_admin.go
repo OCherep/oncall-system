@@ -56,7 +56,8 @@ func handleAdminUsers(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	switch r.Method {
 	case http.MethodGet:
-		rows, err := db.Query(`SELECT u.id, u.username, u.name, u.role, u.team_role_id, COALESCE(tr.name,''), COALESCE(u.is_oncall,1), COALESCE(u.slack_id,'')
+		rows, err := db.Query(`SELECT u.id, u.username, u.name, u.role, u.team_role_id, COALESCE(tr.name,''), COALESCE(u.is_oncall,1),
+			COALESCE(u.slack_id,''), COALESCE(u.email,''), COALESCE(u.phone,'')
 			FROM users u LEFT JOIN team_roles tr ON u.team_role_id=tr.id ORDER BY u.id`)
 		if err != nil {
 			http.Error(w, err.Error(), 500)
@@ -67,7 +68,7 @@ func handleAdminUsers(w http.ResponseWriter, r *http.Request) {
 		for rows.Next() {
 			var u User
 			var isOn int
-			rows.Scan(&u.ID, &u.Username, &u.Name, &u.Role, &u.TeamRoleID, &u.TeamRole, &isOn, &u.SlackID)
+			rows.Scan(&u.ID, &u.Username, &u.Name, &u.Role, &u.TeamRoleID, &u.TeamRole, &isOn, &u.SlackID, &u.Email, &u.Phone)
 			u.IsOncall = isOn == 1
 			list = append(list, u)
 		}
@@ -82,8 +83,8 @@ func handleAdminUsers(w http.ResponseWriter, r *http.Request) {
 		if u.IsOncall {
 			on = 1
 		}
-		res, err := db.Exec(`INSERT INTO users (username, password, name, role, team_role_id, is_oncall, slack_id) VALUES (?,?,?,?,?,?,?)`,
-			u.Username, u.Password, u.Name, u.Role, u.TeamRoleID, on, u.SlackID)
+		res, err := db.Exec(`INSERT INTO users (username, password, name, role, team_role_id, is_oncall, slack_id, email, phone) VALUES (?,?,?,?,?,?,?,?,?)`,
+			u.Username, u.Password, u.Name, u.Role, u.TeamRoleID, on, u.SlackID, u.Email, u.Phone)
 		if err != nil {
 			http.Error(w, err.Error(), 500)
 			return
@@ -104,11 +105,11 @@ func handleAdminUsers(w http.ResponseWriter, r *http.Request) {
 			on = 1
 		}
 		if u.Password != "" {
-			db.Exec(`UPDATE users SET username=?, password=?, name=?, role=?, team_role_id=?, is_oncall=?, slack_id=? WHERE id=?`,
-				u.Username, u.Password, u.Name, u.Role, u.TeamRoleID, on, u.SlackID, u.ID)
+			db.Exec(`UPDATE users SET username=?, password=?, name=?, role=?, team_role_id=?, is_oncall=?, slack_id=?, email=?, phone=? WHERE id=?`,
+				u.Username, u.Password, u.Name, u.Role, u.TeamRoleID, on, u.SlackID, u.Email, u.Phone, u.ID)
 		} else {
-			db.Exec(`UPDATE users SET username=?, name=?, role=?, team_role_id=?, is_oncall=?, slack_id=? WHERE id=?`,
-				u.Username, u.Name, u.Role, u.TeamRoleID, on, u.SlackID, u.ID)
+			db.Exec(`UPDATE users SET username=?, name=?, role=?, team_role_id=?, is_oncall=?, slack_id=?, email=?, phone=? WHERE id=?`,
+				u.Username, u.Name, u.Role, u.TeamRoleID, on, u.SlackID, u.Email, u.Phone, u.ID)
 		}
 		logAudit("admin", "UPDATE_USER", clientIP(r), fmt.Sprintf("id=%d slack_id=%s", u.ID, u.SlackID))
 		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
