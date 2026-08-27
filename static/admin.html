@@ -330,6 +330,9 @@ tr.q-row:hover{background:#eff6ff}
             <div class="form-group"><label>Пароль (залиште порожнім, якщо не змінюється)</label><input type="password" id="user-password"></div>
             <div class="form-group"><label>Системна роль</label><select id="user-role"><option value="user">user</option><option value="admin">admin</option></select></div>
             <div class="form-group"><label>Роль у команді</label><select id="user-team-role"></select></div>
+            <div class="form-group"><label>Email</label><input type="email" id="user-email" placeholder="name@company.com"></div>
+            <div class="form-group"><label>Slack ID</label><input type="text" id="user-slack" placeholder="U0123ABC"></div>
+            <div class="form-group"><label>Телефон</label><input type="text" id="user-phone" placeholder="+380…"></div>
             <div style="display:flex; gap:10px;"><input type="checkbox" id="user-is-oncall" checked><label>Чергує</label></div>
             <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 10px;">
                 <button class="btn" onclick="closeModal('user-modal')">Скасувати</button>
@@ -577,7 +580,7 @@ function themeToggleHTML(){
                     <div class="card">
                         <div class="card-header"><h2>Члени команди</h2>
                         <button class="btn btn-primary" onclick="showAddUser()">+ Користувач</button></div>
-                        <table><thead><tr><th>ID</th><th>Логін</th><th>Ім'я</th><th>Роль</th><th>Команда</th><th>On-call</th><th>Дії</th></tr></thead>
+                        <table><thead><tr><th>Ім'я</th><th>Логін</th><th>Email</th><th>Slack</th><th>Телефон</th><th>Роль</th><th>Команда</th><th>On-call</th><th>Дії</th></tr></thead>
                         <tbody id="users-table"></tbody></table>
                     </div>
                     <div class="card" style="margin-top:16px">
@@ -587,7 +590,7 @@ function themeToggleHTML(){
                     </div>
                     <div class="card" style="margin-top:16px">
                         <div class="card-header"><h2>Типи відсутностей</h2>
-                        <button class="btn btn-primary" onclick="showAddAbsenceType()">+ Тип</button></div>
+                        <button class="btn btn-primary" onclick="openAbsModal()">+ Тип</button></div>
                         <table><thead><tr><th>ID</th><th>Назва</th><th>Код</th><th>Дії</th></tr></thead><tbody id="absence-types-table"></tbody></table>
                     </div>
                     <div class="card" style="margin-top:16px">
@@ -708,10 +711,13 @@ function themeToggleHTML(){
             // Render Users
             document.getElementById('users-table').innerHTML = (loadedUsers || []).map(u => `
                 <tr>
-                    <td>${u.name}</td>
-                    <td>${u.username}</td>
-                    <td>${u.role}</td>
-                    <td>${u.team_role || '—'}</td>
+                    <td>${u.name||''}</td>
+                    <td>${u.username||''}</td>
+                    <td>${u.email||'—'}</td>
+                    <td><code>${u.slack_id||'—'}</code></td>
+                    <td>${u.phone||'—'}</td>
+                    <td>${u.role||''}</td>
+                    <td>${u.team_role||'—'}</td>
                     <td>${u.is_oncall ? 'Так' : 'Ні'}</td>
                     <td>
                         <button class="btn" onclick="editUser(${u.id})">Редагувати</button>
@@ -731,9 +737,15 @@ function themeToggleHTML(){
                     </td>
                 </tr>
             `).join('');
+            const roleSelect = document.getElementById('user-team-role');
+            if (roleSelect) {
+                roleSelect.innerHTML = '<option value="">— без ролі —</option>' +
+                    (loadedRoles||[]).map(r => `<option value="${r.id}">${r.name}</option>`).join('');
+            }
+
 
             // Render Absence Types
-            document.getElementById('abs-types-table').innerHTML = (loadedAbsTypes || []).map(a => `
+            document.getElementById('absence-types-table').innerHTML = (loadedAbsTypes || []).map(a => `
                 <tr>
                     <td>${a.id}</td>
                     <td>${a.name}</td>
@@ -748,7 +760,7 @@ function themeToggleHTML(){
             // Populate User Team Roles select dropdown
             const roleSelect = document.getElementById('user-team-role');
             if (roleSelect) {
-                roleSelect.innerHTML = (loadedRoles || []).map(r => `<option value="${r.id}">${r.name}</option>`).join('');
+                roleSelect.innerHTML = '<option value="">— без ролі —</option>' + (loadedRoles || []).map(r => `<option value="${r.id}">${r.name}</option>`).join('');
             }
         }
 
@@ -775,7 +787,14 @@ function themeToggleHTML(){
             document.getElementById('user-username').value = u.username;
             document.getElementById('user-password').value = '';
             document.getElementById('user-role').value = u.role;
-            if (u.team_role_id) document.getElementById('user-team-role').value = u.team_role_id;
+            const trs = document.getElementById('user-team-role');
+            if (trs) {
+              // ensure options loaded
+              if (Array.isArray(loadedRoles) && trs.options.length <= 1) {
+                trs.innerHTML = '<option value="">—</option>' + loadedRoles.map(r => `<option value="${r.id}">${r.name}</option>`).join('');
+              }
+              trs.value = (u.team_role_id != null && u.team_role_id !== '') ? String(u.team_role_id) : '';
+            }
             document.getElementById('user-is-oncall').checked = u.is_oncall;
             document.getElementById('user-modal-title').innerText = 'Редагувати користувача';
             document.getElementById('user-modal').style.display = 'flex';
@@ -835,6 +854,7 @@ function themeToggleHTML(){
         }
 
         // Absence Types CRUD
+        function showAddAbsenceType(){ openAbsModal(); }
         function openAbsModal() {
             document.getElementById('abs-id').value = '';
             document.getElementById('abs-name').value = '';
@@ -1090,7 +1110,7 @@ function themeToggleHTML(){
                 let h = '';
                 const users = Object.keys(byUser).sort();
                 if (!users.length) h = '<p style="color:#94a3b8">Немає звернень</p>';
-                const canCmt = ['Нове','В роботі','На паузі'].includes(status);
+                const canCmt = !['Вирішено','Архів'].includes(status);
                 users.forEach(u => {
                     h += `<h4 style="margin:16px 0 8px">${u} <span style="color:#94a3b8;font-weight:400">(${byUser[u].length})</span></h4>`;
                     byUser[u].forEach(i => {
@@ -1198,29 +1218,40 @@ function themeToggleHTML(){
             panel.style.display = 'block';
             title.textContent = 'Коментарі до звернення #' + id;
             body.innerHTML = 'Завантаження…';
-            const inc = (window._adminIncsCache||[]).find(x => x.id === id);
-            const st = (inc && inc.status) || '';
-            const canCmt = ['Нове','В роботі','На паузі'].includes(st);
+            let inc = (window._adminIncsCache||[]).find(x => x.id === id || x.id === +id);
+            if (!inc) {
+                try {
+                    const ir = await fetch('/api/incidents?limit=200');
+                    const all = await safeJson(ir);
+                    if (Array.isArray(all)) {
+                        window._adminIncsCache = all;
+                        inc = all.find(x => x.id === id || x.id === +id);
+                    }
+                } catch (e) {}
+            }
+            const st = (inc && inc.status) || 'Нове';
+            const canCmt = !['Вирішено','Архів'].includes(st);
             try {
                 const r = await fetch('/api/comments?entity_type=incident&entity_id=' + id);
                 const list = await safeJson(r);
                 let h = '';
                 if (!Array.isArray(list) || !list.length) h = '<p style="color:#94a3b8">Коментарів немає</p>';
-                else h = list.map(c => `<div class="comment ${c.is_system?'sys':''}"><span class="who">${(c.author_name||'') } · ${c.created_at||''}</span><div>${(c.body||'').replace(/</g,'&lt;')}</div></div>`).join('');
+                else h = list.map(c => `<div class="comment ${c.is_system?'sys':''}" style="padding:6px 0;border-bottom:1px solid #334155"><span style="color:#94a3b8;font-size:12px">${(c.author_name||'') } · ${c.created_at||''}</span><div>${(c.body||'').replace(/</g,'&lt;')}</div></div>`).join('');
                 if (canCmt) {
-                    h += `<div style="display:flex;gap:6px;margin-top:10px">
-                      <input id="admin-inc-cmt-inp" placeholder="Новий коментар" style="flex:1;padding:8px;border-radius:6px;border:1px solid #334155;background:#0f172a;color:#e2e8f0">
-                      <button class="btn btn-primary" onclick="adminPostIncCmt(${id},'admin-inc-cmt-inp',null)">Надіслати</button>
+                    h += `<div style="display:flex;gap:6px;margin-top:12px;align-items:center">
+                      <input id="admin-inc-cmt-inp" placeholder="Новий коментар…" style="flex:1;padding:8px;border-radius:6px;border:1px solid #475569;background:#0f172a;color:#e2e8f0">
+                      <button type="button" class="btn btn-primary" onclick="adminPostIncCmt(${id},'admin-inc-cmt-inp',null)">Надіслати</button>
                     </div>`;
                 } else {
-                    h += '<p style="font-size:12px;color:#94a3b8;margin-top:8px">Коментарі доступні для статусів: Нове / В роботі / На паузі</p>';
+                    h += '<p style="font-size:12px;color:#94a3b8;margin-top:8px">Звернення закрите (Вирішено/Архів) — нові коментарі недоступні</p>';
                 }
                 body.innerHTML = h;
+                setTimeout(()=>{ const inp=document.getElementById('admin-inc-cmt-inp'); if(inp) inp.focus(); }, 50);
             } catch (e) {
                 body.innerHTML = '<span style="color:#ef4444">'+e+'</span>';
             }
         }
-        async function adminLoadIncCmtInto(elId, id) {
+async function adminLoadIncCmtInto(elId, id) {
             const el = document.getElementById(elId);
             if (!el) return;
             try {
