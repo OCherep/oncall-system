@@ -24,7 +24,9 @@ type User struct {
 	TeamRoleID *int   `json:"team_role_id"`
 	TeamRole   string `json:"team_role"`
 	IsOncall   bool   `json:"is_oncall"`
-	SlackID    string `json:"slack_id,omitempty"` // Slack member ID (U…) для особистих сповіщень
+	SlackID    string `json:"slack_id,omitempty"`
+	Email      string `json:"email,omitempty"`
+	Phone      string `json:"phone,omitempty"`
 }
 
 type TeamRole struct {
@@ -73,10 +75,13 @@ type IncidentReport struct {
 	Priority        string `json:"priority,omitempty"` // Звичайний / ...
 	Source          string `json:"source,omitempty"`   // self | team_lead | jira | bot
 	TotalMinutes    int    `json:"total_minutes,omitempty"`
-	CreatedBy       string `json:"created_by,omitempty"`
-	ReportedFor     string `json:"reported_for,omitempty"`
-	ExternalID      string `json:"external_id,omitempty"` // JIRA key (OPS-123) для двостороннього sync
-	ConvertedToTaskID int   `json:"converted_to_task_id,omitempty"`
+	CreatedBy         string `json:"created_by,omitempty"`
+	ReportedFor       string `json:"reported_for,omitempty"`
+	ExternalID        string `json:"external_id,omitempty"`
+	ConvertedToTaskID int    `json:"converted_to_task_id,omitempty"`
+	ReporterName      string `json:"reporter_name,omitempty"`
+	ReporterEmail     string `json:"reporter_email,omitempty"`
+	ReporterSlack     string `json:"reporter_slack,omitempty"`
 }
 
 // TaskAssignee — виконавець задачі з окремим обліком часу
@@ -451,6 +456,13 @@ func initDB() {
 			log.Printf("schema: %v", err)
 		}
 	}
+	db.Exec(`ALTER TABLE users ADD COLUMN email TEXT DEFAULT ''`)
+	db.Exec(`ALTER TABLE users ADD COLUMN phone TEXT DEFAULT ''`)
+	db.Exec(`ALTER TABLE users ADD COLUMN slack_id TEXT DEFAULT ''`)
+	db.Exec(`ALTER TABLE incidents ADD COLUMN reporter_name TEXT DEFAULT ''`)
+	db.Exec(`ALTER TABLE incidents ADD COLUMN reporter_email TEXT DEFAULT ''`)
+	db.Exec(`ALTER TABLE incidents ADD COLUMN reporter_slack TEXT DEFAULT ''`)
+
 
 	db.Exec("ALTER TABLE incidents ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP")
 	db.Exec("ALTER TABLE incidents ADD COLUMN status TEXT DEFAULT 'Нове'")
