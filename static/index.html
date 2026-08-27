@@ -531,9 +531,18 @@ async function openCol(kind, name){
       const allowed=incNext(i.status);
       const stOpts=allowed.map(s=>`<option ${s===i.status?'selected':''}>${s}</option>`).join('');
       const canSt=U && (isAdmin() || i.user_name===U.name);
+      const assigneeBlock=isAdmin()
+        ? `<div class="fg" style="max-width:240px"><label>Виконавець</label>
+            <select onchange="assignInc(${i.id},this.value)">
+              <option value="">— без виконавця —</option>
+              ${memberOpts(i.user_name||'',false)}
+            </select>
+           </div>`
+        : (i.user_name?`<div style="font-size:12px;color:#94a3b8;margin:4px 0">Виконавець: <b>${esc(i.user_name)}</b></div>`:'');
       html+=`<div style="border:1px solid var(--b);border-radius:8px;padding:10px;margin-bottom:10px">
         <div><b>#${i.id}</b> ${esc(i.description)}</div>
         <div style="font-size:12px;color:#64748b;margin:4px 0">${esc(i.priority)} · ${esc(i.source)} · ${formatDuration(i.total_minutes||i.duration_minutes)}</div>
+        ${assigneeBlock}
         <div class="fg" style="max-width:200px"><label>Статус</label>
           ${canSt?`<select onchange="updInc(${i.id},this.value)">${stOpts}</select>`:`<span class="st">${esc(i.status)}</span>`}
         </div>
@@ -954,7 +963,9 @@ async function assignInc(id,userName){
   const r=await fetch('/api/incidents',{method:'PUT',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({id,user_name:userName,role:'admin',actor:U.name})});
   if(!r.ok)alert(await r.text()||'Помилка');
-  await load(); if(_day)day(_day);
+  await load();
+  if(document.getElementById('m-col')&&document.getElementById('m-col').style.display==='flex') openCol(_colKind,_colName);
+  else if(_day) day(_day);
 }
 async function convertIncToTask(id){
   if(!isAdmin())return;
