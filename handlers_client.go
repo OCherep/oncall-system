@@ -10,42 +10,208 @@ import (
 )
 
 
+func parseTimeFlexible(s string) time.Time {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return time.Time{}
+	}
+	layouts := []string{
+		time.RFC3339,
+		"2006-01-02 15:04:05",
+		"2006-01-02T15:04:05Z",
+		"2006-01-02T15:04:05",
+		"2006-01-02 15:04:05.000",
+		"2006-01-02",
+	}
+	for _, l := range layouts {
+		if t, err := time.ParseInLocation(l, s, time.Local); err == nil {
+			return t
+		}
+		if t, err := time.Parse(l, s); err == nil {
+			return t
+		}
+	}
+	return time.Time{}
+}
+
+func minutesBetween(a, b time.Time) int {
+	if a.IsZero() || b.IsZero() || !b.After(a) {
+		return 0
+	}
+	m := int(b.Sub(a).Minutes())
+	if m < 0 {
+		return 0
+	}
+	return m
+}
+
 func openTaskStatusLog(taskID int, status, by string) {
-	// close any open segment
+	now := time.Now()
 	var openID int
 	var started string
 	err := db.QueryRow(`SELECT id, started_at FROM task_status_log WHERE task_id=? AND ended_at IS NULL ORDER BY id DESC LIMIT 1`, taskID).
 		Scan(&openID, &started)
 	if err == nil && openID > 0 {
-		// minutes between started and now
-		var mins int
-		db.QueryRow(`SELECT CAST((julianday('now') - julianday(started_at)) * 24 * 60 AS INTEGER) FROM task_status_log WHERE id=?`, openID).Scan(&mins)
-		if mins < 0 {
-			mins = 0
+		st := parseTimeFlexible(started)
+		if st.IsZero() {
+			st = now
 		}
-		db.Exec(`UPDATE task_status_log SET ended_at=CURRENT_TIMESTAMP, minutes=? WHERE id=?`, mins, openID)
+		mins := minutesBetween(st, now)
+		db.Exec(`UPDATE task_status_log SET ended_at=?, minutes=? WHERE id=?`, now.Format("2006-01-02 15:04:05"), mins, openID)
 	}
-	db.Exec(`INSERT INTO task_status_log (task_id, status, started_at, changed_by) VALUES (?,?,CURRENT_TIMESTAMP,?)`, taskID, status, by)
+	db.Exec(`INSERT INTO task_status_log (task_id, status, started_at, changed_by) VALUES (?,?,?,?)`,
+		taskID, status, now.Format("2006-01-02 15:04:05"), by)
+}
+
+// rebuildTaskStatusFromHistory — відновлює сегменти з коментарів «Статус: X → Y» + created_at задачі.
+// Перезаписує task_status_log для узгодженого відображення в усіх UI.
+func rebuildTaskStatusFromHistory(taskID int) {
+	var created, curStatus string
+	err := db.QueryRow(`SELECT COALESCE(created_at,''), COALESCE(status,'Нова') FROM daily_tasks WHERE id=?`, taskID).Scan(&created, &curStatus)
+	if err != nil {
+		return
+	}
+	type ev struct {
+		at     time.Time
+		from   string
+		to     string
+		by     string
+		raw    string
+	}
+	var events []ev
+	rows, err := db.Query(`SELECT COALESCE(body,''), COALESCE(created_at,''), COALESCE(author_name,'') FROM comments
+		WHERE entity_type='task' AND entity_id=? ORDER BY id ASC`, taskID)
+	if err == nil && rows != nil {
+		defer rows.Close()
+		for rows.Next() {
+			var body, ca, author string
+			rows.Scan(&body, &ca, &author)
+			// Статус: X → Y  (various arrows)
+			body = strings.TrimSpace(body)
+			if !strings.Contains(body, "Статус:") && !strings.Contains(strings.ToLower(body), "status:") {
+				continue
+			}
+			// normalize arrows
+			repl := body
+			for _, a := range []string{"→", "->", "⇒", "⟶"} {
+				repl = strings.ReplaceAll(repl, a, "→")
+			}
+			idx := strings.Index(repl, "Статус:")
+			if idx < 0 {
+				idx = strings.Index(strings.ToLower(repl), "status:")
+			}
+			if idx < 0 {
+				continue
+			}
+			part := strings.TrimSpace(repl[idx:])
+			// after "Статус:"
+			colon := strings.Index(part, ":")
+			if colon < 0 {
+				continue
+			}
+			rest := strings.TrimSpace(part[colon+1:])
+			parts := strings.SplitN(rest, "→", 2)
+			if len(parts) != 2 {
+				continue
+			}
+			from := strings.TrimSpace(parts[0])
+			to := strings.TrimSpace(parts[1])
+			// strip trailing noise
+			if i := strings.IndexAny(to, "\n("); i >= 0 {
+				to = strings.TrimSpace(to[:i])
+			}
+			at := parseTimeFlexible(ca)
+			if at.IsZero() {
+				continue
+			}
+			events = append(events, ev{at: at, from: from, to: to, by: author, raw: body})
+		}
+	}
+
+	startT := parseTimeFlexible(created)
+	if startT.IsZero() && len(events) > 0 {
+		startT = events[0].at
+	}
+	if startT.IsZero() {
+		startT = time.Now().Add(-time.Hour)
+	}
+
+	// initial status = first transition's "from", else current, else Нова
+	initStatus := "Нова"
+	if len(events) > 0 && events[0].from != "" {
+		initStatus = events[0].from
+	} else if curStatus != "" {
+		initStatus = curStatus
+	}
+
+	type seg struct {
+		status string
+		start  time.Time
+		end    time.Time
+		by     string
+	}
+	var segs []seg
+	curSt := initStatus
+	curStart := startT
+	curBy := ""
+	for _, e := range events {
+		if e.at.Before(curStart) {
+			continue
+		}
+		segs = append(segs, seg{status: curSt, start: curStart, end: e.at, by: curBy})
+		curSt = e.to
+		if curSt == "" {
+			curSt = e.from
+		}
+		curStart = e.at
+		curBy = e.by
+	}
+	// open segment until now
+	segs = append(segs, seg{status: curSt, start: curStart, end: time.Now(), by: curBy})
+
+	db.Exec(`DELETE FROM task_status_log WHERE task_id=?`, taskID)
+	for i, s := range segs {
+		mins := minutesBetween(s.start, s.end)
+		if i == len(segs)-1 {
+			// open
+			db.Exec(`INSERT INTO task_status_log (task_id, status, started_at, ended_at, minutes, changed_by) VALUES (?,?,?,NULL,?,?)`,
+				taskID, s.status, s.start.Format("2006-01-02 15:04:05"), mins, s.by)
+		} else {
+			db.Exec(`INSERT INTO task_status_log (task_id, status, started_at, ended_at, minutes, changed_by) VALUES (?,?,?,?,?,?)`,
+				taskID, s.status, s.start.Format("2006-01-02 15:04:05"), s.end.Format("2006-01-02 15:04:05"), mins, s.by)
+		}
+	}
 }
 
 func taskStatusBreakdown(taskID int) []map[string]interface{} {
-	rows, err := db.Query(`SELECT status, COALESCE(SUM(minutes),0),
-		MAX(CASE WHEN ended_at IS NULL THEN CAST((julianday('now') - julianday(started_at)) * 24 * 60 AS INTEGER) ELSE 0 END)
-		FROM task_status_log WHERE task_id=? GROUP BY status`, taskID)
+	rebuildTaskStatusFromHistory(taskID)
+	rows, err := db.Query(`SELECT status, started_at, ended_at, COALESCE(minutes,0) FROM task_status_log WHERE task_id=?`, taskID)
 	if err != nil || rows == nil {
 		return nil
 	}
 	defer rows.Close()
-	var out []map[string]interface{}
+	sums := map[string]int{}
+	now := time.Now()
 	for rows.Next() {
-		var st string
-		var sum, openExtra int
-		rows.Scan(&st, &sum, &openExtra)
-		total := sum + openExtra
-		if total < 0 {
-			total = 0
+		var st, started string
+		var ended sql.NullString
+		var mins int
+		if err := rows.Scan(&st, &started, &ended, &mins); err != nil {
+			continue
 		}
-		out = append(out, map[string]interface{}{"status": st, "minutes": total})
+		if ended.Valid && strings.TrimSpace(ended.String) != "" {
+			sums[st] += mins
+		} else {
+			stt := parseTimeFlexible(started)
+			sums[st] += minutesBetween(stt, now)
+		}
+	}
+	var out []map[string]interface{}
+	for st, m := range sums {
+		if m < 0 {
+			m = 0
+		}
+		out = append(out, map[string]interface{}{"status": st, "minutes": m})
 	}
 	return out
 }
@@ -53,11 +219,12 @@ func taskStatusBreakdown(taskID int) []map[string]interface{} {
 func taskLastActivity(taskID int) string {
 	var ts string
 	err := db.QueryRow(`SELECT COALESCE(datetime(MAX(started_at),'localtime'),'') FROM task_status_log WHERE task_id=?`, taskID).Scan(&ts)
-	if err != nil {
-		return ""
+	if err != nil || ts == "" {
+		db.QueryRow(`SELECT COALESCE(datetime(MAX(created_at),'localtime'),'') FROM comments WHERE entity_type='task' AND entity_id=?`, taskID).Scan(&ts)
 	}
 	return ts
 }
+
 
 
 func handleLogin(w http.ResponseWriter, r *http.Request) {
