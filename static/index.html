@@ -107,6 +107,24 @@ textarea{min-height:60px;resize:vertical}
 [data-theme="dark"] tr{background:transparent}
 [data-theme="dark"] tr:nth-child(even){background:rgba(15,23,42,.5)}
 
+
+.st-chip{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;margin:2px 3px 2px 0;white-space:nowrap}
+.st-chip .m{opacity:.9;font-variant-numeric:tabular-nums}
+.st-c-new{background:#334155;color:#e2e8f0}
+.st-c-work{background:#1d4ed8;color:#dbeafe}
+.st-c-pause{background:#0369a1;color:#e0f2fe}
+.st-c-review{background:#a16207;color:#fef3c7}
+.st-c-done{background:#15803d;color:#dcfce7}
+.st-c-reopen{background:#7c3aed;color:#ede9fe}
+.st-c-arch{background:#475569;color:#cbd5e1}
+.st-c-other{background:#64748b;color:#f1f5f9}
+[data-theme="light"] .st-c-new{background:#e2e8f0;color:#334155}
+.day-user-block{margin:12px 0;padding:10px;border:1px solid var(--b,#334155);border-radius:8px}
+.day-user-block h5{margin:0 0 8px;font-size:14px}
+.day-task-line{font-size:12px;padding:8px 0;border-bottom:1px solid var(--b,#334155)}
+.day-task-line:last-child{border-bottom:none}
+.day-task-meta{color:#94a3b8;font-size:11px;margin-top:4px}
+
 </style></head><body>
 <div class="navbar"><div class="nav-l"><strong>On-Call</strong><span id="user-info" style="color:#64748b;font-size:13px"></span></div>
 <div class="nav-r">
@@ -171,6 +189,9 @@ textarea{min-height:60px;resize:vertical}
 <div class="modal" id="m-day"><div class="mc"><h3 id="dt">День</h3>
 <div id="ds"></div><h4>Відсутності</h4><div id="da"></div>
 <h4>Задачі</h4><div class="table-wrap" id="dtasks"></div>
+<h4 style="margin-top:16px">Навантаження виконавців (на цей день)</h4>
+<p style="font-size:12px;color:#94a3b8;margin:4px 0 8px">Задачі, активні на обрану дату · мітки = час у статусі · дати: постанова / due / остання зміна</p>
+<div id="day-by-user"><em style="color:#94a3b8">—</em></div>
 <h4>Звернення</h4>
 <div class="fg" style="max-width:220px"><label>Фільтр</label><select id="inc-filter" onchange="renderDayIncs()"><option value="">Усі</option></select></div>
 <div class="table-wrap" id="di"></div>
@@ -657,6 +678,85 @@ function memberOpts(selected,allowEmpty){
   const ms=membersList(); let o=allowEmpty?`<option value="">— на розгляді —</option>`:'';
   ms.forEach(m=>{o+=`<option value="${esc(m.name)}" ${m.name===selected?'selected':''}>${esc(m.name)}</option>`}); return o;
 }
+
+function statusChipClass(st){
+  const s=String(st||'');
+  if(s==='Нова') return 'st-c-new';
+  if(s==='У роботі') return 'st-c-work';
+  if(s==='На паузі') return 'st-c-pause';
+  if(s==='До перевірки') return 'st-c-review';
+  if(s==='Виконана') return 'st-c-done';
+  if(s==='Перевідкрита') return 'st-c-reopen';
+  if(s==='Архів') return 'st-c-arch';
+  return 'st-c-other';
+}
+function formatMinsShort(m){
+  m=Math.max(0, parseInt(m,10)||0);
+  if(m<60) return m+'хв';
+  const h=Math.floor(m/60), r=m%60;
+  return r? (h+'г '+r+'хв') : (h+'г');
+}
+function tasksRelevantToDay(ds){
+  const out=[];
+  const seen=new Set();
+  Object.values(D.daily_tasks||{}).forEach(list=>{
+    (list||[]).forEach(t=>{
+      if(seen.has(t.id)) return;
+      // active on day ds: date, due, or open backlog covering ds
+      const d=t.date||'';
+      const due=t.due_date||'';
+      const vis=t.visible_from||d;
+      const done=['Виконана','Архів'].includes(t.status);
+      let ok=false;
+      if(d===ds || due===ds) ok=true;
+      else if(vis && vis<=ds && d && d<=ds && !done) ok=true;
+      else if(d && d<=ds && due && due>=ds) ok=true;
+      if(ok){ seen.add(t.id); out.push(t); }
+    });
+  });
+  return out;
+}
+async function renderDayByUser(ds){
+  const el=document.getElementById('day-by-user');
+  if(!el) return;
+  const tasks=tasksRelevantToDay(ds);
+  if(!tasks.length){ el.innerHTML='<p style="color:#94a3b8;font-size:13px">Немає задач для цього дня</p>'; return; }
+  const ids=tasks.map(t=>t.id).join(',');
+  let logs={};
+  try{
+    const r=await fetch('/api/task-status-log?ids='+encodeURIComponent(ids));
+    if(r.ok) logs=await r.json();
+  }catch(e){}
+  const by={};
+  tasks.forEach(t=>{
+    const u=t.user_name||'(на розгляді)';
+    if(!by[u]) by[u]=[];
+    by[u].push(t);
+  });
+  let h='';
+  Object.keys(by).sort().forEach(u=>{
+    h+=`<div class="day-user-block"><h5>${esc(u)} <span style="color:#94a3b8;font-weight:400">(${by[u].length})</span></h5>`;
+    by[u].forEach(t=>{
+      const info=logs[String(t.id)]||logs[t.id]||{};
+      const bd=info.breakdown||[];
+      let chips='';
+      if(bd.length){
+        chips=bd.map(b=>`<span class="st-chip ${statusChipClass(b.status)}">${esc(b.status)} <span class="m">${formatMinsShort(b.minutes)}</span></span>`).join('');
+      } else {
+        chips=`<span class="st-chip ${statusChipClass(t.status)}">${esc(t.status||'Нова')} <span class="m">${formatMinsShort(t.total_minutes)}</span></span>`;
+      }
+      const last=info.last_activity||t.created_at||'—';
+      h+=`<div class="day-task-line">
+        <div><b>#${t.id}</b> ${esc(t.task_description||'')}</div>
+        <div style="margin-top:4px">${chips}</div>
+        <div class="day-task-meta">постанова: ${esc(t.date||'—')} · due: ${esc(t.due_date||'—')} · остання зміна: ${esc(last)}</div>
+      </div>`;
+    });
+    h+='</div>';
+  });
+  el.innerHTML=h;
+}
+
 function day(ds){
   _day=ds;document.getElementById('dt').innerText='День: '+ds;
   const s=D.shifts&&D.shifts[ds],abs=D.absences||[];
@@ -688,7 +788,7 @@ function day(ds){
   const sel=document.getElementById('inc-filter');
   const names=[...new Set(visibleIncidents((D.incidents||{})[ds]||[]).map(i=>i.user_name||'(без)'))].sort();
   sel.innerHTML='<option value="">Усі</option>'+names.map(n=>`<option>${n}</option>`).join('');
-  renderDayIncs(); document.getElementById('m-day').style.display='flex';
+  renderDayIncs(); renderDayByUser(ds); document.getElementById('m-day').style.display='flex';
 }
 function toggleDayCmt(etype,eid){
   const row=document.getElementById('day-cmt-'+etype+'-'+eid);
