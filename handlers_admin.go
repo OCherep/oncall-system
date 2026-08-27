@@ -166,14 +166,43 @@ func handleAdminAbsenceTypes(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	switch r.Method {
 	case http.MethodGet:
-		rows, _ := db.Query(`SELECT id, name, code FROM absence_types ORDER BY id`)
-		var list []AbsenceType
-		if rows != nil {
+		rows, err := db.Query(`SELECT id, name, code FROM absence_types ORDER BY id`)
+		list := []AbsenceType{}
+		if err == nil && rows != nil {
 			defer rows.Close()
 			for rows.Next() {
 				var t AbsenceType
 				rows.Scan(&t.ID, &t.Name, &t.Code)
 				list = append(list, t)
+			}
+		}
+		if len(list) == 0 {
+			db.Exec(`INSERT OR IGNORE INTO absence_types (name, code) VALUES
+				('Вихідний','dayoff'),('Відпустка','vacation'),('Командировка','trip'),('Лікарняний','sick')`)
+			// absence_types may not have UNIQUE on name — plain insert if still empty
+			rows2, _ := db.Query(`SELECT id, name, code FROM absence_types ORDER BY id`)
+			list = []AbsenceType{}
+			if rows2 != nil {
+				defer rows2.Close()
+				for rows2.Next() {
+					var t AbsenceType
+					rows2.Scan(&t.ID, &t.Name, &t.Code)
+					list = append(list, t)
+				}
+			}
+			if len(list) == 0 {
+				for _, pair := range [][2]string{{"Вихідний","dayoff"},{"Відпустка","vacation"},{"Командировка","trip"},{"Лікарняний","sick"}} {
+					db.Exec(`INSERT INTO absence_types (name, code) VALUES (?,?)`, pair[0], pair[1])
+				}
+				rows3, _ := db.Query(`SELECT id, name, code FROM absence_types ORDER BY id`)
+				if rows3 != nil {
+					defer rows3.Close()
+					for rows3.Next() {
+						var t AbsenceType
+						rows3.Scan(&t.ID, &t.Name, &t.Code)
+						list = append(list, t)
+					}
+				}
 			}
 		}
 		json.NewEncoder(w).Encode(list)
