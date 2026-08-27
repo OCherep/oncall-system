@@ -1090,15 +1090,26 @@ function themeToggleHTML(){
                 let h = '';
                 const users = Object.keys(byUser).sort();
                 if (!users.length) h = '<p style="color:#94a3b8">Немає звернень</p>';
+                const canCmt = ['Нове','В роботі','На паузі'].includes(status);
                 users.forEach(u => {
                     h += `<h4 style="margin:16px 0 8px">${u} <span style="color:#94a3b8;font-weight:400">(${byUser[u].length})</span></h4>`;
-                    h += '<table><thead><tr><th>ID</th><th>Опис</th><th>Пріоритет</th><th>Source</th><th>Хв</th></tr></thead><tbody>';
                     byUser[u].forEach(i => {
-                        h += `<tr><td>#${i.id}</td><td style="max-width:280px">${(i.description||'').replace(/</g,'&lt;')}</td><td>${i.priority||''}</td><td>${i.source||''}</td><td>${i.duration_minutes||i.total_minutes||0}</td></tr>`;
+                        h += `<div class="card" style="padding:10px;margin-bottom:10px">
+                          <div><b>#${i.id}</b> ${(i.description||'').replace(/</g,'&lt;')}</div>
+                          <div style="font-size:12px;color:#94a3b8">${i.priority||''} · ${i.source||''} · ${i.duration_minutes||i.total_minutes||0} хв
+                          ${i.reporter_name?(' · '+i.reporter_name):''}</div>
+                          <div id="q-inc-cmt-${i.id}" style="margin-top:6px;font-size:12px"><em>коментарі…</em></div>`;
+                        if (canCmt) {
+                          h += `<div style="display:flex;gap:6px;margin-top:6px">
+                            <input id="q-inc-inp-${i.id}" placeholder="Коментар" style="flex:1;padding:6px;border-radius:6px;border:1px solid #334155;background:#0f172a;color:#e2e8f0">
+                            <button class="btn btn-primary" onclick="adminPostIncCmt(${i.id},'q-inc-inp-${i.id}','q-inc-cmt-${i.id}')">+</button>
+                          </div>`;
+                        }
+                        h += `</div>`;
                     });
-                    h += '</tbody></table>';
                 });
                 document.getElementById('queue-detail-body').innerHTML = h;
+                list.forEach(i => adminLoadIncCmtInto('q-inc-cmt-'+i.id, i.id));
             } catch (e) {
                 document.getElementById('queue-detail-body').textContent = 'Помилка: ' + e;
             }
@@ -1187,29 +1198,53 @@ function themeToggleHTML(){
             panel.style.display = 'block';
             title.textContent = 'Коментарі до звернення #' + id;
             body.innerHTML = 'Завантаження…';
+            const inc = (window._adminIncsCache||[]).find(x => x.id === id);
+            const st = (inc && inc.status) || '';
+            const canCmt = ['Нове','В роботі','На паузі'].includes(st);
             try {
                 const r = await fetch('/api/comments?entity_type=incident&entity_id=' + id);
                 const list = await safeJson(r);
-                if (!Array.isArray(list) || !list.length) {
-                    body.innerHTML = '<p style="color:#64748b">Немає коментарів</p>';
+                let h = '';
+                if (!Array.isArray(list) || !list.length) h = '<p style="color:#94a3b8">Коментарів немає</p>';
+                else h = list.map(c => `<div class="comment ${c.is_system?'sys':''}"><span class="who">${(c.author_name||'') } · ${c.created_at||''}</span><div>${(c.body||'').replace(/</g,'&lt;')}</div></div>`).join('');
+                if (canCmt) {
+                    h += `<div style="display:flex;gap:6px;margin-top:10px">
+                      <input id="admin-inc-cmt-inp" placeholder="Новий коментар" style="flex:1;padding:8px;border-radius:6px;border:1px solid #334155;background:#0f172a;color:#e2e8f0">
+                      <button class="btn btn-primary" onclick="adminPostIncCmt(${id},'admin-inc-cmt-inp',null)">Надіслати</button>
+                    </div>`;
                 } else {
-                    body.innerHTML = list.map(c => {
-                        const when = (c.created_at||'').replace('T',' ').slice(0,19);
-                        const who = c.is_system ? 'система' : (c.author_name||'');
-                        const txt = (c.body||'').replace(/</g,'&lt;');
-                        return `<div style="padding:8px 0;border-bottom:1px solid #e2e8f0"><b>${who}</b> <span style="color:#94a3b8;font-size:12px">${when}</span><div>${txt}</div></div>`;
-                    }).join('');
+                    h += '<p style="font-size:12px;color:#94a3b8;margin-top:8px">Коментарі доступні для статусів: Нове / В роботі / На паузі</p>';
                 }
+                body.innerHTML = h;
             } catch (e) {
-                body.innerHTML = '<p style="color:#ef4444">'+e+'</p>';
+                body.innerHTML = '<span style="color:#ef4444">'+e+'</span>';
             }
         }
-        function escHtml(s) {
-            const d = document.createElement('div');
-            d.textContent = s || '';
-            return d.innerHTML;
+        async function adminLoadIncCmtInto(elId, id) {
+            const el = document.getElementById(elId);
+            if (!el) return;
+            try {
+                const r = await fetch('/api/comments?entity_type=incident&entity_id=' + id);
+                const list = await safeJson(r);
+                if (!Array.isArray(list) || !list.length) { el.innerHTML = '<span style="color:#94a3b8">Немає коментарів</span>'; return; }
+                el.innerHTML = list.map(c => `<div style="margin:2px 0"><b>${c.author_name||''}</b> <span style="color:#94a3b8">${c.created_at||''}</span><div>${(c.body||'').replace(/</g,'&lt;')}</div></div>`).join('');
+            } catch (e) { el.textContent = String(e); }
         }
-        async function toggleArchCmt(id) {
+        async function adminPostIncCmt(id, inputId, reloadElId) {
+            const inp = document.getElementById(inputId);
+            const body = (inp && inp.value || '').trim();
+            if (!body) return;
+            const actor = (currentUser && (currentUser.name||currentUser.username)) || 'admin';
+            const r = await fetch('/api/comments', {
+                method: 'POST', headers: {'Content-Type':'application/json'},
+                body: JSON.stringify({ entity_type: 'incident', entity_id: id, author_name: actor, body })
+            });
+            if (!r.ok) { alert(await r.text()||'Помилка'); return; }
+            if (inp) inp.value = '';
+            if (reloadElId) adminLoadIncCmtInto(reloadElId, id);
+            else adminShowIncCmts(id);
+        }
+async function toggleArchCmt(id) {
             const row = document.getElementById('arch-cmt-' + id);
             if (!row) return;
             const show = row.style.display === 'none';
