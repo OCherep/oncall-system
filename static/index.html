@@ -539,9 +539,16 @@ async function openCol(kind, name){
             </select>
            </div>`
         : (i.user_name?`<div style="font-size:12px;color:#94a3b8;margin:4px 0">Виконавець: <b>${esc(i.user_name)}</b></div>`:'');
+      const reporter=i.reporter_name||i.created_by||'';
+      const prioCls=priorityColorClass(i.priority);
+      const age=formatAgeSince(i.created_at);
       html+=`<div style="border:1px solid var(--b);border-radius:8px;padding:10px;margin-bottom:10px">
-        <div><b>#${i.id}</b> ${esc(i.description)}</div>
-        <div style="font-size:12px;color:#64748b;margin:4px 0">${esc(i.priority)} · ${esc(i.source)} · ${formatDuration(i.total_minutes||i.duration_minutes)}</div>
+        <div><b>#${i.id}</b> ${esc(i.description)} <span style="font-size:11px;color:#94a3b8;font-weight:400">· від створення: ${age}</span></div>
+        <div style="font-size:12px;margin:4px 0">
+          <span class="st-chip ${prioCls}">${esc(i.priority||'Звичайний')}</span>
+          ${reporter?`<b>${esc(reporter)}</b> <span style="color:#94a3b8">(${esc(i.source||'')})</span>`:esc(i.source||'')}
+          · оцінка: ${formatDuration(i.duration_minutes||15)}
+        </div>
         ${assigneeBlock}
         <div class="fg" style="max-width:200px"><label>Статус</label>
           ${canSt?`<select onchange="updInc(${i.id},this.value)">${stOpts}</select>`:`<span class="st">${esc(i.status)}</span>`}
@@ -913,12 +920,30 @@ function stats(st){const t=document.getElementById('stats');t.innerHTML='';(st||
 function openAbs(){const s=document.getElementById('at');s.innerHTML='';AT.forEach(t=>{s.innerHTML+=`<option>${t.name}</option>`});document.getElementById('as').value=today();document.getElementById('ae').value=today();document.getElementById('m-abs').style.display='flex'}
 async function subAbs(){const r=await fetch('/api/request-absence',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_name:U.name,type:document.getElementById('at').value,start_date:document.getElementById('as').value,end_date:document.getElementById('ae').value})});if(r.ok){alert('Надіслано');cl('m-abs');load()}else alert('Помилка')}
 function fillMemberSelect(selId,includeSelf){const sel=document.getElementById(selId);const ms=membersList();let opts='';if(includeSelf&&U)opts+=`<option value="${esc(U.name)}">${esc(U.name)} (я)</option>`;ms.forEach(m=>{if(!includeSelf||m.name!==U.name)opts+=`<option value="${esc(m.name)}">${esc(m.name)}</option>`});sel.innerHTML=opts||`<option value="${esc(U&&U.name||'')}">${esc(U&&U.name||'')}</option>`}
+
+function priorityColorClass(p){
+  p=String(p||'');
+  if(/Крит|Термін|Critical/i.test(p)) return 'st-c-urgent';
+  if(/Висок|High/i.test(p)) return 'st-c-work';
+  if(/Підвищ/i.test(p)) return 'st-c-review';
+  return 'st-c-new';
+}
+function formatAgeSince(iso){
+  if(!iso) return '—';
+  const t=Date.parse(String(iso).replace(' ','T'));
+  if(!t) return '—';
+  const m=Math.max(0, Math.floor((Date.now()-t)/60000));
+  return formatMinsShort(m);
+}
+
 function openInc(){
   document.getElementById('id').value=today();
   document.getElementById('im').value=15;
   document.getElementById('idesc').value='';
   const pr=document.getElementById('iprio');
-  pr.innerHTML=(IP.length?IP:[{name:'Звичайний'}]).map(p=>`<option ${p.is_default?'selected':''}>${esc(p.name)}</option>`).join('');
+  const prioList=(IP&&IP.length)?IP:[{name:'Звичайний',is_default:true},{name:'Підвищений'},{name:'Високий'},{name:'Критичний'},{name:'Терміновий'}];
+  pr.innerHTML=prioList.map(p=>`<option ${p.is_default||p.name==='Звичайний'?'selected':''}>${esc(p.name)}</option>`).join('');
+  pr.disabled=false;
   const wrap=document.getElementById('inc-who-wrap'),srcW=document.getElementById('inc-src-wrap'),hint=document.getElementById('inc-hint');
   const guestW=document.getElementById('inc-guest-wrap');
   if(isAdmin()){
@@ -929,8 +954,13 @@ function openInc(){
     hint.innerText='Від свого імені.';
   } else {
     wrap.style.display='none';srcW.style.display='none';
-    if(guestW){guestW.style.display='';document.getElementById('iguest').value='';}
-    hint.innerText="Неавторизований режим: вкажіть ім'я та опис проблеми.";
+    if(guestW){
+      guestW.style.display='';
+      document.getElementById('iguest').value='';
+      const em=document.getElementById('iguest-email'); if(em)em.value='';
+      const sl=document.getElementById('iguest-slack'); if(sl)sl.value='';
+    }
+    hint.innerText="Guest: ім'я та email обов'язкові. Пріоритет можна обрати будь-який.";
   }
   document.getElementById('m-inc').style.display='flex';
 }
@@ -945,15 +975,22 @@ async function subInc(){
   } else if(U){
     who=U.name; role=U.role||'user'; createdBy=U.name; source='self';
   } else {
-    createdBy=(document.getElementById('iguest').value||'').trim()||'гість';
+    createdBy=(document.getElementById('iguest').value||'').trim();
+    if(!createdBy){alert("Вкажіть ваше ім'я");return}
+    const em=(document.getElementById('iguest-email')&&document.getElementById('iguest-email').value||'').trim();
+    if(!em){alert('Вкажіть email для сповіщень');return}
     role='guest'; source='guest'; who='';
   }
   const body={
     user_name:who, date:document.getElementById('id').value, type:document.getElementById('it').value,
     duration_minutes:+document.getElementById('im').value||15, description:desc,
     role, created_by:createdBy, priority:document.getElementById('iprio').value||'Звичайний',
-    source, reported_for:who
+    source, reported_for:who,
+    reporter_name: createdBy,
+    reporter_email: (!U && document.getElementById('iguest-email')) ? (document.getElementById('iguest-email').value||'').trim() : (U&&U.email)||'',
+    reporter_slack: (!U && document.getElementById('iguest-slack')) ? (document.getElementById('iguest-slack').value||'').trim() : ''
   };
+  if(U){ body.reporter_name=U.name; body.reporter_email=U.email||''; }
   const r=await fetch('/api/incidents',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   if(r.ok){const j=await r.json();alert(j.message||'Зафіксовано');cl('m-inc');load()}
   else alert(await r.text()||'Помилка');
