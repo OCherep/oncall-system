@@ -666,6 +666,9 @@ func handleAdminTasks(w http.ResponseWriter, r *http.Request) {
 		db.Exec(`UPDATE daily_tasks SET status=?, priority=?, work_started_at=?, total_minutes=?, user_name=?,
 			date=?, task_description=?, responsible=?, visible_from=?, due_date=? WHERE id=?`,
 			newStatus, newPriority, workArg, total, userName, date, desc, resp, vis, due, t.ID)
+		if newStatus != cur.Status {
+			openTaskStatusLog(t.ID, newStatus, "admin")
+		}
 		// Multi-assignees
 		if arr, ok := raw["assignees"].([]interface{}); ok {
 			names := []string{}
