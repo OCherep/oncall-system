@@ -429,6 +429,15 @@ func initDB() {
 			is_system INTEGER DEFAULT 0,
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)`,
+		`CREATE TABLE IF NOT EXISTS task_status_log (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			task_id INTEGER NOT NULL,
+			status TEXT NOT NULL,
+			started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			ended_at DATETIME,
+			minutes INTEGER DEFAULT 0,
+			changed_by TEXT DEFAULT ''
+		)`,
 		`CREATE TABLE IF NOT EXISTS allowed_ips (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			cidr TEXT NOT NULL UNIQUE,
@@ -524,6 +533,7 @@ func main() {
 	http.HandleFunc("/api/admin/project/query", withIPAllow(handleReadOnlyQuery))
 	http.HandleFunc("/api/admin/regenerate-shifts", withIPAllow(handleRegenerateShifts))
 	http.HandleFunc("/api/comments", withIPAllow(handleComments))
+	http.HandleFunc("/api/task-status-log", withIPAllow(handleTaskStatusLog))
 	http.HandleFunc("/api/admin/queues", withIPAllow(handleAdminQueues))
 	http.HandleFunc("/api/admin/allowed-ips", withIPAllow(handleAdminAllowedIPs))
 
