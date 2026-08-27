@@ -125,6 +125,20 @@ textarea{min-height:60px;resize:vertical}
 .day-task-line:last-child{border-bottom:none}
 .day-task-meta{color:#94a3b8;font-size:11px;margin-top:4px}
 
+
+.wl-table{width:100%;border-collapse:collapse;font-size:13px}
+.wl-table th{text-align:left;padding:8px;background:var(--table-head,#0f172a);color:#94a3b8}
+.wl-table td{padding:8px;border-bottom:1px solid var(--b,#334155);vertical-align:top}
+.wl-row{cursor:pointer}
+.wl-row:hover{background:rgba(59,130,246,.08)}
+.wl-row.open{background:rgba(59,130,246,.12)}
+.wl-detail{display:none;padding:8px 12px 12px;background:rgba(15,23,42,.35)}
+.wl-detail.open{display:block}
+.wl-tools{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 10px}
+.wl-tools .btn{padding:4px 10px;font-size:12px}
+.mc-sticky-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;position:sticky;top:0;z-index:5;background:var(--card,#1e293b);padding:4px 0 10px;margin-bottom:4px;border-bottom:1px solid var(--b,#334155)}
+.mc-sticky-head h3{margin:0}
+
 </style></head><body>
 <div class="navbar"><div class="nav-l"><strong>On-Call</strong><span id="user-info" style="color:#64748b;font-size:13px"></span></div>
 <div class="nav-r">
@@ -186,11 +200,14 @@ textarea{min-height:60px;resize:vertical}
 <button class="btn" onclick="subTask()">Створити</button>
 <button class="btn btn-s" onclick="cl('m-task')">Скасувати</button></div></div>
 
-<div class="modal" id="m-day"><div class="mc"><h3 id="dt">День</h3>
+<div class="modal" id="m-day"><div class="mc" style="position:relative">
+<div class="mc-sticky-head"><div><h3 id="dt" style="margin:0">День</h3></div>
+<button type="button" class="btn" onclick="cl('m-day')">Закрити</button></div>
+
 <div id="ds"></div><h4>Відсутності</h4><div id="da"></div>
 <h4>Задачі</h4><div class="table-wrap" id="dtasks"></div>
 <h4 style="margin-top:16px">Навантаження виконавців (на цей день)</h4>
-<p style="font-size:12px;color:#94a3b8;margin:4px 0 8px">Задачі, активні на обрану дату · мітки = час у статусі · дати: постанова / due / остання зміна</p>
+<p style="font-size:12px;color:#94a3b8;margin:4px 0 8px">Рядок = виконавець + суми часу по статусах. Клік розгортає задачі. «Розгорнути усі» / «Згорнути усі».</p>
 <div id="day-by-user"><em style="color:#94a3b8">—</em></div>
 <h4>Звернення</h4>
 <div class="fg" style="max-width:220px"><label>Фільтр</label><select id="inc-filter" onchange="renderDayIncs()"><option value="">Усі</option></select></div>
@@ -733,29 +750,82 @@ async function renderDayByUser(ds){
     if(!by[u]) by[u]=[];
     by[u].push(t);
   });
-  let h='';
-  Object.keys(by).sort().forEach(u=>{
-    h+=`<div class="day-user-block"><h5>${esc(u)} <span style="color:#94a3b8;font-weight:400">(${by[u].length})</span></h5>`;
+  const users=Object.keys(by).sort();
+  function userStatusSums(list){
+    const sums={};
+    list.forEach(t=>{
+      const info=logs[String(t.id)]||logs[t.id]||{};
+      const bd=info.breakdown||[];
+      if(bd.length){
+        bd.forEach(b=>{
+          const st=b.status||'Нова';
+          sums[st]=(sums[st]||0)+(parseInt(b.minutes,10)||0);
+        });
+      } else {
+        const st=t.status||'Нова';
+        sums[st]=(sums[st]||0)+(parseInt(t.total_minutes,10)||0);
+      }
+    });
+    return sums;
+  }
+  const statusOrder=['Нова','У роботі','На паузі','До перевірки','Виконана','Перевідкрита','Архів'];
+  let h=`<div class="wl-tools">
+    <button type="button" class="btn btn-s" onclick="event.stopPropagation();wlExpandAll('day-by-user')">Розгорнути усі</button>
+    <button type="button" class="btn btn-s" onclick="event.stopPropagation();wlCollapseAll('day-by-user')">Згорнути усі</button>
+  </div>
+  <table class="wl-table"><thead><tr><th>Виконавець</th><th>Підсумок по статусах (час)</th></tr></thead><tbody>`;
+  users.forEach((u,i)=>{
+    const sums=userStatusSums(by[u]);
+    const keys=[...statusOrder.filter(k=>sums[k]!=null),...Object.keys(sums).filter(k=>!statusOrder.includes(k))];
+    const chips=keys.map(k=>`<span class="st-chip ${statusChipClass(k)}">${esc(k)} <span class="m">${formatMinsShort(sums[k])}</span></span>`).join(' ');
+    const uid='wl-day-'+i;
+    h+=`<tr class="wl-row" data-wl="${uid}" onclick="wlToggle('${uid}')">
+      <td><b>${esc(u)}</b> <span style="color:#94a3b8">(${by[u].length})</span></td>
+      <td>${chips||'—'}</td>
+    </tr>
+    <tr class="wl-detail-row"><td colspan="2" style="padding:0">
+      <div class="wl-detail" id="${uid}">`;
     by[u].forEach(t=>{
       const info=logs[String(t.id)]||logs[t.id]||{};
       const bd=info.breakdown||[];
-      let chips='';
+      let tchips='';
       if(bd.length){
-        chips=bd.map(b=>`<span class="st-chip ${statusChipClass(b.status)}">${esc(b.status)} <span class="m">${formatMinsShort(b.minutes)}</span></span>`).join('');
+        tchips=bd.map(b=>`<span class="st-chip ${statusChipClass(b.status)}">${esc(b.status)} <span class="m">${formatMinsShort(b.minutes)}</span></span>`).join('');
       } else {
-        chips=`<span class="st-chip ${statusChipClass(t.status)}">${esc(t.status||'Нова')} <span class="m">${formatMinsShort(t.total_minutes)}</span></span>`;
+        tchips=`<span class="st-chip ${statusChipClass(t.status)}">${esc(t.status||'Нова')} <span class="m">${formatMinsShort(t.total_minutes)}</span></span>`;
       }
       const last=info.last_activity||t.created_at||'—';
       h+=`<div class="day-task-line">
         <div><b>#${t.id}</b> ${esc(t.task_description||'')}</div>
-        <div style="margin-top:4px">${chips}</div>
+        <div style="margin-top:4px">${tchips}</div>
         <div class="day-task-meta">постанова: ${esc(t.date||'—')} · due: ${esc(t.due_date||'—')} · остання зміна: ${esc(last)}</div>
       </div>`;
     });
-    h+='</div>';
+    h+=`</div></td></tr>`;
   });
+  h+='</tbody></table>';
   el.innerHTML=h;
 }
+function wlToggle(id){
+  const d=document.getElementById(id);
+  if(!d) return;
+  const open=d.classList.toggle('open');
+  const row=document.querySelector('tr.wl-row[data-wl="'+id+'"]');
+  if(row) row.classList.toggle('open', open);
+}
+function wlExpandAll(rootId){
+  const root=document.getElementById(rootId);
+  if(!root) return;
+  root.querySelectorAll('.wl-detail').forEach(d=>d.classList.add('open'));
+  root.querySelectorAll('tr.wl-row').forEach(r=>r.classList.add('open'));
+}
+function wlCollapseAll(rootId){
+  const root=document.getElementById(rootId);
+  if(!root) return;
+  root.querySelectorAll('.wl-detail').forEach(d=>d.classList.remove('open'));
+  root.querySelectorAll('tr.wl-row').forEach(r=>r.classList.remove('open'));
+}
+
 
 function day(ds){
   _day=ds;document.getElementById('dt').innerText='День: '+ds;
