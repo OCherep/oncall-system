@@ -515,7 +515,7 @@ func handleGetData(w http.ResponseWriter, r *http.Request) {
 		COALESCE(datetime(created_at,'localtime'), datetime('now','localtime')),
 		COALESCE(status,'Нове'), COALESCE(priority,'Звичайний'), COALESCE(source,'self'),
 		COALESCE(total_minutes,0), COALESCE(created_by,''), COALESCE(reported_for,''),
-		COALESCE(converted_to_task_id,0)
+		COALESCE(converted_to_task_id,0), COALESCE(reporter_name,''), COALESCE(reporter_email,''), COALESCE(reporter_slack,'')
 		FROM incidents WHERE date LIKE ? AND COALESCE(converted_to_task_id,0)=0
 		ORDER BY created_at ASC`, monthPattern)
 	incidents := make(map[string][]IncidentReport)
@@ -528,7 +528,8 @@ func handleGetData(w http.ResponseWriter, r *http.Request) {
 		for incRows.Next() {
 			var inc IncidentReport
 			incRows.Scan(&inc.ID, &inc.UserName, &inc.Date, &inc.Type, &inc.DurationMinutes, &inc.Description, &inc.CreatedAt,
-				&inc.Status, &inc.Priority, &inc.Source, &inc.TotalMinutes, &inc.CreatedBy, &inc.ReportedFor, &inc.ConvertedToTaskID)
+				&inc.Status, &inc.Priority, &inc.Source, &inc.TotalMinutes, &inc.CreatedBy, &inc.ReportedFor, &inc.ConvertedToTaskID,
+				&inc.ReporterName, &inc.ReporterEmail, &inc.ReporterSlack)
 			if inc.TotalMinutes == 0 {
 				inc.TotalMinutes = inc.DurationMinutes
 			}
@@ -788,7 +789,7 @@ func handleIncidents(w http.ResponseWriter, r *http.Request) {
 			COALESCE(datetime(created_at,'localtime'),''),
 			COALESCE(status,'Нове'), COALESCE(priority,'Звичайний'), COALESCE(source,'self'),
 			COALESCE(total_minutes,0), COALESCE(created_by,''), COALESCE(reported_for,''), COALESCE(external_id,''),
-			COALESCE(converted_to_task_id,0)
+			COALESCE(converted_to_task_id,0), COALESCE(reporter_name,''), COALESCE(reporter_email,''), COALESCE(reporter_slack,'')
 			FROM incidents WHERE 1=1`
 		args := []interface{}{}
 		if status != "" && status != "all" {
@@ -811,7 +812,8 @@ func handleIncidents(w http.ResponseWriter, r *http.Request) {
 		for rows.Next() {
 			var inc IncidentReport
 			rows.Scan(&inc.ID, &inc.UserName, &inc.Date, &inc.Type, &inc.DurationMinutes, &inc.Description, &inc.CreatedAt,
-				&inc.Status, &inc.Priority, &inc.Source, &inc.TotalMinutes, &inc.CreatedBy, &inc.ReportedFor, &inc.ExternalID, &inc.ConvertedToTaskID)
+				&inc.Status, &inc.Priority, &inc.Source, &inc.TotalMinutes, &inc.CreatedBy, &inc.ReportedFor, &inc.ExternalID, &inc.ConvertedToTaskID,
+				&inc.ReporterName, &inc.ReporterEmail, &inc.ReporterSlack)
 			list = append(list, inc)
 		}
 		if list == nil {
@@ -849,6 +851,16 @@ func handleIncidents(w http.ResponseWriter, r *http.Request) {
 		if guest && inc.Source == "" {
 			inc.Source = "guest"
 		}
+		if guest {
+			if strings.TrimSpace(inc.ReporterEmail) == "" {
+				http.Error(w, "Для гостьового звернення обов'язковий email", http.StatusBadRequest)
+				return
+			}
+			if strings.TrimSpace(inc.ReporterName) == "" {
+				http.Error(w, "Вкажіть ваше ім'я", http.StatusBadRequest)
+				return
+			}
+		}
 		if inc.Source == "" {
 			inc.Source = "self"
 		}
@@ -882,17 +894,25 @@ func handleIncidents(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		res, err := db.Exec(`INSERT INTO incidents (user_name, date, type, duration_minutes, description, created_at,
-			status, priority, source, total_minutes, created_by, reported_for)
-			VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?)`,
+			status, priority, source, total_minutes, created_by, reported_for, reporter_name, reporter_email, reporter_slack)
+			VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			inc.UserName, inc.Date, inc.Type, inc.DurationMinutes, inc.Description,
-			inc.Status, inc.Priority, inc.Source, inc.TotalMinutes, inc.CreatedBy, inc.ReportedFor)
+			inc.Status, inc.Priority, inc.Source, inc.TotalMinutes, inc.CreatedBy, inc.ReportedFor,
+			inc.ReporterName, inc.ReporterEmail, inc.ReporterSlack)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 		id, _ := res.LastInsertId()
 		inc.ID = int(id)
-		addSystemComment("incident", int(id), fmt.Sprintf("Створено (%s)", inc.Source))
+		who := strings.TrimSpace(inc.ReporterName)
+		if who == "" {
+			who = strings.TrimSpace(inc.CreatedBy)
+		}
+		if who == "" {
+			who = inc.Source
+		}
+		addSystemComment("incident", int(id), fmt.Sprintf("Створено %s (%s)", who, inc.Source))
 		result := map[string]interface{}{"status": "ok", "as_task": false, "id": id}
 		if isFuture {
 			tid, copied, cerr := convertIncidentToTask(inc, inc.CreatedBy)
@@ -951,6 +971,10 @@ func handleIncidents(w http.ResponseWriter, r *http.Request) {
 				addSystemComment("incident", id, fmt.Sprintf("Виконавець: «%s» → «%s»", cur.UserName, newUser))
 				logAudit(actor, "ASSIGN_INCIDENT", clientIP(r), fmt.Sprintf("id=%d user=%s", id, newUser))
 				cur.UserName = newUser
+				go notifyIncidentUpdate(cur, fmt.Sprintf("Звернення #%d призначено на %s", id, newUser))
+				if newUser != "" {
+					go notifyUserSlack(newUser, fmt.Sprintf("Вам призначено звернення #%d: %s", id, cur.Description))
+				}
 			}
 		}
 
@@ -1007,6 +1031,7 @@ func handleIncidents(w http.ResponseWriter, r *http.Request) {
 		if newStatus != oldStatus {
 			db.Exec(`UPDATE incidents SET status=? WHERE id=?`, newStatus, id)
 			addSystemComment("incident", id, fmt.Sprintf("Статус: %s → %s", oldStatus, newStatus))
+			go notifyIncidentUpdate(cur, fmt.Sprintf("Звернення #%d: статус %s → %s", id, oldStatus, newStatus))
 			if cur.ExternalID != "" {
 				syncIncidentStatusToJira(cur.ExternalID, oldStatus, newStatus)
 			}
@@ -1360,6 +1385,11 @@ func handleComments(w http.ResponseWriter, r *http.Request) {
 		c.AuthorName = author
 		c.IsSystem = false
 		logAudit(author, "ADD_COMMENT", clientIP(r), fmt.Sprintf("%s#%d", c.EntityType, c.EntityID))
+		if c.EntityType == "incident" {
+			go notifyIncidentComment(c.EntityID, author, c.Body)
+		} else if c.EntityType == "task" {
+			go notifyTaskComment(c.EntityID, author, c.Body)
+		}
 		json.NewEncoder(w).Encode(c)
 	default:
 		http.Error(w, "Method not allowed", 405)
