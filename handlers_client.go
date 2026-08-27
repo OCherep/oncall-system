@@ -9,6 +9,57 @@ import (
 	"time"
 )
 
+
+func openTaskStatusLog(taskID int, status, by string) {
+	// close any open segment
+	var openID int
+	var started string
+	err := db.QueryRow(`SELECT id, started_at FROM task_status_log WHERE task_id=? AND ended_at IS NULL ORDER BY id DESC LIMIT 1`, taskID).
+		Scan(&openID, &started)
+	if err == nil && openID > 0 {
+		// minutes between started and now
+		var mins int
+		db.QueryRow(`SELECT CAST((julianday('now') - julianday(started_at)) * 24 * 60 AS INTEGER) FROM task_status_log WHERE id=?`, openID).Scan(&mins)
+		if mins < 0 {
+			mins = 0
+		}
+		db.Exec(`UPDATE task_status_log SET ended_at=CURRENT_TIMESTAMP, minutes=? WHERE id=?`, mins, openID)
+	}
+	db.Exec(`INSERT INTO task_status_log (task_id, status, started_at, changed_by) VALUES (?,?,CURRENT_TIMESTAMP,?)`, taskID, status, by)
+}
+
+func taskStatusBreakdown(taskID int) []map[string]interface{} {
+	rows, err := db.Query(`SELECT status, COALESCE(SUM(minutes),0),
+		MAX(CASE WHEN ended_at IS NULL THEN CAST((julianday('now') - julianday(started_at)) * 24 * 60 AS INTEGER) ELSE 0 END)
+		FROM task_status_log WHERE task_id=? GROUP BY status`, taskID)
+	if err != nil || rows == nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []map[string]interface{}
+	for rows.Next() {
+		var st string
+		var sum, openExtra int
+		rows.Scan(&st, &sum, &openExtra)
+		total := sum + openExtra
+		if total < 0 {
+			total = 0
+		}
+		out = append(out, map[string]interface{}{"status": st, "minutes": total})
+	}
+	return out
+}
+
+func taskLastActivity(taskID int) string {
+	var ts string
+	err := db.QueryRow(`SELECT COALESCE(datetime(MAX(started_at),'localtime'),'') FROM task_status_log WHERE task_id=?`, taskID).Scan(&ts)
+	if err != nil {
+		return ""
+	}
+	return ts
+}
+
+
 func handleLogin(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -520,6 +571,7 @@ func convertIncidentToTask(inc IncidentReport, actor string) (int64, int, error)
 	copied := copyComments("incident", inc.ID, "task", int(tid))
 	db.Exec(`UPDATE incidents SET converted_to_task_id=?, status='Вирішено' WHERE id=?`, tid, inc.ID)
 	addSystemComment("incident", inc.ID, fmt.Sprintf("Переведено в задачу #%d", tid))
+	openTaskStatusLog(int(tid), "Нова", actor)
 	addSystemComment("task", int(tid), fmt.Sprintf("Створено зі звернення #%d (скопійовано коментарів: %d)", inc.ID, copied))
 	return tid, copied, nil
 }
@@ -900,6 +952,11 @@ func handleDailyTasks(w http.ResponseWriter, r *http.Request) {
 		}
 		id, _ := res.LastInsertId()
 		t.ID = int(id)
+		st := t.Status
+		if st == "" {
+			st = "Нова"
+		}
+		openTaskStatusLog(t.ID, st, t.CreatedBy)
 		logAudit(t.UserName, "CREATE_DAILY_TASK", clientIP(r), t.TaskDescription)
 		w.WriteHeader(http.StatusCreated)
 		json.NewEncoder(w).Encode(t)
@@ -1043,6 +1100,7 @@ func handleDailyTasks(w http.ResponseWriter, r *http.Request) {
 		t.Status, t.Priority, t.TotalMinutes, t.WorkStartedAt = newStatus, newPriority, total, workStarted
 		if newStatus != cur.Status {
 			addSystemComment("task", t.ID, fmt.Sprintf("Статус: %s → %s", cur.Status, newStatus))
+			openTaskStatusLog(t.ID, newStatus, actor)
 		}
 		logAudit(userName, "UPDATE_DAILY_TASK", clientIP(r), fmt.Sprintf("id=%d status=%s priority=%s", t.ID, newStatus, newPriority))
 		json.NewEncoder(w).Encode(t)
@@ -1214,5 +1272,45 @@ func handleAdminQueues(w http.ResponseWriter, r *http.Request) {
 		"tasks_overdue":             overdue,
 		"tasks_due_today":           dueToday,
 		"incidents_today_by_status": incByStatus,
+	})
+}
+
+
+func handleTaskStatusLog(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", 405)
+		return
+	}
+	// ?task_id= or ?ids=1,2,3 or ?date=YYYY-MM-DD (all tasks relevant that day)
+	if ids := r.URL.Query().Get("ids"); ids != "" {
+		out := map[string]interface{}{}
+		for _, p := range strings.Split(ids, ",") {
+			p = strings.TrimSpace(p)
+			if p == "" {
+				continue
+			}
+			var id int
+			fmt.Sscanf(p, "%d", &id)
+			if id > 0 {
+				out[p] = map[string]interface{}{
+					"breakdown":    taskStatusBreakdown(id),
+					"last_activity": taskLastActivity(id),
+				}
+			}
+		}
+		json.NewEncoder(w).Encode(out)
+		return
+	}
+	idStr := r.URL.Query().Get("task_id")
+	var id int
+	fmt.Sscanf(idStr, "%d", &id)
+	if id <= 0 {
+		http.Error(w, "task_id or ids required", 400)
+		return
+	}
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"breakdown":     taskStatusBreakdown(id),
+		"last_activity": taskLastActivity(id),
 	})
 }
