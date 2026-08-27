@@ -579,7 +579,7 @@ function themeToggleHTML(){
                 container.innerHTML = `
                     <div class="card">
                         <div class="card-header"><h2>Члени команди</h2>
-                        <button class="btn btn-primary" onclick="showAddUser()">+ Користувач</button></div>
+                        <button class="btn btn-primary" onclick="openUserModal()">+ Користувач</button></div>
                         <table><thead><tr><th>Ім'я</th><th>Логін</th><th>Email</th><th>Slack</th><th>Телефон</th><th>Роль</th><th>Команда</th><th>On-call</th><th>Дії</th></tr></thead>
                         <tbody id="users-table"></tbody></table>
                     </div>
@@ -696,75 +696,88 @@ function themeToggleHTML(){
             try { return await res.json(); } catch (e) { console.error(e); return []; }
         }
         async function loadDictionariesData() {
-            const [uRes, rRes, aRes] = await Promise.all([
-                fetch('/api/admin/users'),
-                fetch('/api/admin/roles'),
-                fetch('/api/admin/absence-types')
-            ]);
-            loadedUsers = await safeJson(uRes);
-            loadedRoles = await safeJson(rRes);
-            loadedAbsTypes = await safeJson(aRes);
-            if (!Array.isArray(loadedUsers)) loadedUsers = [];
-            if (!Array.isArray(loadedRoles)) loadedRoles = [];
-            if (!Array.isArray(loadedAbsTypes)) loadedAbsTypes = [];
+            try {
+                const [uRes, rRes, aRes] = await Promise.all([
+                    fetch('/api/admin/users'),
+                    fetch('/api/admin/roles'),
+                    fetch('/api/admin/absence-types')
+                ]);
+                loadedUsers = await safeJson(uRes);
+                loadedRoles = await safeJson(rRes);
+                loadedAbsTypes = await safeJson(aRes);
+                if (!Array.isArray(loadedUsers)) loadedUsers = [];
+                if (!Array.isArray(loadedRoles)) loadedRoles = [];
+                if (!Array.isArray(loadedAbsTypes)) loadedAbsTypes = [];
 
-            // Render Users
-            document.getElementById('users-table').innerHTML = (loadedUsers || []).map(u => `
-                <tr>
-                    <td>${u.name||''}</td>
-                    <td>${u.username||''}</td>
-                    <td>${u.email||'—'}</td>
-                    <td><code>${u.slack_id||'—'}</code></td>
-                    <td>${u.phone||'—'}</td>
-                    <td>${u.role||''}</td>
-                    <td>${u.team_role||'—'}</td>
-                    <td>${u.is_oncall ? 'Так' : 'Ні'}</td>
-                    <td>
-                        <button class="btn" onclick="editUser(${u.id})">Редагувати</button>
-                        <button class="btn btn-danger" onclick="deleteUser(${u.id})">Видалити</button>
-                    </td>
-                </tr>
-            `).join('');
+                const ut = document.getElementById('users-table');
+                if (ut) {
+                    ut.innerHTML = loadedUsers.length ? loadedUsers.map(u => `
+                        <tr>
+                            <td>${escHtml(u.name)}</td>
+                            <td>${escHtml(u.username)}</td>
+                            <td>${escHtml(u.email||'—')}</td>
+                            <td><code>${escHtml(u.slack_id||'—')}</code></td>
+                            <td>${escHtml(u.phone||'—')}</td>
+                            <td>${escHtml(u.role||'')}</td>
+                            <td>${escHtml(u.team_role||'—')}</td>
+                            <td>${u.is_oncall ? 'Так' : 'Ні'}</td>
+                            <td>
+                                <button class="btn" onclick="editUser(${u.id})">Редагувати</button>
+                                <button class="btn btn-danger" onclick="deleteUser(${u.id})">Видалити</button>
+                            </td>
+                        </tr>`).join('') : '<tr><td colspan="9">Немає користувачів</td></tr>';
+                }
 
-            // Render Roles
-            document.getElementById('roles-table').innerHTML = (loadedRoles || []).map(r => `
-                <tr>
-                    <td>${r.id}</td>
-                    <td>${r.name}</td>
-                    <td>
-                        <button class="btn" onclick="editRole(${r.id}, '${r.name}')">Редагувати</button>
-                        <button class="btn btn-danger" onclick="deleteRole(${r.id})">Видалити</button>
-                    </td>
-                </tr>
-            `).join('');
-            const roleSelect = document.getElementById('user-team-role');
-            if (roleSelect) {
-                roleSelect.innerHTML = '<option value="">— без ролі —</option>' +
-                    (loadedRoles||[]).map(r => `<option value="${r.id}">${r.name}</option>`).join('');
-            }
+                const rt = document.getElementById('roles-table');
+                if (rt) {
+                    rt.innerHTML = loadedRoles.length ? loadedRoles.map(r => `
+                        <tr>
+                            <td>${r.id}</td>
+                            <td>${escHtml(r.name)}</td>
+                            <td>
+                                <button class="btn" onclick="editRole(${r.id}, '${String(r.name||'').replace(/'/g,"\\'")}')">Редагувати</button>
+                                <button class="btn btn-danger" onclick="deleteRole(${r.id})">Видалити</button>
+                            </td>
+                        </tr>`).join('') : '<tr><td colspan="3">Немає ролей</td></tr>';
+                }
 
+                fillTeamRoleSelect();
 
-            // Render Absence Types
-            document.getElementById('absence-types-table').innerHTML = (loadedAbsTypes || []).map(a => `
-                <tr>
-                    <td>${a.id}</td>
-                    <td>${a.name}</td>
-                    <td><code>${a.code}</code></td>
-                    <td>
-                        <button class="btn" onclick="editAbsType(${a.id}, '${a.name}', '${a.code}')">Редагувати</button>
-                        <button class="btn btn-danger" onclick="deleteAbsType(${a.id})">Видалити</button>
-                    </td>
-                </tr>
-            `).join('');
-
-            // Populate User Team Roles select dropdown
-            const roleSelect = document.getElementById('user-team-role');
-            if (roleSelect) {
-                roleSelect.innerHTML = '<option value="">— без ролі —</option>' + (loadedRoles || []).map(r => `<option value="${r.id}">${r.name}</option>`).join('');
+                const at = document.getElementById('absence-types-table');
+                if (at) {
+                    at.innerHTML = loadedAbsTypes.length ? loadedAbsTypes.map(a => `
+                        <tr>
+                            <td>${a.id}</td>
+                            <td>${escHtml(a.name)}</td>
+                            <td><code>${escHtml(a.code)}</code></td>
+                            <td>
+                                <button class="btn" onclick="editAbsType(${a.id}, '${String(a.name||'').replace(/'/g,"\\'")}', '${String(a.code||'').replace(/'/g,"\\'")}')">Редагувати</button>
+                                <button class="btn btn-danger" onclick="deleteAbsType(${a.id})">Видалити</button>
+                            </td>
+                        </tr>`).join('') : '<tr><td colspan="4" style="color:#64748b">Типів немає — натисніть «+ Тип»</td></tr>';
+                }
+            } catch (e) {
+                console.error('loadDictionariesData', e);
+                alert('Помилка довідників: ' + e.message);
             }
         }
 
-        // Modal Helpers
+        function escHtml(s) {
+            return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+        }
+
+        function fillTeamRoleSelect(selectedId) {
+            const roleSelect = document.getElementById('user-team-role');
+            if (!roleSelect) return;
+            const roles = Array.isArray(loadedRoles) ? loadedRoles : [];
+            roleSelect.innerHTML = '<option value="">— без ролі —</option>' +
+                roles.map(r => `<option value="${r.id}">${escHtml(r.name)}</option>`).join('');
+            if (selectedId != null && selectedId !== '' && selectedId !== 0) {
+                roleSelect.value = String(selectedId);
+            }
+        }
+
+// Modal Helpers
         function closeModal(id) { document.getElementById(id).style.display = 'none'; }
 
         // User CRUD
@@ -775,6 +788,10 @@ function themeToggleHTML(){
             document.getElementById('user-password').value = '';
             document.getElementById('user-role').value = 'user';
             document.getElementById('user-is-oncall').checked = true;
+            fillTeamRoleSelect('');
+            const ue = document.getElementById('user-email'); if (ue) ue.value = '';
+            const us = document.getElementById('user-slack'); if (us) us.value = '';
+            const up = document.getElementById('user-phone'); if (up) up.value = '';
             document.getElementById('user-modal-title').innerText = 'Додати користувача';
             document.getElementById('user-modal').style.display = 'flex';
         }
@@ -783,19 +800,15 @@ function themeToggleHTML(){
             const u = loadedUsers.find(x => x.id === id);
             if (!u) return;
             document.getElementById('user-id').value = u.id;
-            document.getElementById('user-name').value = u.name;
-            document.getElementById('user-username').value = u.username;
+            document.getElementById('user-name').value = u.name || '';
+            document.getElementById('user-username').value = u.username || '';
             document.getElementById('user-password').value = '';
-            document.getElementById('user-role').value = u.role;
-            const trs = document.getElementById('user-team-role');
-            if (trs) {
-              // ensure options loaded
-              if (Array.isArray(loadedRoles) && trs.options.length <= 1) {
-                trs.innerHTML = '<option value="">—</option>' + loadedRoles.map(r => `<option value="${r.id}">${r.name}</option>`).join('');
-              }
-              trs.value = (u.team_role_id != null && u.team_role_id !== '') ? String(u.team_role_id) : '';
-            }
-            document.getElementById('user-is-oncall').checked = u.is_oncall;
+            document.getElementById('user-role').value = u.role || 'user';
+            document.getElementById('user-is-oncall').checked = !!u.is_oncall;
+            const ue = document.getElementById('user-email'); if (ue) ue.value = u.email || '';
+            const us = document.getElementById('user-slack'); if (us) us.value = u.slack_id || '';
+            const up = document.getElementById('user-phone'); if (up) up.value = u.phone || '';
+            fillTeamRoleSelect(u.team_role_id);
             document.getElementById('user-modal-title').innerText = 'Редагувати користувача';
             document.getElementById('user-modal').style.display = 'flex';
         }
@@ -809,7 +822,10 @@ function themeToggleHTML(){
                 password: document.getElementById('user-password').value,
                 role: document.getElementById('user-role').value,
                 team_role_id: parseInt(document.getElementById('user-team-role').value) || null,
-                is_oncall: document.getElementById('user-is-oncall').checked
+                is_oncall: document.getElementById('user-is-oncall').checked,
+                email: (document.getElementById('user-email')||{}).value||'',
+                slack_id: (document.getElementById('user-slack')||{}).value||'',
+                phone: (document.getElementById('user-phone')||{}).value||''
             };
             const method = id ? 'PUT' : 'POST';
             await fetch('/api/admin/users', { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
@@ -1223,10 +1239,7 @@ function themeToggleHTML(){
                 try {
                     const ir = await fetch('/api/incidents?limit=200');
                     const all = await safeJson(ir);
-                    if (Array.isArray(all)) {
-                        window._adminIncsCache = all;
-                        inc = all.find(x => x.id === id || x.id === +id);
-                    }
+                    if (Array.isArray(all)) { window._adminIncsCache = all; inc = all.find(x => x.id === id || x.id === +id); }
                 } catch (e) {}
             }
             const st = (inc && inc.status) || 'Нове';
@@ -1234,22 +1247,36 @@ function themeToggleHTML(){
             try {
                 const r = await fetch('/api/comments?entity_type=incident&entity_id=' + id);
                 const list = await safeJson(r);
-                let h = '';
-                if (!Array.isArray(list) || !list.length) h = '<p style="color:#94a3b8">Коментарів немає</p>';
-                else h = list.map(c => `<div class="comment ${c.is_system?'sys':''}" style="padding:6px 0;border-bottom:1px solid #334155"><span style="color:#94a3b8;font-size:12px">${(c.author_name||'') } · ${c.created_at||''}</span><div>${(c.body||'').replace(/</g,'&lt;')}</div></div>`).join('');
+                let h = renderCommentsTable(list);
                 if (canCmt) {
                     h += `<div style="display:flex;gap:6px;margin-top:12px;align-items:center">
-                      <input id="admin-inc-cmt-inp" placeholder="Новий коментар…" style="flex:1;padding:8px;border-radius:6px;border:1px solid #475569;background:#0f172a;color:#e2e8f0">
+                      <input id="admin-inc-cmt-inp" placeholder="Новий коментар…" style="flex:1;padding:8px;border-radius:6px;border:1px solid var(--border,#cbd5e1);background:var(--input-bg,#fff);color:var(--text,#0f172a)">
                       <button type="button" class="btn btn-primary" onclick="adminPostIncCmt(${id},'admin-inc-cmt-inp',null)">Надіслати</button>
                     </div>`;
                 } else {
-                    h += '<p style="font-size:12px;color:#94a3b8;margin-top:8px">Звернення закрите (Вирішено/Архів) — нові коментарі недоступні</p>';
+                    h += '<p style="font-size:12px;color:#94a3b8;margin-top:8px">Звернення закрите — нові коментарі недоступні</p>';
                 }
                 body.innerHTML = h;
-                setTimeout(()=>{ const inp=document.getElementById('admin-inc-cmt-inp'); if(inp) inp.focus(); }, 50);
             } catch (e) {
                 body.innerHTML = '<span style="color:#ef4444">'+e+'</span>';
             }
+        }
+        function renderCommentsTable(list) {
+            if (!Array.isArray(list) || !list.length) {
+                return '<p style="color:#94a3b8">Коментарів немає</p>';
+            }
+            let h = `<div class="table-wrap"><table style="width:100%;font-size:13px">
+              <thead><tr><th style="width:28%">Автор / час</th><th>Текст</th><th style="width:90px">Тип</th></tr></thead><tbody>`;
+            list.forEach(c => {
+                const typ = c.is_system ? '<span class="badge badge-secondary">система</span>' : '<span class="badge badge-secondary">коментар</span>';
+                h += `<tr class="${c.is_system?'row-sys':''}">
+                  <td style="white-space:nowrap;vertical-align:top"><b>${escHtml(c.author_name||'')}</b><br><span style="color:#94a3b8;font-size:11px">${escHtml(c.created_at||'')}</span></td>
+                  <td style="vertical-align:top">${escHtml(c.body||'')}</td>
+                  <td style="vertical-align:top">${typ}</td>
+                </tr>`;
+            });
+            h += '</tbody></table></div>';
+            return h;
         }
 async function adminLoadIncCmtInto(elId, id) {
             const el = document.getElementById(elId);
@@ -1257,11 +1284,10 @@ async function adminLoadIncCmtInto(elId, id) {
             try {
                 const r = await fetch('/api/comments?entity_type=incident&entity_id=' + id);
                 const list = await safeJson(r);
-                if (!Array.isArray(list) || !list.length) { el.innerHTML = '<span style="color:#94a3b8">Немає коментарів</span>'; return; }
-                el.innerHTML = list.map(c => `<div style="margin:2px 0"><b>${c.author_name||''}</b> <span style="color:#94a3b8">${c.created_at||''}</span><div>${(c.body||'').replace(/</g,'&lt;')}</div></div>`).join('');
+                el.innerHTML = renderCommentsTable(list);
             } catch (e) { el.textContent = String(e); }
         }
-        async function adminPostIncCmt(id, inputId, reloadElId) {
+async function adminPostIncCmt(id, inputId, reloadElId) {
             const inp = document.getElementById(inputId);
             const body = (inp && inp.value || '').trim();
             if (!body) return;
