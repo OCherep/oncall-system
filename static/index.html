@@ -151,6 +151,69 @@ textarea{min-height:60px;resize:vertical}
 [data-theme="light"] .wl-detail{background:#f8fafc!important}
 [data-theme="light"] .mc-sticky-head{background:var(--card,#fff)!important;color:#0f172a!important}
 
+.mc-sticky-close{
+  display:none;position:sticky;top:8px;z-index:30;
+  float:right;clear:both;margin:0 0 10px 12px;
+  margin-left:auto;
+}
+.mc-sticky-close.show{display:inline-flex!important}
+.mc-has-top-close{position:relative}
+.mc-topbar{
+  display:flex;justify-content:flex-end;align-items:center;
+  position:sticky;top:0;z-index:30;
+  background:inherit;padding:4px 0 8px;margin:0 0 4px;
+  min-height:0;
+}
+.mc-topbar:empty{display:none}
+.mc-topbar .mc-sticky-close{display:none;float:none;position:static;margin:0}
+.mc-topbar .mc-sticky-close.show{display:inline-flex!important}
+
+
+/* Readable task row tones in light theme */
+[data-theme="light"] .task-row-urgent,
+:root:not([data-theme="dark"]) .task-row-urgent{
+  background:#fecaca!important;color:#7f1d1d!important;
+}
+[data-theme="light"] .task-row-urgent td,
+:root:not([data-theme="dark"]) .task-row-urgent td{color:#7f1d1d!important}
+[data-theme="light"] .task-row-due-soon,
+:root:not([data-theme="dark"]) .task-row-due-soon{
+  background:#fed7aa!important;color:#9a3412!important;
+}
+[data-theme="light"] .task-row-due-soon td,
+:root:not([data-theme="dark"]) .task-row-due-soon td{color:#9a3412!important}
+[data-theme="light"] .task-row-new td,
+:root:not([data-theme="dark"]) .task-row-new td{color:#0f172a!important}
+[data-theme="light"] .task-row-ok,
+:root:not([data-theme="dark"]) .task-row-ok{background:#bbf7d0!important;color:#14532d!important}
+[data-theme="light"] .task-row-pause,
+:root:not([data-theme="dark"]) .task-row-pause{background:#bae6fd!important;color:#0c4a6e!important}
+/* Dark theme: light text on dark urgent rows */
+[data-theme="dark"] .task-row-urgent{background:#450a0a!important;color:#fecaca!important}
+[data-theme="dark"] .task-row-urgent td{color:#fecaca!important}
+[data-theme="dark"] .task-row-due-soon{background:#431407!important;color:#fed7aa!important}
+[data-theme="dark"] .task-row-due-soon td{color:#fed7aa!important}
+[data-theme="dark"] .task-row-new td{color:#e2e8f0!important}
+[data-theme="dark"] .modal .mc h3,
+[data-theme="dark"] .modal .mc h4,
+[data-theme="dark"] .modal .mc label,
+[data-theme="dark"] .modal .mc p{color:#e2e8f0!important}
+[data-theme="light"] .modal .mc h3,
+[data-theme="light"] .modal .mc h4,
+:root:not([data-theme="dark"]) .modal .mc h3,
+:root:not([data-theme="dark"]) .modal .mc h4{color:#0f172a!important}
+[data-theme="light"] .modal .mc label,
+:root:not([data-theme="dark"]) .modal .mc label{color:#64748b!important}
+/* System comments readable */
+[data-theme="dark"] .comment .who{color:#94a3b8!important}
+[data-theme="dark"] .comment{color:#e2e8f0!important}
+[data-theme="light"] .comment .who,:root:not([data-theme="dark"]) .comment .who{color:#64748b!important}
+[data-theme="light"] .comment,:root:not([data-theme="dark"]) .comment{color:#0f172a!important}
+/* openCol cards */
+[data-theme="light"] #col-body > div,
+:root:not([data-theme="dark"]) #col-body > div{border-color:#e2e8f0!important;color:#0f172a!important}
+[data-theme="dark"] #col-body > div{border-color:#334155!important;color:#e2e8f0!important}
+
 </style></head><body>
 <div class="navbar"><div class="nav-l"><strong>On-Call</strong><span id="user-info" style="color:#64748b;font-size:13px"></span></div>
 <div class="nav-r">
@@ -213,7 +276,7 @@ textarea{min-height:60px;resize:vertical}
 <button class="btn btn-s" onclick="cl('m-task')">Скасувати</button></div></div>
 
 <div class="modal" id="m-day"><div class="mc" id="mc-day" style="position:relative">
-<button type="button" class="btn mc-sticky-close" id="close-top-m-day" onclick="cl('m-day')">Закрити</button>
+<div class="mc-topbar"><button type="button" class="btn mc-sticky-close" id="close-top-m-day" onclick="cl('m-day')">Закрити</button></div>
 <h3 id="dt" style="margin:0">День</h3>
 
 <div id="ds"></div><h4>Відсутності</h4><div id="da"></div>
@@ -227,13 +290,13 @@ textarea{min-height:60px;resize:vertical}
 <button type="button" class="btn mc-bottom-close" onclick="cl('m-day')">Закрити</button></div></div>
 
 <div class="modal" id="m-person"><div class="mc" id="mc-person">
-<button type="button" class="btn mc-sticky-close" id="close-top-m-person" onclick="cl('m-person')">Закрити</button>
+<div class="mc-topbar"><button type="button" class="btn mc-sticky-close" id="close-top-m-person" onclick="cl('m-person')">Закрити</button></div>
 <h3 id="person-title">Особа</h3>
 <div id="person-body"></div>
 <button type="button" class="btn mc-bottom-close" onclick="cl('m-person')">Закрити</button></div></div>
 
 <div class="modal" id="m-col"><div class="mc" id="mc-col">
-<button type="button" class="btn mc-sticky-close" id="close-top-m-col" onclick="cl('m-col')">Закрити</button>
+<div class="mc-topbar"><button type="button" class="btn mc-sticky-close" id="close-top-m-col" onclick="cl('m-col')">Закрити</button></div>
 <h3 id="col-title">Колонка</h3>
 <div id="col-body"></div>
 <button type="button" class="btn mc-bottom-close" onclick="cl('m-col')">Закрити</button></div></div>
