@@ -913,6 +913,8 @@ func handleIncidents(w http.ResponseWriter, r *http.Request) {
 			who = inc.Source
 		}
 		addSystemComment("incident", int(id), fmt.Sprintf("Створено %s (%s)", who, inc.Source))
+		// Сповіщення: командний канал + Admin (поки розподільник не налаштовано)
+		go notifyNewIncident(inc)
 		result := map[string]interface{}{"status": "ok", "as_task": false, "id": id}
 		if isFuture {
 			tid, copied, cerr := convertIncidentToTask(inc, inc.CreatedBy)
