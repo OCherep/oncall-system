@@ -251,7 +251,13 @@ textarea{min-height:60px;resize:vertical}
 <button class="btn btn-s" onclick="cl('m-abs')">Скасувати</button></div></div>
 
 <div class="modal" id="m-inc"><div class="mc" style="max-width:440px"><h3>Звернення</h3>
-<div class="fg" id="inc-guest-wrap" style="display:none"><label>Ваше ім'я</label><input type="text" id="iguest" placeholder="Як до вас звертатись"></div>
+<div class="fg" id="inc-guest-wrap" style="display:none">
+<label>Ваше ім'я *</label><input type="text" id="iguest" placeholder="Як до вас звертатись" autocomplete="name">
+<label style="margin-top:8px">Email * <span style="font-weight:400;opacity:.8">(для сповіщень про коментарі та статус)</span></label>
+<input type="email" id="iguest-email" placeholder="name@company.com" autocomplete="email">
+<label style="margin-top:8px">Slack <span style="font-weight:400;opacity:.8">(опційно, ID або @username)</span></label>
+<input type="text" id="iguest-slack" placeholder="U0123ABC або @username" autocomplete="off">
+</div>
 <div class="fg" id="inc-who-wrap" style="display:none"><label>Чиє звернення / виконавець</label><select id="iuser"></select></div>
 <div class="fg"><label>Дата</label><input type="date" id="id"></div>
 <div class="fg"><label>Тип</label><select id="it"><option>Звернення</option><option>Інцидент</option><option>Консультація</option></select></div>
@@ -1101,7 +1107,7 @@ function openInc(){
       const em=document.getElementById('iguest-email'); if(em)em.value='';
       const sl=document.getElementById('iguest-slack'); if(sl)sl.value='';
     }
-    hint.innerText="Guest: ім'я та email обов'язкові. Пріоритет можна обрати будь-який.";
+    hint.innerText="Заповніть ім'я та email (обов'язково). Slack — за бажанням. Пріоритет можна обрати будь-який.";
   }
   document.getElementById('m-inc').style.display='flex';
 }
