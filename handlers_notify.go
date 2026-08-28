@@ -341,3 +341,53 @@ func notifyTaskComment(taskID int, author, body string) {
 	}
 }
 
+
+
+// notifyNewIncident — нове звернення: team channel + усі admin (Slack DM / email).
+// Пізніше: відповідальний за розподіл (dispatcher) замість усіх admin.
+func notifyNewIncident(inc IncidentReport) {
+	who := strings.TrimSpace(inc.ReporterName)
+	if who == "" {
+		who = strings.TrimSpace(inc.CreatedBy)
+	}
+	if who == "" {
+		who = inc.Source
+	}
+	assignee := strings.TrimSpace(inc.UserName)
+	prio := inc.Priority
+	if prio == "" {
+		prio = "Звичайний"
+	}
+	msg := fmt.Sprintf("🆕 Звернення #%d [%s]\nАвтор: %s (%s)", inc.ID, prio, who, inc.Source)
+	if inc.ReporterEmail != "" {
+		msg += "\nEmail: " + inc.ReporterEmail
+	}
+	if inc.ReporterSlack != "" {
+		msg += "\nSlack: " + inc.ReporterSlack
+	}
+	if assignee == "" {
+		msg += "\n⚠️ Без виконавця — потрібен розподіл"
+	} else {
+		msg += "\nВиконавець: " + assignee
+	}
+	msg += "\n«" + truncateRunes(inc.Description, 160) + "»"
+	notifyTeam(msg)
+	// DM / email усім admin
+	rows, err := db.Query(`SELECT COALESCE(name,''), COALESCE(slack_id,''), COALESCE(email,'') FROM users WHERE role='admin'`)
+	if err == nil && rows != nil {
+		defer rows.Close()
+		for rows.Next() {
+			var name, slack, email string
+			rows.Scan(&name, &slack, &email)
+			if name != "" {
+				notifyUserSlack(name, msg)
+			}
+			if email != "" {
+				notifyEmail(email, fmt.Sprintf("OnCall: нове звернення #%d", inc.ID), msg)
+			}
+		}
+	}
+	if assignee != "" {
+		notifyUserSlack(assignee, msg)
+	}
+}
