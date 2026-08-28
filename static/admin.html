@@ -530,10 +530,10 @@ function themeToggleHTML(){
                     <div class="card" style="overflow-x:auto">
                         <table>
                             <thead><tr>
-                                <th>ID</th><th>Дата</th><th>Виконавець</th><th>Відп.</th><th>Опис</th>
-                                <th>Статус</th><th>Пріоритет</th><th>Час</th><th>Дії</th>
+                                <th>ID</th><th>Дата</th><th>Автор</th><th>Виконавець</th><th>Статус</th><th>Пріоритет</th>
+                                <th>Source</th><th>Опис</th><th>Хв</th><th>Дії</th>
                             </tr></thead>
-                            <tbody id="admin-tasks-table"><tr><td colspan="9">Завантаження…</td></tr></tbody>
+                            <tbody id="admin-tasks-table"><tr><td colspan="10">Завантаження…</td></tr></tbody>
                         </table>
                     </div>`;
                 loadAdminTasks();
@@ -561,7 +561,7 @@ function themeToggleHTML(){
                                 <th>ID</th><th>Дата</th><th>Виконавець</th><th>Статус</th>
                                 <th>Пріоритет</th><th>Source</th><th>Опис</th><th>Хв</th><th>Дії</th>
                             </tr></thead>
-                            <tbody id="admin-incs-table"><tr><td colspan="9">Завантаження…</td></tr></tbody>
+                            <tbody id="admin-incs-table"><tr><td colspan="10">Завантаження…</td></tr></tbody>
                         </table>
                     </div>
                     <div id="inc-cmt-panel" style="display:none;margin-top:16px" class="card">
@@ -1158,7 +1158,7 @@ function themeToggleHTML(){
             const user = (document.getElementById('inc-filter-user') || {}).value || '';
             const tb = document.getElementById('admin-incs-table');
             if (!tb) return;
-            tb.innerHTML = '<tr><td colspan="9">Завантаження…</td></tr>';
+            tb.innerHTML = '<tr><td colspan="10">Завантаження…</td></tr>';
             const q = new URLSearchParams({ limit: '200' });
             if (st && st !== 'all') q.set('status', st);
             if (user) q.set('user', user);
@@ -1181,9 +1181,19 @@ function themeToggleHTML(){
                     const convBtn = converted
                         ? `<button class="btn btn-conv-done" disabled title="Вже задача #${inc.converted_to_task_id}">✓ #${inc.converted_to_task_id}</button>`
                         : `<button class="btn btn-conv-ok" title="Перевести в задачу" onclick="adminConvertInc(${inc.id})">→задача</button>`;
+                    const authorName = inc.reporter_name || inc.created_by || '—';
+                    const authorMail = inc.reporter_email || '';
+                    const authorSlack = inc.reporter_slack || '';
+                    const authorTip = [authorName, authorMail, authorSlack].filter(Boolean).join(' · ');
+                    const authorCell = `<div style="font-size:12px;line-height:1.35" title="${authorTip.replace(/"/g,'&quot;')}">
+                        <b>${(authorName||'—').replace(/</g,'&lt;')}</b>
+                        ${authorMail?`<br><span style="color:#94a3b8">${authorMail.replace(/</g,'&lt;')}</span>`:''}
+                        ${authorSlack?`<br><code style="font-size:11px">${authorSlack.replace(/</g,'&lt;')}</code>`:''}
+                      </div>`;
                     return `<tr class="${converted ? 'row-converted' : ''}">
                         <td>#${inc.id}</td>
                         <td>${inc.date||''}</td>
+                        <td style="min-width:120px">${authorCell}</td>
                         <td>${memberSelectHtml(inc.user_name||'', `adminUpdInc(${inc.id},'user_name',this.value)`, '—')}</td>
                         <td><select onchange="adminUpdInc(${inc.id},'status',this.value)">${stOpts}</select></td>
                         <td><select onchange="adminUpdInc(${inc.id},'priority',this.value)">${prOpts}</select></td>
@@ -1332,7 +1342,7 @@ async function toggleArchCmt(id) {
             await ensureUsersLoaded();
             const tb = document.getElementById('admin-tasks-table');
             if (!tb) return;
-            tb.innerHTML = '<tr><td colspan="9">Завантаження…</td></tr>';
+            tb.innerHTML = '<tr><td colspan="10">Завантаження…</td></tr>';
             const user = (document.getElementById('task-filter-user') || {}).value || '';
             const status = (document.getElementById('task-filter-status') || {}).value || '';
             const q = new URLSearchParams();
