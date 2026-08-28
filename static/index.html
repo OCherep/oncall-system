@@ -76,7 +76,7 @@ textarea{min-height:60px;resize:vertical}
 [data-theme="dark"] .dc.today{background:#1e3a5f!important;border-color:var(--p)!important}
 [data-theme="dark"] .dc:hover{border-color:var(--p)!important}
 [data-theme="dark"] .bcol{background:#1e293b!important;border-color:var(--b)!important;color:var(--t)!important}
-[data-theme="dark"] .mc,.modal .mc{background:#1e293b!important;color:var(--t)!important}
+[data-theme="dark"] .mc,[data-theme="dark"] .modal .mc{background:#1e293b!important;color:#e2e8f0!important}
 [data-theme="dark"] input,[data-theme="dark"] select,[data-theme="dark"] textarea{background:#0f172a!important;color:var(--t)!important;border-color:var(--b)!important}
 [data-theme="dark"] table{background:#1e293b!important;border-color:var(--b)!important}
 [data-theme="dark"] table th{background:#0f172a!important;color:#94a3b8!important}
@@ -212,9 +212,9 @@ textarea{min-height:60px;resize:vertical}
 <button class="btn" onclick="subTask()">Створити</button>
 <button class="btn btn-s" onclick="cl('m-task')">Скасувати</button></div></div>
 
-<div class="modal" id="m-day"><div class="mc" style="position:relative">
-<div class="mc-sticky-head"><div><h3 id="dt" style="margin:0">День</h3></div>
-<button type="button" class="btn" onclick="cl('m-day')">Закрити</button></div>
+<div class="modal" id="m-day"><div class="mc" id="mc-day" style="position:relative">
+<button type="button" class="btn mc-sticky-close" id="close-top-m-day" onclick="cl('m-day')">Закрити</button>
+<h3 id="dt" style="margin:0">День</h3>
 
 <div id="ds"></div><h4>Відсутності</h4><div id="da"></div>
 <h4>Задачі</h4><div class="table-wrap" id="dtasks"></div>
@@ -224,15 +224,19 @@ textarea{min-height:60px;resize:vertical}
 <h4>Звернення</h4>
 <div class="fg" style="max-width:220px"><label>Фільтр</label><select id="inc-filter" onchange="renderDayIncs()"><option value="">Усі</option></select></div>
 <div class="table-wrap" id="di"></div>
-<button class="btn" style="margin-top:12px" onclick="cl('m-day')">Закрити</button></div></div>
+<button type="button" class="btn mc-bottom-close" onclick="cl('m-day')">Закрити</button></div></div>
 
-<div class="modal" id="m-person"><div class="mc"><h3 id="person-title">Особа</h3>
+<div class="modal" id="m-person"><div class="mc" id="mc-person">
+<button type="button" class="btn mc-sticky-close" id="close-top-m-person" onclick="cl('m-person')">Закрити</button>
+<h3 id="person-title">Особа</h3>
 <div id="person-body"></div>
-<button class="btn" style="margin-top:12px" onclick="cl('m-person')">Закрити</button></div></div>
+<button type="button" class="btn mc-bottom-close" onclick="cl('m-person')">Закрити</button></div></div>
 
-<div class="modal" id="m-col"><div class="mc"><h3 id="col-title">Колонка</h3>
+<div class="modal" id="m-col"><div class="mc" id="mc-col">
+<button type="button" class="btn mc-sticky-close" id="close-top-m-col" onclick="cl('m-col')">Закрити</button>
+<h3 id="col-title">Колонка</h3>
 <div id="col-body"></div>
-<button class="btn" style="margin-top:12px" onclick="cl('m-col')">Закрити</button></div></div>
+<button type="button" class="btn mc-bottom-close" onclick="cl('m-col')">Закрити</button></div></div>
 
 <script>
 
@@ -330,7 +334,31 @@ function dueFlag(due){
 }
 function truncate(s,n){const r=[...((s||''))];return r.length<=n?s:r.slice(0,n).join('')+'…'}
 function esc(s){const d=document.createElement('div');d.textContent=s||'';return d.innerHTML}
-function cl(id){document.getElementById(id).style.display='none'}
+function cl(id){const el=document.getElementById(id);if(el)el.style.display='none'}
+
+function updateStickyClose(modalId){
+  const modal=document.getElementById(modalId);
+  if(!modal) return;
+  const mc=modal.querySelector('.mc');
+  const topBtn=document.getElementById('close-top-'+modalId) || (mc&&mc.querySelector('.mc-sticky-close'));
+  if(!mc||!topBtn) return;
+  // show top close only when content overflows (scrollbar)
+  const overflows=mc.scrollHeight>mc.clientHeight+8;
+  topBtn.classList.toggle('show', overflows);
+}
+function showModal(id){
+  const m=document.getElementById(id);
+  if(!m) return;
+  m.style.display='flex';
+  requestAnimationFrame(()=>{
+    updateStickyClose(id);
+    setTimeout(()=>updateStickyClose(id),80);
+    setTimeout(()=>updateStickyClose(id),300);
+  });
+}
+const _cl=cl;
+cl=function(id){document.getElementById(id).style.display='none'};
+
 
 function sess(){
   const tb=document.getElementById('theme-slot'); if(tb){tb.innerHTML=themeToggleHTML(); if(window.setTheme) setTheme(localStorage.getItem('oncall_theme')||'system');}
@@ -574,7 +602,7 @@ async function openCol(kind, name){
   const body=document.getElementById('col-body');
   if(kind==='inc'){
     let incs=collectOpenIncidents(td).filter(i=>(i.user_name||'(без виконавця)')===name);
-    if(!incs.length){body.innerHTML='<p>Немає звернень</p>'; document.getElementById('m-col').style.display='flex'; return}
+    if(!incs.length){body.innerHTML='<p>Немає звернень</p>'; showModal('m-col'); return}
     let html='';
     for(const i of incs){
       const allowed=incNext(i.status);
@@ -606,14 +634,15 @@ async function openCol(kind, name){
       </div>`;
     }
     body.innerHTML=html;
-    document.getElementById('m-col').style.display='flex';
+    showModal('m-col');
     for(const i of incs) loadCmts('incident', i.id);
+    setTimeout(()=>updateStickyClose('m-col'),250);
   } else {
     let tasks=collectTodayTasks().filter(t=>{
       if(name==='(на розгляді)') return !t.user_name;
       return t.user_name===name;
     });
-    if(!tasks.length){body.innerHTML='<p>Немає задач</p>'; document.getElementById('m-col').style.display='flex'; return}
+    if(!tasks.length){body.innerHTML='<p>Немає задач</p>'; showModal('m-col'); return}
     let html='<div class="table-wrap"><table><thead><tr><th>Задача</th><th>Дата</th><th>Статус</th><th>Час</th></tr></thead><tbody>';
     tasks.forEach(t=>{
       const tone=taskTone(t);
@@ -629,7 +658,7 @@ async function openCol(kind, name){
     });
     html+='</tbody></table></div>';
     body.innerHTML=html;
-    document.getElementById('m-col').style.display='flex';
+    showModal('m-col');
     tasks.forEach(t=>loadCmts('task', t.id));
   }
 }
@@ -732,7 +761,7 @@ function showPerson(name){
     incs.forEach(i=>{h+=`<tr><td>${esc(i.description)}</td><td>${esc(i.priority)}</td><td>${esc(i.source)}</td><td>${formatDuration(i.total_minutes||i.duration_minutes)}</td></tr>`});
     h+='</tbody></table></div>'} else h+='<p>Немає</p>';
   document.getElementById('person-body').innerHTML=h;
-  document.getElementById('m-person').style.display='flex';
+  showModal('m-person');
 }
 function cal(y,m,sh,abs,inc,tasks){
   const mn=['Січень','Лютий','Березень','Квітень','Травень','Червень','Липень','Серпень','Вересень','Жовтень','Листопад','Грудень'];
@@ -923,7 +952,7 @@ function day(ds){
   const sel=document.getElementById('inc-filter');
   const names=[...new Set(incidentsForDay(ds).map(i=>i.user_name||'(без)'))].sort();
   sel.innerHTML='<option value="">Усі</option>'+names.map(n=>`<option>${n}</option>`).join('');
-  renderDayIncs(); renderDayByUser(ds); document.getElementById('m-day').style.display='flex';
+  renderDayIncs(); renderDayByUser(ds); showModal('m-day'); setTimeout(()=>updateStickyClose('m-day'),200);
 }
 function toggleDayCmt(etype,eid){
   const row=document.getElementById('day-cmt-'+etype+'-'+eid);
@@ -1069,6 +1098,7 @@ function nextStatuses(cur){const admin=isAdmin();const map={'Нова':admin?['�
 async function updTask(id,field,val){const body={id,role:U&&U.role||'user',actor:U&&U.name||''};body[field]=val;const r=await fetch('/api/daily-tasks',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});if(!r.ok)alert(await r.text()||'Помилка');await load();if(document.getElementById('m-col').style.display==='flex')openCol(_colKind,_colName);else if(_day)day(_day)}
 async function delTask(id){if(!confirm('Видалити?'))return;await fetch('/api/daily-tasks?id='+id,{method:'DELETE'});cl('m-day');load()}
 
+window.addEventListener('resize',()=>{['m-day','m-col','m-person'].forEach(updateStickyClose);});
 sess();load();
 </script><script src="/status-fix.js"></script>
 </body></html>
