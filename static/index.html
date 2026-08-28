@@ -126,18 +126,29 @@ textarea{min-height:60px;resize:vertical}
 .day-task-meta{color:#94a3b8;font-size:11px;margin-top:4px}
 
 
-.wl-table{width:100%;border-collapse:collapse;font-size:13px}
-.wl-table th{text-align:left;padding:8px;background:var(--table-head,#0f172a);color:#94a3b8}
-.wl-table td{padding:8px;border-bottom:1px solid var(--b,#334155);vertical-align:top}
+.wl-table{width:100%;border-collapse:collapse;font-size:13px;background:var(--card,#fff);color:var(--t,#0f172a)}
+.wl-table th{text-align:left;padding:8px;background:var(--table-head,#f1f5f9);color:var(--muted,#64748b)}
+.wl-table td{padding:8px;border-bottom:1px solid var(--b,#e2e8f0);vertical-align:top;color:inherit}
 .wl-row{cursor:pointer}
 .wl-row:hover{background:rgba(59,130,246,.08)}
 .wl-row.open{background:rgba(59,130,246,.12)}
-.wl-detail{display:none;padding:8px 12px 12px;background:rgba(15,23,42,.35)}
+.wl-detail{display:none;padding:8px 12px 12px;background:rgba(15,23,42,.06)}
 .wl-detail.open{display:block}
-.wl-tools{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 10px}
-.wl-tools .btn{padding:4px 10px;font-size:12px}
-.mc-sticky-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;position:sticky;top:0;z-index:5;background:var(--card,#1e293b);padding:4px 0 10px;margin-bottom:4px;border-bottom:1px solid var(--b,#334155)}
-.mc-sticky-head h3{margin:0}
+[data-theme="dark"] .wl-table{background:#1e293b!important;color:#e2e8f0!important}
+[data-theme="dark"] .wl-table th{background:#0f172a!important;color:#94a3b8!important}
+[data-theme="dark"] .wl-table td{color:#e2e8f0!important;border-color:#334155!important}
+[data-theme="dark"] .wl-detail{background:rgba(15,23,42,.45)!important;color:#e2e8f0!important}
+[data-theme="dark"] .wl-row:hover{background:rgba(59,130,246,.15)!important}
+[data-theme="dark"] .mc-sticky-head{background:#1e293b!important;border-color:#334155!important;color:#e2e8f0!important}
+[data-theme="dark"] .modal .mc table{background:#1e293b!important}
+[data-theme="dark"] .modal .mc table th{background:#0f172a!important;color:#94a3b8!important}
+[data-theme="dark"] .modal .mc table td{color:#e2e8f0!important;border-color:#334155!important}
+[data-theme="dark"] .modal .mc{background:#1e293b!important;color:#e2e8f0!important}
+[data-theme="light"] .wl-table{background:#fff!important;color:#0f172a!important}
+[data-theme="light"] .wl-table th{background:#f1f5f9!important;color:#64748b!important}
+[data-theme="light"] .wl-table td{color:#0f172a!important;border-color:#e2e8f0!important}
+[data-theme="light"] .wl-detail{background:#f8fafc!important}
+[data-theme="light"] .mc-sticky-head{background:var(--card,#fff)!important;color:#0f172a!important}
 
 </style></head><body>
 <div class="navbar"><div class="nav-l"><strong>On-Call</strong><span id="user-info" style="color:#64748b;font-size:13px"></span></div>
@@ -444,6 +455,42 @@ function dedupeTasks(list){
 function visibleIncidents(list){
   return (list||[]).filter(i=>!(i.converted_to_task_id>0));
 }
+function isOpenIncStatus(st){
+  return !['Вирішено','Архів'].includes(st||'Нове');
+}
+/** Відкриті звернення з date<=asOf (перенесення на поточний/обраний день). */
+function collectOpenIncidents(asOf){
+  const td=asOf||D.today||today();
+  const out=[]; const seen=new Set();
+  Object.entries(D.incidents||{}).forEach(([date,list])=>{
+    (list||[]).forEach(i=>{
+      if(i.converted_to_task_id>0) return;
+      if(!isOpenIncStatus(i.status)) return;
+      const idate=i.date||date||'';
+      if(idate && idate<=td && !seen.has(i.id)){ seen.add(i.id); out.push(i); }
+    });
+  });
+  return out;
+}
+/** Звернення для дня: усі з date===ds + (якщо ds===сьогодні) відкриті з минулих днів. */
+function incidentsForDay(ds){
+  const todayStr=D.today||today();
+  const isToday=(ds===todayStr);
+  const out=[]; const seen=new Set();
+  Object.entries(D.incidents||{}).forEach(([date,list])=>{
+    (list||[]).forEach(i=>{
+      if(i.converted_to_task_id>0) return;
+      const idate=i.date||date||'';
+      if(idate===ds){
+        if(!seen.has(i.id)){ seen.add(i.id); out.push(i); }
+      } else if(isToday && idate<ds && isOpenIncStatus(i.status)){
+        if(!seen.has(i.id)){ seen.add(i.id); out.push(i); }
+      }
+    });
+  });
+  return out;
+}
+
 
 function collectTodayTasks(){
   const td=D.today||today();
@@ -468,7 +515,7 @@ function collectTodayTasks(){
 function renderTodayIncs(){
   const el=document.getElementById('today-incs');
   const td=D.today||today();
-  const incs=visibleIncidents((D.incidents||{})[td]||[]);
+  const incs=collectOpenIncidents(td);
   const by={'(без виконавця)':[]};
   membersList().forEach(m=>by[m.name]=[]);
   incs.forEach(i=>{const k=i.user_name||'(без виконавця)'; if(!by[k]) by[k]=[]; by[k].push(i)});
@@ -480,7 +527,8 @@ function renderTodayIncs(){
     if(!list.length) h+=`<div style="color:#cbd5e1;font-size:11px">—</div>`;
     list.slice(0,4).forEach(i=>{
       const col=(IP.find(p=>p.name===i.priority)||{}).color||'#94a3b8';
-      h+=`<div class="bcard" style="border-left-color:${col}"><b>${esc(i.priority||'')}</b> ${esc(truncate(i.description,36))}<div class="meta">${esc(i.source||'self')} · ${esc(i.status||'Нове')}</div></div>`;
+      const carry=i.date&&i.date!==td?` · з ${i.date}`:'';
+      h+=`<div class="bcard" style="border-left-color:${col}"><b>${esc(i.priority||'')}</b> ${esc(truncate(i.description,36))}<div class="meta">${esc(i.source||'self')} · ${esc(i.status||'Нове')}${carry}</div></div>`;
     });
     if(list.length>4) h+=`<div class="meta">+${list.length-4} ще</div>`;
     h+=`</div>`;
@@ -524,7 +572,7 @@ async function openCol(kind, name){
   document.getElementById('col-title').innerText=(kind==='inc'?'Звернення':'Задачі з дейлі')+' · '+name+' · '+td;
   const body=document.getElementById('col-body');
   if(kind==='inc'){
-    let incs=visibleIncidents((D.incidents||{})[td]||[]).filter(i=>(i.user_name||'(без виконавця)')===name);
+    let incs=collectOpenIncidents(td).filter(i=>(i.user_name||'(без виконавця)')===name);
     if(!incs.length){body.innerHTML='<p>Немає звернень</p>'; document.getElementById('m-col').style.display='flex'; return}
     let html='';
     for(const i of incs){
@@ -849,7 +897,7 @@ function day(ds){
   document.getElementById('ds').innerHTML=s?`<b>Основний:</b> ${esc(s.primary_user)}`+(s.backup_user?`<br><b>Дублюючий:</b> ${esc(s.backup_user)}`:'<br><em style="color:#94a3b8">Лише один черговий</em>'):'Чергування не призначено';
   let al=uniqueAbsByUser(abs.filter(a=>ds>=a.start_date&&ds<=a.end_date));
   document.getElementById('da').innerHTML=al.length?al.map(a=>{const col=absColor(a.type);return `<span class="ba" style="background:${col}22;color:${col};border:1px solid ${col}55;margin-right:6px"><b>${esc(a.user_name)}</b> (${esc(a.type)})</span>`}).join(''):'Немає';
-  const tasks=dedupeTasks(((D.daily_tasks||{})[ds]||[]).filter(t=>t.status!=='Архів'));
+  const tasks=dedupeTasks(tasksRelevantToDay(ds).filter(t=>t.status!=='Архів'));
   if(tasks.length){
     let html='<table><thead><tr><th>Виконавець</th><th>Відп.</th><th>Задача</th><th>Статус</th><th>Пріоритет</th><th>Час</th><th></th></tr></thead><tbody>';
     tasks.forEach(t=>{
@@ -872,7 +920,7 @@ function day(ds){
     html+='</tbody></table>'; document.getElementById('dtasks').innerHTML=html;
   } else document.getElementById('dtasks').innerHTML='Задач немає';
   const sel=document.getElementById('inc-filter');
-  const names=[...new Set(visibleIncidents((D.incidents||{})[ds]||[]).map(i=>i.user_name||'(без)'))].sort();
+  const names=[...new Set(incidentsForDay(ds).map(i=>i.user_name||'(без)'))].sort();
   sel.innerHTML='<option value="">Усі</option>'+names.map(n=>`<option>${n}</option>`).join('');
   renderDayIncs(); renderDayByUser(ds); document.getElementById('m-day').style.display='flex';
 }
@@ -885,7 +933,7 @@ function toggleDayCmt(etype,eid){
 }
 function renderDayIncs(){
   const ds=_day, filter=document.getElementById('inc-filter').value;
-  let incs=visibleIncidents((D.incidents||{})[ds]||[]).slice();
+  let incs=incidentsForDay(ds).slice();
   if(filter)incs=incs.filter(i=>(i.user_name||'(без)')===filter);
   if(!incs.length){document.getElementById('di').innerHTML='Немає';return}
   let html='<table><thead><tr><th>Виконавець</th><th>Пріоритет</th><th>Source</th><th>Статус</th><th>Час</th><th>Опис</th><th></th></tr></thead><tbody>';
