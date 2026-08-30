@@ -34,7 +34,7 @@ th,td{padding:8px 10px;border-bottom:1px solid var(--b);text-align:left}th{backg
 .mc h3{margin:0 0 12px}.fg{margin-bottom:10px}label{display:block;font-size:12px;color:#64748b;margin-bottom:3px}
 input,select,textarea{width:100%;padding:8px;border:1px solid var(--b);border-radius:6px;font-size:13px}
 textarea{min-height:60px;resize:vertical}
-.st{padding:2px 6px;border-radius:4px;font-size:11px}.prio{padding:2px 6px;border-radius:4px;background:#fef3c7;font-size:11px}
+.st{padding:2px 6px;border-radius:4px;font-size:11px;font-weight:700;color:#fff}
 #alerts{margin-bottom:12px}.alert{padding:10px 14px;border-radius:8px;margin-bottom:8px;font-size:13px}
 .alert-warning{background:#fef3c7;border:1px solid #f59e0b;color:#92400e}
 .alert-error{background:#fee2e2;border:1px solid #ef4444;color:#991b1b}
@@ -213,6 +213,32 @@ textarea{min-height:60px;resize:vertical}
 [data-theme="light"] #col-body > div,
 :root:not([data-theme="dark"]) #col-body > div{border-color:#e2e8f0!important;color:#0f172a!important}
 [data-theme="dark"] #col-body > div{border-color:#334155!important;color:#e2e8f0!important}
+
+
+/* Priority chips — high contrast on any row */
+.prio, .prio-chip{
+  display:inline-block;padding:3px 8px;border-radius:6px;font-size:11px;font-weight:700;
+  line-height:1.3;white-space:nowrap;border:1px solid transparent;
+}
+.prio-c-critical{background:#b91c1c!important;color:#fff!important;border-color:#7f1d1d!important}
+.prio-c-urgent{background:#c2410c!important;color:#fff!important;border-color:#7c2d12!important}
+.prio-c-high{background:#b45309!important;color:#fff!important;border-color:#92400e!important}
+.prio-c-normal{background:#1d4ed8!important;color:#fff!important;border-color:#1e3a8a!important}
+.prio-c-low{background:#475569!important;color:#f1f5f9!important;border-color:#334155!important}
+.prio-c-debt{background:#6d28d9!important;color:#f5f3ff!important;border-color:#4c1d95!important}
+.prio-c-shelf{background:#64748b!important;color:#f8fafc!important;border-color:#475569!important}
+tr.task-row-urgent td select,
+tr.task-row-due-soon td select{
+  background:#fff!important;color:#0f172a!important;border:1px solid #cbd5e1!important;
+  font-weight:600;
+}
+[data-theme="dark"] tr.task-row-urgent td select,
+[data-theme="dark"] tr.task-row-due-soon td select{
+  background:#0f172a!important;color:#e2e8f0!important;border-color:#475569!important;
+}
+.st.badge-new,.st.badge-work,.st.badge-pause,.st.badge-check,.st.badge-done,.st.badge-urgent{
+  color:#fff!important;font-weight:700;
+}
 
 </style></head><body>
 <div class="navbar"><div class="nav-l"><strong>On-Call</strong><span id="user-info" style="color:#64748b;font-size:13px"></span></div>
@@ -1011,7 +1037,7 @@ function day(ds){
       const dueMark=dueFlag(t.due_date)==='over'?' 🔴':(dueFlag(t.due_date)==='soon'?' 🟠':'');
       html+=`<tr class="${tone.row}"><td>${execCell}</td><td>${respCell}</td><td>${esc(t.task_description)}${t.due_date?' <small>до '+esc(t.due_date)+dueMark+'</small>':''}</td>
         <td>${canStatus?`<select onchange="updTask(${t.id},'status',this.value)">${stOpts}</select>`:`<span class="st ${tone.badge}">${esc(t.status)}</span>`}</td>
-        <td>${isAdmin()?`<select onchange="updTask(${t.id},'priority',this.value)">${prOpts}</select>`:`<span class="prio">${esc(t.priority)}</span>`}</td>
+                <td>${isAdmin()?`<select onchange="updTask(${t.id},'priority',this.value)" style="max-width:120px;margin-right:4px">${prOpts}</select>`:''}${prioChipHtml(t.priority)}</td>
         <td>${formatDuration(t.estimated_minutes)} / ${formatDuration(t.total_minutes)}</td>
         <td>${isAdmin()?`<button class="btn btn-d" style="padding:2px 6px" onclick="delTask(${t.id})">✕</button>`:''}<button class="btn btn-s" style="padding:2px 6px;margin-left:2px" onclick="toggleDayCmt('task',${t.id})">💬</button></td></tr>
         <tr id="day-cmt-task-${t.id}" style="display:none"><td colspan="7"><div id="cmt-task-${t.id}"><em style="font-size:12px;color:#94a3b8">коментарі…</em></div></td></tr>`;
@@ -1069,12 +1095,20 @@ async function subAbs(){const r=await fetch('/api/request-absence',{method:'POST
 function fillMemberSelect(selId,includeSelf){const sel=document.getElementById(selId);const ms=membersList();let opts='';if(includeSelf&&U)opts+=`<option value="${esc(U.name)}">${esc(U.name)} (я)</option>`;ms.forEach(m=>{if(!includeSelf||m.name!==U.name)opts+=`<option value="${esc(m.name)}">${esc(m.name)}</option>`});sel.innerHTML=opts||`<option value="${esc(U&&U.name||'')}">${esc(U&&U.name||'')}</option>`}
 
 function priorityColorClass(p){
-  p=String(p||'');
-  if(/Крит|Термін|Critical/i.test(p)) return 'st-c-urgent';
-  if(/Висок|High/i.test(p)) return 'st-c-work';
-  if(/Підвищ/i.test(p)) return 'st-c-review';
-  return 'st-c-new';
+  p=String(p||'').trim();
+  if(/Надкрит|Критичн|Critical/i.test(p)) return 'prio-c-critical';
+  if(/Термін|Urgent/i.test(p)) return 'prio-c-urgent';
+  if(/Висок|Підвищ|High/i.test(p)) return 'prio-c-high';
+  if(/Техборг|Debt/i.test(p)) return 'prio-c-debt';
+  if(/шухляд|Low|Низьк/i.test(p)) return 'prio-c-shelf';
+  if(/Базов|Звичайн|Normal|Medium/i.test(p)) return 'prio-c-normal';
+  return 'prio-c-low';
 }
+function prioChipHtml(p){
+  const name=p||'—';
+  return `<span class="prio-chip ${priorityColorClass(name)}">${esc(name)}</span>`;
+}
+
 function formatAgeSince(iso){
   if(!iso) return '—';
   const t=Date.parse(String(iso).replace(' ','T'));
