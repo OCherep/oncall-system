@@ -1152,6 +1152,33 @@ function themeToggleHTML(){
         }
 
     
+        
+function hashIncDeepLink(){
+  const m = (location.hash||'').match(/inc=(\d+)/);
+  if(!m) return;
+  const id = parseInt(m[1],10);
+  if(!id) return;
+  try { loadSubPage('inc-archive'); } catch(e){}
+  setTimeout(()=>{
+    try { loadIncArchive(); } catch(e){}
+    setTimeout(()=>{
+      const row = document.querySelector('#admin-incs-table tr');
+      // highlight matching row
+      document.querySelectorAll('#admin-incs-table tr').forEach(tr=>{
+        if((tr.textContent||'').indexOf('#'+id)===0 || (tr.innerHTML||'').indexOf('#'+id+'<')>=0){
+          tr.style.outline='2px solid #3b82f6';
+          tr.scrollIntoView({behavior:'smooth',block:'center'});
+        }
+      });
+      // open edit if available
+      if(typeof openEditInc==='function'){
+        try{ openEditInc(id); }catch(e){}
+      }
+    }, 600);
+  }, 200);
+}
+window.addEventListener('hashchange', hashIncDeepLink);
+
         async function loadIncArchive() {
             await ensureUsersLoaded();
             const st = (document.getElementById('inc-arch-status') || {}).value || 'all';
@@ -1690,6 +1717,8 @@ async function toggleArchCmt(id) {
         </div>
     </div>
 
-<script>document.addEventListener("DOMContentLoaded",function(){var tb=document.getElementById("theme-slot");if(tb){tb.innerHTML=themeToggleHTML();setTheme(localStorage.getItem("oncall_theme")||"system");}});</script>
+<script>document.addEventListener("DOMContentLoaded",function(){var tb=document.getElementById("theme-slot");if(tb){tb.innerHTML=themeToggleHTML();setTheme(localStorage.getItem("oncall_theme")||"system");}});
+setTimeout(hashIncDeepLink,800);
+</script>
 </body>
 </html>
