@@ -531,7 +531,7 @@ function themeToggleHTML(){
                         <table>
                             <thead><tr>
                                 <th>ID</th><th>Дата</th><th>Автор</th><th>Виконавець</th><th>Статус</th><th>Пріоритет</th>
-                                <th>Source</th><th>Опис</th><th>Хв</th><th>Дії</th>
+                                <th>Source</th><th>Опис</th><th>План / Факт</th><th>Дії</th>
                             </tr></thead>
                             <tbody id="admin-tasks-table"><tr><td colspan="10">Завантаження…</td></tr></tbody>
                         </table>
@@ -1226,7 +1226,16 @@ window.addEventListener('hashchange', hashIncDeepLink);
                         <td><select onchange="adminUpdInc(${inc.id},'priority',this.value)">${prOpts}</select></td>
                         <td>${(inc.source||'').replace(/</g,'&lt;')}</td>
                         <td style="max-width:260px" title="${desc}">${desc.length>80?desc.slice(0,80)+'…':desc}</td>
-                        <td>${inc.duration_minutes||inc.total_minutes||0}</td>
+                        <td style="white-space:nowrap;font-size:12px" title="план / факт">${(() => {
+                            const plan = inc.duration_minutes||0;
+                            const fact = (inc.fact_minutes||inc.total_minutes||0);
+                            const resolved = ['Вирішено','Архів'].includes(inc.status);
+                            if (resolved) {
+                                const cls = fact > plan && plan > 0 ? 'color:#fca5a5' : (fact && plan && fact <= plan ? 'color:#86efac' : '');
+                                return `<span style="${cls}"><b>${plan}</b> / <b>${fact||'—'}</b> хв</span>`;
+                            }
+                            return `<span title="план">${plan} хв</span>`;
+                        })()}</td>
                         <td style="white-space:nowrap">
                             <button class="btn" style="padding:2px 8px" title="Редагувати" onclick="openEditInc(${inc.id})">✎</button>
                             <button class="btn" style="padding:2px 8px" title="Коментарі" onclick="adminShowIncCmts(${inc.id})">💬</button>
