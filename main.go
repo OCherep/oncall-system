@@ -82,6 +82,8 @@ type IncidentReport struct {
 	ReporterName      string `json:"reporter_name,omitempty"`
 	ReporterEmail     string `json:"reporter_email,omitempty"`
 	ReporterSlack     string `json:"reporter_slack,omitempty"`
+	AssignedAt        string `json:"assigned_at,omitempty"`
+	FactMinutes       int    `json:"fact_minutes,omitempty"` // обчислений факт (хв)
 }
 
 // TaskAssignee — виконавець задачі з окремим обліком часу
@@ -462,6 +464,7 @@ func initDB() {
 	db.Exec(`ALTER TABLE incidents ADD COLUMN reporter_name TEXT DEFAULT ''`)
 	db.Exec(`ALTER TABLE incidents ADD COLUMN reporter_email TEXT DEFAULT ''`)
 	db.Exec(`ALTER TABLE incidents ADD COLUMN reporter_slack TEXT DEFAULT ''`)
+	db.Exec(`ALTER TABLE incidents ADD COLUMN assigned_at TEXT DEFAULT ''`)
 
 
 	db.Exec("ALTER TABLE incidents ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP")
