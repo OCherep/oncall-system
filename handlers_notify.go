@@ -23,6 +23,14 @@ import (
 //   TELEGRAM_CHAT_ID      — ID командного чату/групи (для дзеркала)
 //   NOTIFY_ON_INCIDENT=1  — увімкнути (default: on якщо є будь-який токен)
 
+func publicBaseURL() string {
+	u := strings.TrimSpace(os.Getenv("APP_PUBLIC_URL"))
+	if u == "" {
+		u = strings.TrimSpace(os.Getenv("PUBLIC_BASE_URL"))
+	}
+	return strings.TrimRight(u, "/")
+}
+
 func slackWebhookURL() string { return strings.TrimSpace(os.Getenv("SLACK_WEBHOOK_URL")) }
 func slackBotToken() string   { return strings.TrimSpace(os.Getenv("SLACK_BOT_TOKEN")) }
 func slackTeamChannel() string {
@@ -371,6 +379,10 @@ func notifyNewIncident(inc IncidentReport) {
 		msg += "\nВиконавець: " + assignee
 	}
 	msg += "\n«" + truncateRunes(inc.Description, 160) + "»"
+	if base := publicBaseURL(); base != "" {
+		// deep-link: admin → Усі звернення, підсвітка/редагування #id
+		msg += fmt.Sprintf("\n🔗 Розподіл: %s/admin.html#inc=%d", base, inc.ID)
+	}
 	notifyTeam(msg)
 	// DM / email усім admin
 	rows, err := db.Query(`SELECT COALESCE(name,''), COALESCE(slack_id,''), COALESCE(email,'') FROM users WHERE role='admin'`)
