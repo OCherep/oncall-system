@@ -772,6 +772,27 @@ func setTaskAssignees(taskID int, names []string) {
 	}
 }
 
+
+// incidentFactMinutes — факт від призначення (або створення) до «зараз».
+func incidentFactMinutes(assignedAt, createdAt, _resolvedHint string) int {
+	start := strings.TrimSpace(assignedAt)
+	if start == "" {
+		start = strings.TrimSpace(createdAt)
+	}
+	if start == "" {
+		return 0
+	}
+	st := parseTimeFlexible(start)
+	if st.IsZero() {
+		return 0
+	}
+	m := int(time.Since(st).Minutes())
+	if m < 0 {
+		return 0
+	}
+	return m
+}
+
 func handleIncidents(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	switch r.Method {
@@ -814,6 +835,12 @@ func handleIncidents(w http.ResponseWriter, r *http.Request) {
 			rows.Scan(&inc.ID, &inc.UserName, &inc.Date, &inc.Type, &inc.DurationMinutes, &inc.Description, &inc.CreatedAt,
 				&inc.Status, &inc.Priority, &inc.Source, &inc.TotalMinutes, &inc.CreatedBy, &inc.ReportedFor, &inc.ExternalID, &inc.ConvertedToTaskID,
 				&inc.ReporterName, &inc.ReporterEmail, &inc.ReporterSlack)
+			if inc.TotalMinutes > 0 {
+				inc.FactMinutes = inc.TotalMinutes
+			} else if inc.Status == "Вирішено" || inc.Status == "Архів" {
+				// fallback: від створення (точніше — після наступних резолвів з assigned_at)
+				inc.FactMinutes = incidentFactMinutes("", inc.CreatedAt, "")
+			}
 			list = append(list, inc)
 		}
 		if list == nil {
@@ -969,7 +996,7 @@ func handleIncidents(w http.ResponseWriter, r *http.Request) {
 		if _, hasUser := raw["user_name"]; hasUser && roleHint == "admin" {
 			newUser, _ := raw["user_name"].(string)
 			if newUser != cur.UserName {
-				db.Exec(`UPDATE incidents SET user_name=?, reported_for=? WHERE id=?`, newUser, newUser, id)
+				db.Exec(`UPDATE incidents SET user_name=?, reported_for=?, assigned_at=CASE WHEN COALESCE(assigned_at,'')='' AND ?!='' THEN datetime('now','localtime') ELSE assigned_at END WHERE id=?`, newUser, newUser, newUser, id)
 				addSystemComment("incident", id, fmt.Sprintf("Виконавець: «%s» → «%s»", cur.UserName, newUser))
 				logAudit(actor, "ASSIGN_INCIDENT", clientIP(r), fmt.Sprintf("id=%d user=%s", id, newUser))
 				cur.UserName = newUser
@@ -992,7 +1019,7 @@ func handleIncidents(w http.ResponseWriter, r *http.Request) {
 			// якщо передано user_name разом із convert — використати його
 			if v, ok := raw["user_name"].(string); ok {
 				cur.UserName = v
-				db.Exec(`UPDATE incidents SET user_name=? WHERE id=?`, v, id)
+				db.Exec(`UPDATE incidents SET user_name=?, assigned_at=CASE WHEN COALESCE(assigned_at,'')='' AND ?!='' THEN datetime('now','localtime') ELSE assigned_at END WHERE id=?`, v, v, id)
 			}
 			tid, copied, cerr := convertIncidentToTask(cur, actor)
 			if cerr != nil {
@@ -1033,6 +1060,17 @@ func handleIncidents(w http.ResponseWriter, r *http.Request) {
 		if newStatus != oldStatus {
 			db.Exec(`UPDATE incidents SET status=? WHERE id=?`, newStatus, id)
 			addSystemComment("incident", id, fmt.Sprintf("Статус: %s → %s", oldStatus, newStatus))
+			if newStatus == "Вирішено" || newStatus == "Архів" {
+				var assignedAt, createdAt string
+				_ = db.QueryRow(`SELECT COALESCE(assigned_at,''), COALESCE(created_at,'') FROM incidents WHERE id=?`, id).Scan(&assignedAt, &createdAt)
+				fact := incidentFactMinutes(assignedAt, createdAt, "")
+				if fact > 0 {
+					db.Exec(`UPDATE incidents SET total_minutes=? WHERE id=?`, fact, id)
+					cur.TotalMinutes = fact
+					cur.FactMinutes = fact
+					addSystemComment("incident", id, fmt.Sprintf("Факт виконання: %d хв (план %d хв)", fact, cur.DurationMinutes))
+				}
+			}
 			go notifyIncidentUpdate(cur, fmt.Sprintf("Звернення #%d: статус %s → %s", id, oldStatus, newStatus))
 			if cur.ExternalID != "" {
 				syncIncidentStatusToJira(cur.ExternalID, oldStatus, newStatus)
