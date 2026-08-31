@@ -215,7 +215,7 @@ func handleJiraImport(w http.ResponseWriter, r *http.Request) {
 		jql = strings.TrimSpace(os.Getenv("JIRA_JQL_FILTER"))
 	}
 	if jql == "" {
-		jql = "statusCategory != Done ORDER BY updated DESC"
+		jql = `project in (Vidmind) AND (component = DevOps OR labels = DevOps) AND issuetype in (Epic, Story, Task, Sub-task, Bug) AND updated >= -60d ORDER BY updated DESC`
 	}
 
 	issues, err := jiraSearchIssues(jql, req.Max)
@@ -241,8 +241,11 @@ func handleJiraImport(w http.ResponseWriter, r *http.Request) {
 		if statusLocal == "" {
 			statusLocal = "Нова"
 		}
-		// map incident-like status to task status
+		// map incident-like status to task status; нові імпорти — «Нерозподілена» до дейлі
 		taskStatus := mapIncStatusToTask(statusLocal)
+		if taskStatus == "Нова" || taskStatus == "" {
+			taskStatus = "Нерозподілена"
+		}
 		prioName := ""
 		if is.Fields.Priority != nil {
 			prioName = is.Fields.Priority.Name
@@ -257,15 +260,23 @@ func handleJiraImport(w http.ResponseWriter, r *http.Request) {
 		var existingID int
 		err := db.QueryRow(`SELECT id FROM daily_tasks WHERE external_id=? LIMIT 1`, key).Scan(&existingID)
 		if err == nil && existingID > 0 {
-			db.Exec(`UPDATE daily_tasks SET task_description=?, status=?, priority=?, user_name=COALESCE(NULLIF(?,''), user_name) WHERE id=?`,
-				desc, taskStatus, prio, assignee, existingID)
+			due := strings.TrimSpace(is.Fields.Duedate)
+			if len(due) >= 10 {
+				due = due[:10]
+			}
+			db.Exec(`UPDATE daily_tasks SET task_description=?, status=?, priority=?, user_name=COALESCE(NULLIF(?,''), user_name), due_date=COALESCE(NULLIF(?,''), due_date) WHERE id=?`,
+				desc, taskStatus, prio, assignee, due, existingID)
 			addSystemComment("task", existingID, "Оновлено з Jira import")
 			updated++
 			continue
 		}
+		due := strings.TrimSpace(is.Fields.Duedate)
+		if len(due) >= 10 {
+			due = due[:10]
+		}
 		res, err := db.Exec(`INSERT INTO daily_tasks (user_name, date, task_description, status, priority, total_minutes, created_at, created_by, external_id, due_date)
 			VALUES (?,?,?,?,?,0,CURRENT_TIMESTAMP,'jira',?,?)`,
-			assignee, today, desc, taskStatus, prio, key, "")
+			assignee, today, desc, taskStatus, prio, key, due)
 		if err != nil {
 			log.Printf("jira import insert %s: %v", key, err)
 			skipped++
@@ -300,6 +311,8 @@ type jiraSearchIssue struct {
 			DisplayName string `json:"displayName"`
 			Name        string `json:"name"`
 		} `json:"assignee"`
+		Duedate string `json:"duedate"`
+		Updated string `json:"updated"`
 	} `json:"fields"`
 }
 
@@ -309,7 +322,7 @@ func jiraSearchIssues(jql string, max int) ([]jiraSearchIssue, error) {
 	payload, _ := json.Marshal(map[string]interface{}{
 		"jql":        jql,
 		"maxResults": max,
-		"fields":     []string{"summary", "status", "priority", "assignee"},
+		"fields":     []string{"summary", "status", "priority", "assignee", "duedate", "updated"},
 	})
 	req, err := jiraNewRequest(http.MethodPost, url, payload)
 	if err != nil {
