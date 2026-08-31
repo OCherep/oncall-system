@@ -321,6 +321,15 @@ tr.q-row:hover{background:#eff6ff}
 [data-theme="dark"] .st-chip-arch, [data-theme="dark"] .st-chip-default { background: #1e293b; color: #cbd5e1; border-color: #475569; }
 [data-theme="dark"] .daily-chips-label { color: #94a3b8; }
 
+
+.mode-chip{display:inline-flex;flex-direction:column;align-items:center;justify-content:center;
+  min-width:110px;padding:8px 12px;border-radius:12px;border:1px solid transparent;line-height:1.2}
+.mode-chip .mode-date{font-weight:700;font-size:15px}
+.mode-chip .mode-sub{font-size:11px;margin-top:3px;opacity:.9}
+.mode-chip.on-grid{background:#dcfce7;color:#166534;border-color:#86efac}
+.mode-chip.off-grid{background:#e2e8f0;color:#334155;border-color:#cbd5e1}
+[data-theme="dark"] .mode-chip.on-grid{background:#14532d;color:#bbf7d0;border-color:#22c55e}
+[data-theme="dark"] .mode-chip.off-grid{background:#334155;color:#e2e8f0;border-color:#64748b}
 </style>
 </head>
 <body>
@@ -645,14 +654,25 @@ function themeToggleHTML(){
                     `;
                 }
                 const ogLine = document.getElementById('daily-ongrid-line');
-                if (ogLine) {
-                  ogLine.textContent = 'Чергові: '+(d.primary||'—')+' / '+(d.backup||'—')+' · режим завантаження…';
-                  fetch('/api/admin/settings',{credentials:'same-origin'}).then(r=>r.ok?r.json():null).then(s=>{
-                    if (!s || !ogLine) return;
-                    const mode = s._on_grid_now==='1' ? 'ON-GRID' : 'OFF-GRID';
-                    ogLine.innerHTML = 'Чергові: <b>'+(d.primary||'—')+'</b> / <b>'+(d.backup||'—')+'</b> · режим: <b>'+mode+'</b> ('+(s.on_grid_start||'')+'–'+(s.on_grid_end||'')+')';
-                  }).catch(()=>{});
-                }
+                const sum = document.getElementById('daily-summary');
+                fetchOnGrid().then(s => {
+                  const on = s && (s.on_grid === true || s._on_grid_now === '1');
+                  if (ogLine) {
+                    const mode = on ? 'ON-GRID' : 'OFF-GRID';
+                    const lab = on ? 'робочий час' : 'неробочий час';
+                    ogLine.innerHTML = 'Чергові: <b>'+(d.primary||'—')+'</b> / <b>'+(d.backup||'—')+'</b> · <b>'+mode+'</b> ('+lab+', '+(s&&s.on_grid_start||'')+'–'+(s&&s.on_grid_end||'')+')';
+                  }
+                  // date chip at start of summary
+                  if (sum) {
+                    const chip = modeChipHtml(d.date || window._dailyDate, s);
+                    const rest = sum.innerHTML;
+                    if (!sum.querySelector('.mode-chip')) {
+                      sum.insertAdjacentHTML('afterbegin', chip);
+                    } else {
+                      sum.querySelector('.mode-chip').outerHTML = chip;
+                    }
+                  }
+                });
                 const chips = document.getElementById('daily-status-chips');
                 if (chips) {
                     const chipClass = (s) => {
@@ -877,15 +897,37 @@ function isAdminUser() {
             }
         }
 
+        
+        async function fetchOnGrid() {
+            try {
+                const r = await fetch('/api/on-grid', { credentials: 'same-origin', cache: 'no-store' });
+                if (!r.ok) return null;
+                return await r.json();
+            } catch (e) { console.warn('on-grid', e); return null; }
+        }
+        function modeChipHtml(dateStr, snap) {
+            const on = snap && (snap.on_grid === true || snap._on_grid_now === '1' || snap.mode === 'on-grid');
+            const label = on ? 'робочий час' : 'неробочий час';
+            const cls = on ? 'on-grid' : 'off-grid';
+            const d = dateStr || '';
+            return `<div class="mode-chip ${cls}" title="${on?'ON-GRID':'OFF-GRID'} ${(snap&&snap.on_grid_start)||''}–${(snap&&snap.on_grid_end)||''}">
+              <span class="mode-date">${d}</span>
+              <span class="mode-sub">${label}</span>
+            </div>`;
+        }
+
         async function loadOnGridSettings() {
             const line = document.getElementById('ongrid-status-line');
             try {
-                const r = await fetch('/api/admin/settings', { credentials: 'same-origin' });
-                if (!r.ok) {
-                    if (line) line.innerHTML = '<span style="color:#b91c1c">API settings: HTTP '+r.status+' (зробіть rebuild контейнера)</span>';
-                    return;
+                let d = await fetchOnGrid();
+                if (!d) {
+                    const r = await fetch('/api/admin/settings', { credentials: 'same-origin', cache: 'no-store' });
+                    if (!r.ok) {
+                        if (line) line.innerHTML = '<span style="color:#b91c1c">API: HTTP '+r.status+' — зробіть <code>docker compose up -d --build</code></span>';
+                        return;
+                    }
+                    d = await r.json();
                 }
-                const d = await r.json();
                 const set = (id, v) => { const el = document.getElementById(id); if (el && v != null) el.value = v; };
                 set('og-start', d.on_grid_start || '09:00');
                 set('og-end', d.on_grid_end || '18:00');
@@ -958,6 +1000,7 @@ function isAdminUser() {
                         <h2 style="margin:0">Черги задач і звернень</h2>
                         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
                           <button class="btn" type="button" title="Попередній день" onclick="queuesShiftDay(-1)">‹</button>
+                          <span id="queues-mode-chip"></span>
                           <input type="date" id="queues-date" value="${window._queuesDate}"
                             style="padding:6px 10px;border-radius:8px;border:1px solid #334155;background:#0f172a;color:#e2e8f0"
                             onchange="queuesSetDate(this.value)">
@@ -981,6 +1024,7 @@ function isAdminUser() {
                     </div>
                 `;
                 loadQueuesData();
+                updateQueuesModeChip();
             } else if (sub === 'tasks') {
                 breadcrumbs.innerHTML = `Головна / Адміністрування / Менеджмент / <b>Усі задачі</b>`;
                 container.innerHTML = `
@@ -1485,7 +1529,7 @@ function isAdminUser() {
                 window._queuesDate = day;
                 const inp = document.getElementById('queues-date');
                 if (inp && inp.value !== day) inp.value = day;
-                const r = await fetch('/api/admin/queues?date=' + encodeURIComponent(day));
+                const r = await updateQueuesModeChip(); fetch('/api/admin/queues?date=' + encodeURIComponent(day));
                 if (!r.ok) { alert('Помилка завантаження черг: ' + (await r.text())); return; }
                 const d = await r.json();
                 window._queuesCache = d;
@@ -2251,6 +2295,16 @@ window.dailyPostTaskCmt = dailyPostTaskCmt;
 window.dailyToggleIncCmt = dailyToggleIncCmt;
 window.dailyPostIncCmt = dailyPostIncCmt;
 window.loadOnGridSettings = loadOnGridSettings;
+window.fetchOnGrid = fetchOnGrid;
+async function updateQueuesModeChip() {
+  const el = document.getElementById('queues-mode-chip');
+  if (!el) return;
+  const s = await fetchOnGrid();
+  const ds = window._queuesDate || (document.getElementById('queues-date')||{}).value || '';
+  el.innerHTML = modeChipHtml(ds, s);
+}
+window.updateQueuesModeChip = updateQueuesModeChip;
+
 window.runJiraImport = runJiraImport;
 window.saveOnGridSettings = saveOnGridSettings;
 window.refreshAdminBadges = typeof refreshAdminBadges === 'function' ? refreshAdminBadges : undefined;
