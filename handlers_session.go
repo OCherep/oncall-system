@@ -45,6 +45,22 @@ func hashToken(tok string) string {
 	return hex.EncodeToString(sum[:])
 }
 
+func ensureUserExtraColumns() {
+	if db == nil {
+		return
+	}
+	for _, c := range []string{
+		"email TEXT DEFAULT ''",
+		"phone TEXT DEFAULT ''",
+		"slack_id TEXT DEFAULT ''",
+		"is_oncall INTEGER DEFAULT 1",
+		"show_in_roster INTEGER DEFAULT 1",
+		"needs_resume INTEGER DEFAULT 0",
+	} {
+		db.Exec("ALTER TABLE users ADD COLUMN " + c)
+	}
+}
+
 func ensureSessionsTable() {
 	db.Exec(`CREATE TABLE IF NOT EXISTS sessions (
 		token_hash TEXT PRIMARY KEY,
