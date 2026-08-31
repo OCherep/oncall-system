@@ -9,6 +9,19 @@ import (
 	"time"
 )
 
+func ensureOnGridExceptions() {
+	db.Exec(`CREATE TABLE IF NOT EXISTS on_grid_exceptions (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		date TEXT UNIQUE,
+		year_month TEXT UNIQUE,
+		mode TEXT NOT NULL,
+		start TEXT DEFAULT '',
+		end_time TEXT DEFAULT '',
+		weekdays TEXT DEFAULT '',
+		note TEXT DEFAULT ''
+	)`)
+}
+
 func ensureAppSettingsTable() {
 	db.Exec(`CREATE TABLE IF NOT EXISTS app_settings (
 		key TEXT PRIMARY KEY,
@@ -132,22 +145,65 @@ func handleAppSettings(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// isOnGridNow — робочий (on-grid) час за довідником app_settings.
+// isOnGridNow — робочий (on-grid) час: винятки дати → override місяця → дефолт.
 func isOnGridNow() bool {
-	start := getSetting("on_grid_start", "09:00")
-	end := getSetting("on_grid_end", "18:00")
 	tzName := getSetting("on_grid_timezone", "Europe/Kyiv")
-	weekdays := getSetting("on_grid_weekdays", "1,2,3,4,5")
-
 	loc, err := time.LoadLocation(tzName)
 	if err != nil {
 		loc = time.FixedZone("EET", 2*3600)
 	}
 	now := time.Now().In(loc)
-	wd := int(now.Weekday()) // Sun=0
+	day := now.Format("2006-01-02")
+	ym := now.Format("2006-01")
+	hm := now.Format("15:04")
+	wd := int(now.Weekday())
 	if wd == 0 {
 		wd = 7
 	}
+
+	// 1) точна дата
+	var mode, start, end, weekdays string
+	err = db.QueryRow(`SELECT mode, COALESCE(start,''), COALESCE(end_time,''), COALESCE(weekdays,'')
+		FROM on_grid_exceptions WHERE date=? LIMIT 1`, day).Scan(&mode, &start, &end, &weekdays)
+	if err == nil && mode != "" {
+		if mode == "off" {
+			return false
+		}
+		if mode == "on" {
+			if start == "" {
+				start = getSetting("on_grid_start", "09:00")
+			}
+			if end == "" {
+				end = getSetting("on_grid_end", "18:00")
+			}
+			if start <= end {
+				return hm >= start && hm < end
+			}
+			return hm >= start || hm < end
+		}
+	}
+
+	// 2) override місяця
+	start, end, weekdays = "", "", ""
+	err = db.QueryRow(`SELECT COALESCE(start,''), COALESCE(end_time,''), COALESCE(weekdays,'')
+		FROM on_grid_exceptions WHERE year_month=? AND mode='month' LIMIT 1`, ym).
+		Scan(&start, &end, &weekdays)
+	if err != nil {
+		start = getSetting("on_grid_start", "09:00")
+		end = getSetting("on_grid_end", "18:00")
+		weekdays = getSetting("on_grid_weekdays", "1,2,3,4,5")
+	} else {
+		if start == "" {
+			start = getSetting("on_grid_start", "09:00")
+		}
+		if end == "" {
+			end = getSetting("on_grid_end", "18:00")
+		}
+		if weekdays == "" {
+			weekdays = getSetting("on_grid_weekdays", "1,2,3,4,5")
+		}
+	}
+
 	okDay := false
 	for _, p := range strings.Split(weekdays, ",") {
 		if strings.TrimSpace(p) == strconv.Itoa(wd) {
@@ -158,7 +214,6 @@ func isOnGridNow() bool {
 	if !okDay {
 		return false
 	}
-	hm := now.Format("15:04")
 	if start <= end {
 		return hm >= start && hm < end
 	}
@@ -251,4 +306,78 @@ func applyIncidentRouting(inc *IncidentReport) (shouldNotify bool) {
 	}
 	log.Printf("routing: off-grid low prio=%s → unassigned, no notify", prio)
 	return false
+}
+
+
+func handleOnGridExceptions(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	switch r.Method {
+	case http.MethodGet:
+		rows, err := db.Query(`SELECT COALESCE(date,''), COALESCE(year_month,''), mode,
+			COALESCE(start,''), COALESCE(end_time,''), COALESCE(weekdays,''), COALESCE(note,'')
+			FROM on_grid_exceptions ORDER BY COALESCE(date, year_month)`)
+		if err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
+		defer rows.Close()
+		var list []map[string]string
+		for rows.Next() {
+			var date, ym, mode, start, end, wd, note string
+			rows.Scan(&date, &ym, &mode, &start, &end, &wd, &note)
+			list = append(list, map[string]string{
+				"date": date, "year_month": ym, "mode": mode,
+				"start": start, "end": end, "weekdays": wd, "note": note,
+			})
+		}
+		if list == nil {
+			list = []map[string]string{}
+		}
+		json.NewEncoder(w).Encode(list)
+	case http.MethodPost:
+		var body struct {
+			Date      string `json:"date"`
+			YearMonth string `json:"year_month"`
+			Mode      string `json:"mode"`
+			Start     string `json:"start"`
+			End       string `json:"end"`
+			Weekdays  string `json:"weekdays"`
+			Note      string `json:"note"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, err.Error(), 400)
+			return
+		}
+		body.Mode = strings.TrimSpace(body.Mode)
+		if body.Mode == "" {
+			body.Mode = "off"
+		}
+		if body.Date != "" {
+			db.Exec(`INSERT INTO on_grid_exceptions (date, mode, start, end_time, note) VALUES (?,?,?,?,?)
+				ON CONFLICT(date) DO UPDATE SET mode=excluded.mode, start=excluded.start, end_time=excluded.end_time, note=excluded.note`,
+				body.Date, body.Mode, body.Start, body.End, body.Note)
+		} else if body.YearMonth != "" {
+			db.Exec(`INSERT INTO on_grid_exceptions (year_month, mode, start, end_time, weekdays, note) VALUES (?,?,?,?,?,?)
+				ON CONFLICT(year_month) DO UPDATE SET mode=excluded.mode, start=excluded.start, end_time=excluded.end_time, weekdays=excluded.weekdays, note=excluded.note`,
+				body.YearMonth, "month", body.Start, body.End, body.Weekdays, body.Note)
+		} else {
+			http.Error(w, "date or year_month required", 400)
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	case http.MethodDelete:
+		key := r.URL.Query().Get("key")
+		if key == "" {
+			http.Error(w, "key required", 400)
+			return
+		}
+		if len(key) == 7 { // YYYY-MM
+			db.Exec(`DELETE FROM on_grid_exceptions WHERE year_month=?`, key)
+		} else {
+			db.Exec(`DELETE FROM on_grid_exceptions WHERE date=?`, key)
+		}
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	default:
+		http.Error(w, "method not allowed", 405)
+	}
 }
