@@ -457,6 +457,9 @@ function themeToggleHTML(){
 
         let currentUser = null;
         let currentMainMenu = 'management';
+        let loadedUsers = [];
+        let loadedRoles = [];
+        let loadedAbsTypes = [];
         let currentSubPage = 'queues';
 
 
@@ -1529,7 +1532,7 @@ function isAdminUser() {
                 window._queuesDate = day;
                 const inp = document.getElementById('queues-date');
                 if (inp && inp.value !== day) inp.value = day;
-                const r = await updateQueuesModeChip(); fetch('/api/admin/queues?date=' + encodeURIComponent(day));
+                updateQueuesModeChip(); const r = await fetch('/api/admin/queues?date=' + encodeURIComponent(day), { credentials: 'same-origin' });
                 if (!r.ok) { alert('Помилка завантаження черг: ' + (await r.text())); return; }
                 const d = await r.json();
                 window._queuesCache = d;
