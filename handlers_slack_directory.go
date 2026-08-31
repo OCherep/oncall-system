@@ -309,3 +309,148 @@ func slackFetchUsers(token string) ([]slackMember, error) {
 	}
 	return all, nil
 }
+
+
+// handleSlackLookup — GET ?q=U123|@name → profile (name, email, phone, slack_id)
+func handleSlackLookup(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodGet {
+		http.Error(w, "GET only", 405)
+		return
+	}
+	token := slackBotToken()
+	if token == "" {
+		http.Error(w, `{"error":"SLACK_BOT_TOKEN not set"}`, 400)
+		return
+	}
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	if q == "" {
+		q = strings.TrimSpace(r.URL.Query().Get("slack"))
+	}
+	if q == "" {
+		http.Error(w, `{"error":"q required"}`, 400)
+		return
+	}
+	m, err := slackResolveUser(token, q)
+	if err != nil {
+		http.Error(w, fmt.Sprintf(`{"error":%q,"found":false}`, err.Error()), 404)
+		return
+	}
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"found":      true,
+		"slack_id":   m.ID,
+		"name":       m.DisplayName(),
+		"real_name":  m.RealName(),
+		"username":   m.Name,
+		"email":      m.Email(),
+		"phone":      m.Phone(),
+		"title":      m.Title(),
+	})
+}
+
+func slackResolveUser(token, q string) (*slackMember, error) {
+	q = strings.TrimSpace(q)
+	q = strings.TrimPrefix(q, "@")
+	// User ID
+	if len(q) > 0 && (q[0] == 'U' || q[0] == 'W') && !strings.Contains(q, " ") {
+		m, err := slackUserInfo(token, q)
+		if err != nil {
+			return nil, err
+		}
+		return m, nil
+	}
+	// email
+	if strings.Contains(q, "@") && strings.Contains(q, ".") {
+		m, err := slackLookupByEmail(token, q)
+		if err != nil {
+			return nil, err
+		}
+		return m, nil
+	}
+	// match username / display name via users.list
+	members, err := slackFetchUsers(token)
+	if err != nil {
+		return nil, err
+	}
+	ql := strings.ToLower(q)
+	for i := range members {
+		m := &members[i]
+		if strings.ToLower(m.Name) == ql {
+			return m, nil
+		}
+		if strings.ToLower(m.Profile.DisplayName) == ql {
+			return m, nil
+		}
+		if strings.ToLower(m.Profile.RealName) == ql {
+			return m, nil
+		}
+	}
+	// partial display name
+	for i := range members {
+		m := &members[i]
+		if strings.Contains(strings.ToLower(m.Profile.DisplayName), ql) ||
+			strings.Contains(strings.ToLower(m.Profile.RealName), ql) {
+			return m, nil
+		}
+	}
+	return nil, fmt.Errorf("користувача Slack «%s» не знайдено", q)
+}
+
+func slackUserInfo(token, userID string) (*slackMember, error) {
+	u := "https://slack.com/api/users.info?user=" + url.QueryEscape(userID)
+	req, err := http.NewRequest(http.MethodGet, u, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	var out struct {
+		OK    bool        `json:"ok"`
+		Error string      `json:"error"`
+		User  slackMember `json:"user"`
+	}
+	if err := json.Unmarshal(body, &out); err != nil {
+		return nil, err
+	}
+	if !out.OK {
+		return nil, fmt.Errorf("slack: %s", out.Error)
+	}
+	if out.User.Deleted || out.User.IsBot {
+		return nil, fmt.Errorf("користувач недоступний")
+	}
+	return &out.User, nil
+}
+
+func slackLookupByEmail(token, email string) (*slackMember, error) {
+	u := "https://slack.com/api/users.lookupByEmail?email=" + url.QueryEscape(email)
+	req, err := http.NewRequest(http.MethodGet, u, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	var out struct {
+		OK    bool        `json:"ok"`
+		Error string      `json:"error"`
+		User  slackMember `json:"user"`
+	}
+	if err := json.Unmarshal(body, &out); err != nil {
+		return nil, err
+	}
+	if !out.OK {
+		return nil, fmt.Errorf("slack: %s", out.Error)
+	}
+	return &out.User, nil
+}
