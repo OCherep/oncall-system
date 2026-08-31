@@ -551,7 +551,13 @@ function themeToggleHTML(){
             return false;
         }
 
-        window.__bootAdmin = async function bootAdmin() {
+        window.__bootAdmin = function sessionKeepAlive(){
+          fetch('/api/session/me',{credentials:'same-origin'}).then(r=>{
+            if(r.status===401){ try{ logout(); }catch(e){ location.href='/'; } }
+          }).catch(()=>{});
+        }
+        setInterval(sessionKeepAlive, 5*60*1000);
+        async function bootAdmin() {
             const showErr = (msg) => {
                 console.error('[admin]', msg);
                 const c = document.getElementById('page-container');
