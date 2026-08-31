@@ -466,3 +466,13 @@ Env `JIRA_STATUS_MAP` JSON, напр.:
 
 `GET /api/data` → поле `brb: { "Name": "2026-08-31 16:00:00" }`.  
 Login → `needs_resume: true` якщо зняли зі зміни.
+
+
+## 16. Імпорт користувачів зі Slack
+
+| Метод | Шлях | Опис |
+|-------|------|------|
+| GET | `/api/admin/slack/users` | `users.list` → members (без ботів), прапорець already_link |
+| POST | `/api/admin/slack/users` | `{ members:[{slack_id,name,username,email,phone,…}], default_password }` |
+
+Scopes бота: `users:read`, `users:read.email`. Env: `SLACK_BOT_TOKEN`, опційно `SLACK_IMPORT_DEFAULT_PASSWORD`.
