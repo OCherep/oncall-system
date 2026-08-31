@@ -647,9 +647,12 @@ function themeToggleHTML(){
                 incs.forEach(i => { const s=i.status||'Нове'; incBy[s]=(incBy[s]||0)+1; });
 
                 const sum = document.getElementById('daily-summary');
+                const boardDay = d.date || day || window._dailyDate || '';
+                const todayStr = new Date().toISOString().slice(0,10);
+                const isTodayBoard = boardDay === todayStr;
                 if (sum) {
-                    sum.innerHTML = `
-                      <div class="card" style="padding:12px;text-align:center"><div style="font-size:11px;opacity:.7">Дата</div><div style="font-size:18px;font-weight:700">${d.date||day}</div></div>
+                    // один чіп дати (mode підставимо після fetchOnGrid для «сьогодні»)
+                    sum.innerHTML = modeChipHtml(boardDay, null) + `
                       <div class="card" style="padding:12px;text-align:center"><div style="font-size:11px;opacity:.7">Основний</div><div style="font-weight:600">${d.primary||'—'}</div></div>
                       <div class="card" style="padding:12px;text-align:center"><div style="font-size:11px;opacity:.7">Дубль</div><div style="font-weight:600">${d.backup||'—'}</div></div>
                       <div class="card" style="padding:12px;text-align:center;border-left:3px solid #ef4444"><div style="font-size:11px;opacity:.7">Без виконавця</div><div style="font-size:20px;font-weight:700;color:#ef4444">${d.unassigned||0}</div></div>
@@ -657,24 +660,24 @@ function themeToggleHTML(){
                     `;
                 }
                 const ogLine = document.getElementById('daily-ongrid-line');
-                fetchOnGrid().then(s => {
-                  const on = s && (s.on_grid === true || s._on_grid_now === '1');
-                  if (ogLine) {
-                    const mode = on ? 'ON-GRID' : 'OFF-GRID';
-                    const lab = on ? 'робочий час' : 'неробочий час';
-                    ogLine.innerHTML = 'Чергові: <b>'+(d.primary||'—')+'</b> / <b>'+(d.backup||'—')+'</b> · <b>'+mode+'</b> ('+lab+', '+(s&&s.on_grid_start||'')+'–'+(s&&s.on_grid_end||'')+')';
+                if (ogLine) {
+                  if (isTodayBoard) {
+                    ogLine.textContent = 'Чергові: '+(d.primary||'—')+' / '+(d.backup||'—')+' · …';
+                    fetchOnGrid().then(s => {
+                      const on = s && (s.on_grid === true || s._on_grid_now === '1');
+                      const mode = on ? 'ON-GRID' : 'OFF-GRID';
+                      const lab = on ? 'робочий час' : 'неробочий час';
+                      ogLine.innerHTML = 'Чергові: <b>'+(d.primary||'—')+'</b> / <b>'+(d.backup||'—')+'</b> · <b>'+mode+'</b> ('+lab+', '+(s&&s.on_grid_start||'')+'–'+(s&&s.on_grid_end||'')+')';
+                      if (sum) {
+                        const chip = modeChipHtml(boardDay, s);
+                        const el = sum.querySelector('.mode-chip');
+                        if (el) el.outerHTML = chip; else sum.insertAdjacentHTML('afterbegin', chip);
+                      }
+                    }).catch(()=>{});
+                  } else {
+                    ogLine.innerHTML = 'Чергові: <b>'+(d.primary||'—')+'</b> / <b>'+(d.backup||'—')+'</b> · дата <b>'+boardDay+'</b>';
                   }
-                  // date chip at start of summary
-                  if (sum) {
-                    const chip = modeChipHtml(d.date || window._dailyDate, s);
-                    const rest = sum.innerHTML;
-                    if (!sum.querySelector('.mode-chip')) {
-                      sum.insertAdjacentHTML('afterbegin', chip);
-                    } else {
-                      sum.querySelector('.mode-chip').outerHTML = chip;
-                    }
-                  }
-                });
+                }
                 const chips = document.getElementById('daily-status-chips');
                 if (chips) {
                     const chipClass = (s) => {
@@ -908,13 +911,22 @@ function isAdminUser() {
                 return await r.json();
             } catch (e) { console.warn('on-grid', e); return null; }
         }
-        function modeChipHtml(dateStr, snap) {
+        function modeChipHtml(dateStr, snap, opts) {
+            opts = opts || {};
+            const d = dateStr || '';
+            const today = new Date().toISOString().slice(0,10);
+            const isToday = !d || d === today;
+            // минулі (і майбутні) дати — лише дата, без on/off-grid
+            if (!isToday && !opts.forceMode) {
+                return `<div class="mode-chip off-grid" title="${d}">
+                  <span class="mode-date">${d}</span>
+                </div>`;
+            }
             const on = snap && (snap.on_grid === true || snap._on_grid_now === '1' || snap.mode === 'on-grid');
             const label = on ? 'робочий час' : 'неробочий час';
             const cls = on ? 'on-grid' : 'off-grid';
-            const d = dateStr || '';
             return `<div class="mode-chip ${cls}" title="${on?'ON-GRID':'OFF-GRID'} ${(snap&&snap.on_grid_start)||''}–${(snap&&snap.on_grid_end)||''}">
-              <span class="mode-date">${d}</span>
+              <span class="mode-date">${d || today}</span>
               <span class="mode-sub">${label}</span>
             </div>`;
         }
