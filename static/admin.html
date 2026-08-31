@@ -1126,28 +1126,51 @@ function themeToggleHTML(){
                 let h = '';
                 const users = Object.keys(byUser).sort();
                 if (!users.length) h = '<p style="color:#94a3b8">Немає звернень</p>';
+                else h += '<p style="font-size:12px;color:#94a3b8;margin:0 0 10px">Клік по зверненню — коментарі та історія змін.</p>';
                 const canCmt = !['Вирішено','Архів'].includes(status);
                 users.forEach(u => {
                     h += `<h4 style="margin:16px 0 8px">${u} <span style="color:#94a3b8;font-weight:400">(${byUser[u].length})</span></h4>`;
                     byUser[u].forEach(i => {
-                        h += `<div class="card" style="padding:10px;margin-bottom:10px">
-                          <div><b>#${i.id}</b> ${(i.description||'').replace(/</g,'&lt;')}</div>
-                          <div style="font-size:12px;color:#94a3b8">${i.priority||''} · ${i.source||''} · ${i.duration_minutes||i.total_minutes||0} хв
-                          ${i.reporter_name?(' · '+i.reporter_name):''}</div>
-                          <div id="q-inc-cmt-${i.id}" style="margin-top:6px;font-size:12px"><em>коментарі…</em></div>`;
-                        if (canCmt) {
-                          h += `<div style="display:flex;gap:6px;margin-top:6px">
-                            <input id="q-inc-inp-${i.id}" placeholder="Коментар" style="flex:1;padding:6px;border-radius:6px;border:1px solid #334155;background:#0f172a;color:#e2e8f0">
-                            <button class="btn btn-primary" onclick="adminPostIncCmt(${i.id},'q-inc-inp-${i.id}','q-inc-cmt-${i.id}')">+</button>
-                          </div>`;
-                        }
-                        h += `</div>`;
+                        const plan = i.duration_minutes||0;
+                        const fact = i.fact_minutes||i.total_minutes||0;
+                        const timeStr = (status==='Вирішено'||status==='Архів')
+                          ? (plan + ' / ' + (fact||'—') + ' хв')
+                          : (plan + ' хв');
+                        h += `<div class="card q-inc-card" style="padding:10px;margin-bottom:8px;cursor:pointer" data-inc="${i.id}" onclick="toggleQueueIncCmt(${i.id}, ${canCmt?'true':'false'})">
+                          <div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start">
+                            <div>
+                              <b>#${i.id}</b> ${(i.description||'').replace(/</g,'&lt;')}
+                              <div style="font-size:12px;color:#94a3b8;margin-top:4px">
+                                ${i.priority||''} · ${i.source||''} · ${timeStr}
+                                ${i.reporter_name?(' · '+String(i.reporter_name).replace(/</g,'&lt;')):''}
+                                · <span style="color:#93c5fd">${i.status||status}</span>
+                              </div>
+                            </div>
+                            <span class="btn" style="padding:2px 8px;flex-shrink:0" title="Коментарі">💬</span>
+                          </div>
+                          <div id="q-inc-cmt-wrap-${i.id}" style="display:none;margin-top:10px" onclick="event.stopPropagation()">
+                            <div id="q-inc-cmt-${i.id}" style="font-size:12px"><em style="color:#94a3b8">коментарі…</em></div>
+                            ${canCmt ? `<div style="display:flex;gap:6px;margin-top:8px">
+                              <input id="q-inc-inp-${i.id}" placeholder="Коментар" style="flex:1;padding:6px;border-radius:6px;border:1px solid #334155;background:#0f172a;color:#e2e8f0" onclick="event.stopPropagation()">
+                              <button class="btn btn-primary" onclick="event.stopPropagation();adminPostIncCmt(${i.id},'q-inc-inp-${i.id}','q-inc-cmt-${i.id}')">+</button>
+                            </div>` : ''}
+                          </div>
+                        </div>`;
                     });
                 });
                 document.getElementById('queue-detail-body').innerHTML = h;
-                list.forEach(i => adminLoadIncCmtInto('q-inc-cmt-'+i.id, i.id));
             } catch (e) {
                 document.getElementById('queue-detail-body').textContent = 'Помилка: ' + e;
+            }
+        }
+
+        async function toggleQueueIncCmt(id, canCmt) {
+            const wrap = document.getElementById('q-inc-cmt-wrap-' + id);
+            if (!wrap) return;
+            const open = wrap.style.display === 'none';
+            wrap.style.display = open ? 'block' : 'none';
+            if (open) {
+                await adminLoadIncCmtInto('q-inc-cmt-' + id, id);
             }
         }
 
