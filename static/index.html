@@ -455,6 +455,13 @@ const _cl=cl;
 cl=function(id){document.getElementById(id).style.display='none'};
 
 
+async function restoreSession(){
+  try{
+    const r=await fetch('/api/session/me',{credentials:'same-origin'});
+    if(r.ok){const u=await r.json();U=u;localStorage.setItem('u',JSON.stringify(u));return true;}
+  }catch(e){}
+  return false;
+}
 function sess(){
   const tb=document.getElementById('theme-slot'); if(tb){tb.innerHTML=themeToggleHTML(); if(window.setTheme) setTheme(localStorage.getItem('oncall_theme')||'system');}
 
@@ -475,11 +482,12 @@ function sess(){
     pushBtn.style.display='none';
   }
 }
-function toggleAuth(){if(U){U=null;localStorage.removeItem('u');sess();load()}else document.getElementById('m-login').style.display='flex'}
+function toggleAuth(){if(U){U=null;localStorage.removeItem('u');(async()=>{await restoreSession();sess();load()})()}else document.getElementById('m-login').style.display='flex'}
 async function doLogin(){
-  const r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},
+  const r=await fetch('/api/login',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({username:document.getElementById('lu').value,password:document.getElementById('lp').value})});
-  if(r.ok){U=await r.json();localStorage.setItem('u',JSON.stringify(U));document.cookie='oncall_user='+encodeURIComponent(U.username||'')+'; Path=/; Max-Age='+(30*24*3600)+'; SameSite=Lax';document.cookie='oncall_name='+encodeURIComponent(U.name||'')+'; Path=/; Max-Age='+(30*24*3600)+'; SameSite=Lax';cl('m-login');sess();load()}else alert('Помилка входу');
+  if(r.ok){U=await r.json();if(U.session_token)localStorage.setItem('oncall_session_token',U.session_token);
+    localStorage.setItem('u',JSON.stringify(U));document.cookie='oncall_user='+encodeURIComponent(U.username||'')+'; Path=/; Max-Age='+(30*24*3600)+'; SameSite=Lax';document.cookie='oncall_name='+encodeURIComponent(U.name||'')+'; Path=/; Max-Age='+(30*24*3600)+'; SameSite=Lax';cl('m-login');(async()=>{await restoreSession();sess();load()})()}else alert('Помилка входу');
 }
 
 function updatePushBtn(){
@@ -1202,6 +1210,6 @@ async function updTask(id,field,val){const body={id,role:U&&U.role||'user',actor
 async function delTask(id){if(!confirm('Видалити?'))return;await fetch('/api/daily-tasks?id='+id,{method:'DELETE'});cl('m-day');load()}
 
 window.addEventListener('resize',()=>{['m-day','m-col','m-person'].forEach(updateStickyClose);});
-sess();load();
+(async()=>{await restoreSession();sess();load()})();
 </script><script src="/status-fix.js"></script>
 </body></html>
