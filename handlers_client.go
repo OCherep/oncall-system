@@ -479,22 +479,36 @@ func handleGetData(w http.ResponseWriter, r *http.Request) {
 	if m := r.URL.Query().Get("month"); m != "" {
 		fmt.Sscanf(m, "%d", &month)
 	}
-	rows, err := db.Query(`SELECT u.id, u.username, u.name, u.role, u.team_role_id, COALESCE(tr.name, ''), COALESCE(u.is_oncall, 1)
-		FROM users u LEFT JOIN team_roles tr ON u.team_role_id = tr.id WHERE u.role != 'admin' OR COALESCE(u.is_oncall, 0) = 1 ORDER BY u.name`)
+	rows, err := db.Query(`SELECT u.id, u.username, u.name, u.role, u.team_role_id, COALESCE(tr.name, ''), COALESCE(u.is_oncall, 1), COALESCE(u.show_in_roster, 1)
+		FROM users u LEFT JOIN team_roles tr ON u.team_role_id = tr.id
+		WHERE (u.role != 'admin' OR COALESCE(u.is_oncall, 0) = 1) AND COALESCE(u.show_in_roster, 1) = 1
+		ORDER BY u.name`)
 	var team []User
 	var oncallUsers []string
 	if err == nil {
 		defer rows.Close()
 		for rows.Next() {
 			var u User
-			var isOn int
-			rows.Scan(&u.ID, &u.Username, &u.Name, &u.Role, &u.TeamRoleID, &u.TeamRole, &isOn)
+			var isOn, showR int
+			rows.Scan(&u.ID, &u.Username, &u.Name, &u.Role, &u.TeamRoleID, &u.TeamRole, &isOn, &showR)
 			u.IsOncall = isOn == 1
+			u.ShowInRoster = showR == 1
 			team = append(team, u)
 			if u.IsOncall {
 				oncallUsers = append(oncallUsers, u.Name)
 			}
 		}
+	}
+	// full on-call list for shift generation (even if hidden from roster)
+	oncallUsers = nil
+	orows, _ := db.Query(`SELECT name FROM users WHERE COALESCE(is_oncall,0)=1 AND role != 'admin' ORDER BY name`)
+	if orows != nil {
+		for orows.Next() {
+			var n string
+			orows.Scan(&n)
+			oncallUsers = append(oncallUsers, n)
+		}
+		orows.Close()
 	}
 	absRows, _ := db.Query(`SELECT id, user_name, type, start_date, end_date, status FROM absences WHERE status = 'Approved'`)
 	var absences []AbsenceRequest
