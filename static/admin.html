@@ -289,6 +289,34 @@ tr.q-row:hover{background:#eff6ff}
 .nav-dot.hidden{display:none}
 .sidebar-item{display:flex;align-items:center;justify-content:space-between;gap:8px}
 .sidebar-item .nav-label{flex:1}
+
+/* Daily board status chips — readable in light & dark */
+.daily-chips { display: flex; flex-direction: column; gap: 10px; }
+.daily-chips-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.daily-chips-label { font-size: 12px; font-weight: 600; color: var(--muted, #64748b); min-width: 88px; }
+.st-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 12px; border-radius: 999px; font-size: 12px; font-weight: 600;
+  border: 1px solid transparent; line-height: 1.3;
+}
+.st-chip b { font-weight: 700; font-variant-numeric: tabular-nums; }
+.st-chip-nova, .st-chip-nove { background: #dbeafe; color: #1e40af; border-color: #93c5fd; }
+.st-chip-work { background: #ffedd5; color: #9a3412; border-color: #fdba74; }
+.st-chip-pause { background: #e2e8f0; color: #334155; border-color: #cbd5e1; }
+.st-chip-check { background: #fef3c7; color: #92400e; border-color: #fcd34d; }
+.st-chip-done { background: #dcfce7; color: #166534; border-color: #86efac; }
+.st-chip-reopen { background: #ede9fe; color: #5b21b6; border-color: #c4b5fd; }
+.st-chip-arch { background: #f1f5f9; color: #475569; border-color: #cbd5e1; }
+.st-chip-default { background: #f1f5f9; color: #334155; border-color: #cbd5e1; }
+[data-theme="dark"] .st-chip-nova, [data-theme="dark"] .st-chip-nove { background: #1e3a5f; color: #93c5fd; border-color: #3b82f6; }
+[data-theme="dark"] .st-chip-work { background: #7c2d12; color: #fed7aa; border-color: #ea580c; }
+[data-theme="dark"] .st-chip-pause { background: #334155; color: #e2e8f0; border-color: #64748b; }
+[data-theme="dark"] .st-chip-check { background: #78350f; color: #fde68a; border-color: #d97706; }
+[data-theme="dark"] .st-chip-done { background: #14532d; color: #bbf7d0; border-color: #22c55e; }
+[data-theme="dark"] .st-chip-reopen { background: #4c1d95; color: #ddd6fe; border-color: #8b5cf6; }
+[data-theme="dark"] .st-chip-arch, [data-theme="dark"] .st-chip-default { background: #1e293b; color: #cbd5e1; border-color: #475569; }
+[data-theme="dark"] .daily-chips-label { color: #94a3b8; }
+
 </style>
 </head>
 <body>
@@ -614,25 +642,38 @@ function themeToggleHTML(){
                 }
                 const chips = document.getElementById('daily-status-chips');
                 if (chips) {
+                    const chipClass = (s) => {
+                        const x = String(s||'').toLowerCase();
+                        if (x === 'нова' || x === 'нове') return 'st-chip-nova';
+                        if (x.includes('робот')) return 'st-chip-work';
+                        if (x.includes('пауз')) return 'st-chip-pause';
+                        if (x.includes('перевір')) return 'st-chip-check';
+                        if (x.includes('виконан') || x.includes('вирішен')) return 'st-chip-done';
+                        if (x.includes('перевідкр')) return 'st-chip-reopen';
+                        if (x.includes('архів')) return 'st-chip-arch';
+                        return 'st-chip-default';
+                    };
+                    const renderChips = (order, counts) => {
+                        let h = '';
+                        const seen = new Set();
+                        order.forEach(s => {
+                            const n = counts[s]||0;
+                            if (!n) return;
+                            seen.add(s);
+                            h += `<span class="st-chip ${chipClass(s)}">${s}: <b>${n}</b></span>`;
+                        });
+                        Object.keys(counts).forEach(s => {
+                            if (seen.has(s) || !counts[s]) return;
+                            h += `<span class="st-chip ${chipClass(s)}">${s}: <b>${counts[s]}</b></span>`;
+                        });
+                        return h || '<span class="st-chip st-chip-default">немає</span>';
+                    };
                     const orderT = ['Нова','У роботі','На паузі','До перевірки','Виконана','Перевідкрита'];
                     const orderI = ['Нове','В роботі','На паузі','Вирішено'];
-                    let h = '<div style="margin-bottom:8px"><b style="font-size:12px;opacity:.8">Задачі:</b> ';
-                    orderT.forEach(s => {
-                        const n = by[s]||0;
-                        if (!n) return;
-                        h += `<span class="badge" style="margin:2px;padding:4px 10px;background:#1e293b;border:1px solid #334155">${s}: <b>${n}</b></span>`;
-                    });
-                    Object.keys(by).forEach(s => { if (!orderT.includes(s) && by[s]) h += `<span class="badge" style="margin:2px">${s}: ${by[s]}</span>`; });
-                    h += '</div><div><b style="font-size:12px;opacity:.8">Звернення:</b> ';
-                    orderI.forEach(s => {
-                        const n = incBy[s]||0;
-                        if (!n) return;
-                        h += `<span class="badge" style="margin:2px;padding:4px 10px;background:#1e293b;border:1px solid #334155">${s}: <b>${n}</b></span>`;
-                    });
-                    Object.keys(incBy).forEach(s => { if (!orderI.includes(s) && incBy[s]) h += `<span class="badge" style="margin:2px">${s}: ${incBy[s]}</span>`; });
-                    if (!incs.length) h += '<span style="opacity:.6">немає</span>';
-                    h += '</div>';
-                    chips.innerHTML = h;
+                    chips.innerHTML = `<div class="daily-chips">
+                      <div class="daily-chips-row"><span class="daily-chips-label">Задачі</span>${renderChips(orderT, by)}</div>
+                      <div class="daily-chips-row"><span class="daily-chips-label">Звернення</span>${renderChips(orderI, incBy)}</div>
+                    </div>`;
                 }
 
                 const tb = document.getElementById('daily-tasks-body');
