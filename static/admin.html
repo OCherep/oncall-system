@@ -846,6 +846,28 @@ function isAdminUser() {
         }
 
         
+        
+        async function runJiraImport() {
+            const jql = ((document.getElementById('jira-jql')||{}).value || '').trim();
+            const out = document.getElementById('jira-import-result');
+            if (out) { out.style.display = 'block'; out.textContent = 'Запит…'; }
+            try {
+                const r = await fetch('/api/admin/jira/import', {
+                    method: 'POST', credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ jql: jql || undefined, max: 50 })
+                });
+                const t = await r.text();
+                let d; try { d = JSON.parse(t); } catch(e) { d = { raw: t }; }
+                if (out) out.textContent = JSON.stringify(d, null, 2);
+                if (!r.ok) alert('Помилка імпорту: ' + (d.error || r.status));
+                else alert('Імпорт: створено '+(d.created||0)+', оновлено '+(d.updated||0)+', пропущено '+(d.skipped||0));
+            } catch (e) {
+                if (out) out.textContent = String(e);
+                alert(e.message || e);
+            }
+        }
+
         async function loadOnGridSettings() {
             const box = document.getElementById('ongrid-settings-box');
             if (!box) return;
@@ -1041,9 +1063,23 @@ function isAdminUser() {
                         <table><thead><tr><th>ID</th><th>CIDR / IP</th><th>Мітка</th><th>Увімк.</th><th>Створено</th><th>Дії</th></tr></thead>
                         <tbody id="allowed-ips-table"><tr><td colspan="6">Завантаження…</td></tr></tbody></table>
                     </div>
+                    <div id="ongrid-settings-box"></div>
+                    <div id="jira-import-box" class="card" style="margin-top:16px;padding:14px">
+                      <h3 style="margin:0 0 8px">Jira — імпорт задач DevOps</h3>
+                      <p style="font-size:12px;opacity:.75;margin:0 0 10px">Підтягує open issues за JQL у <code>daily_tasks</code> з <code>external_id</code>. Повторний імпорт оновлює існуючі.</p>
+                      <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end">
+                        <div class="form-group" style="flex:1;min-width:260px;margin:0">
+                          <label>JQL</label>
+                          <input type="text" id="jira-jql" style="width:100%" placeholder='project = XXX AND (component = DevOps OR labels = devops) AND statusCategory != Done'>
+                        </div>
+                        <button class="btn btn-primary" onclick="runJiraImport()">Імпортувати</button>
+                      </div>
+                      <pre id="jira-import-result" style="margin-top:10px;font-size:12px;max-height:200px;overflow:auto;display:none"></pre>
+                    </div>
                 `;
                 loadDictionariesData();
                 loadAllowedIPs();
+                loadOnGridSettings();
             } else if (sub === 'proj-logs') {
                 breadcrumbs.innerHTML = `Головна / Адміністрування / Налаштування / Проєкт / <b>Логи</b>`;
                 container.innerHTML = `
@@ -2194,6 +2230,7 @@ window.dailyPostTaskCmt = dailyPostTaskCmt;
 window.dailyToggleIncCmt = dailyToggleIncCmt;
 window.dailyPostIncCmt = dailyPostIncCmt;
 window.loadOnGridSettings = loadOnGridSettings;
+window.runJiraImport = runJiraImport;
 window.saveOnGridSettings = saveOnGridSettings;
 window.refreshAdminBadges = typeof refreshAdminBadges === 'function' ? refreshAdminBadges : undefined;
 window.loadQueuesData = typeof loadQueuesData === 'function' ? loadQueuesData : undefined;
