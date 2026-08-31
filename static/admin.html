@@ -419,7 +419,7 @@ function themeToggleHTML(){
         let currentSubPage = 'queues';
 
 
-        window.switchMainMenu = function switchMainMenu(menu) {
+        function switchMainMenu(menu) {
             currentMainMenu = menu;
             document.querySelectorAll('.main-menu-btn').forEach(b => b.classList.remove('active'));
             const btn = document.getElementById('menu-btn-' + menu);
@@ -428,12 +428,12 @@ function themeToggleHTML(){
             if (menu === 'settings') loadSubPage('dictionaries');
         }
 
-        window.toggleDropdown = function toggleDropdown(id) {
+        function toggleDropdown(id) {
             const el = document.getElementById(id);
             if (el) el.classList.toggle('open');
         }
 
-        window.renderSidebar = function renderSidebar() {
+        function renderSidebar() {
             const sidebar = document.getElementById('sidebar');
             if (!sidebar) return;
             if (currentMainMenu === 'management') {
@@ -470,7 +470,7 @@ function themeToggleHTML(){
             try { refreshAdminBadges(); } catch (e) {}
         }
 
-        window.logout = function logout() {
+        function logout() {
             try { fetch('/api/logout', { method: 'POST', credentials: 'same-origin' }); } catch (e) {}
             localStorage.removeItem('u');
             localStorage.removeItem('currentUser');
@@ -503,32 +503,60 @@ function themeToggleHTML(){
         }
 
         window.__bootAdmin = async function bootAdmin() {
+            const showErr = (msg) => {
+                console.error('[admin]', msg);
+                const c = document.getElementById('page-container');
+                if (c) c.innerHTML = '<div class="card" style="padding:16px;color:#b91c1c"><b>Помилка адмінки:</b> ' +
+                    String(msg).replace(/</g,'&lt;') +
+                    '<br><button class="btn btn-primary" style="margin-top:10px" onclick="location.reload()">Перезавантажити</button></div>';
+            };
             try {
-                const ok = await ensureSession();
+                console.log('[admin] boot', {
+                    renderSidebar: typeof renderSidebar,
+                    loadSubPage: typeof loadSubPage,
+                    ensureSession: typeof ensureSession
+                });
+                // 1) Session (non-fatal for showing shell)
+                let ok = false;
+                try { ok = await ensureSession(); } catch (e) { console.warn('ensureSession', e); }
+                if (!ok) {
+                    // last chance: cookie oncall_user
+                    const m = document.cookie.match(/(?:^|; )oncall_user=([^;]*)/);
+                    if (m) {
+                        currentUser = currentUser || { username: decodeURIComponent(m[1]), role: 'admin', name: decodeURIComponent(m[1]) };
+                        ok = true;
+                    }
+                }
                 if (!ok) { window.location.href = '/'; return; }
-                if (!currentUser || currentUser.role !== 'admin') {
+                if (currentUser && currentUser.role && currentUser.role !== 'admin') {
                     alert('Доступ лише для адміністраторів');
                     window.location.href = '/';
                     return;
                 }
+                // if role missing from session soft-cache — still try (legacy)
                 const nameEl = document.getElementById('user-info');
-                if (nameEl) nameEl.textContent = currentUser.name || currentUser.username || '';
-                if (typeof window.renderSidebar === 'function') window.renderSidebar();
-                if (typeof window.loadSubPage === 'function') await window.loadSubPage(currentSubPage || 'queues');
-                else console.error('loadSubPage missing');
+                if (nameEl && currentUser) nameEl.textContent = currentUser.name || currentUser.username || '';
+
+                if (typeof renderSidebar !== 'function') {
+                    showErr('renderSidebar is not a function (typeof=' + typeof renderSidebar + ')');
+                    return;
+                }
+                renderSidebar();
+
+                if (typeof loadSubPage !== 'function') {
+                    showErr('loadSubPage is not a function');
+                    return;
+                }
+                await loadSubPage(currentSubPage || 'queues');
+                console.log('[admin] boot complete, page=', currentSubPage);
             } catch (e) {
-                console.error('bootAdmin', e);
-                alert('Помилка ініціалізації адмінки: ' + e.message);
+                showErr((e && e.stack) ? e.stack : e);
             }
         };
-        if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', function(){ window.__bootAdmin(); });
-        } else {
-            // defer after full script parse
-            setTimeout(function(){ window.__bootAdmin(); }, 0);
-        }
+        // Always schedule after full parse
+        setTimeout(function(){ window.__bootAdmin(); }, 0);
 
-        window.dailyShift = function dailyShift(delta) {
+        function dailyShift(delta) {
             const cur = window._dailyDate || new Date().toISOString().slice(0,10);
             const d = new Date(cur + 'T12:00:00');
             d.setDate(d.getDate() + delta);
@@ -537,7 +565,7 @@ function themeToggleHTML(){
             if (inp) inp.value = window._dailyDate;
             loadDailyBoard();
         }
-        window.loadDailyBoard = async function loadDailyBoard() {
+        async function loadDailyBoard() {
             const day = window._dailyDate || new Date().toISOString().slice(0,10);
             window._dailyDate = day;
             const inp = document.getElementById('daily-date');
@@ -622,7 +650,7 @@ function themeToggleHTML(){
             setTimeout(refreshAdminBadges, 800);
         }
 
-        window.loadSubPage = async function loadSubPage(sub) {
+        async function loadSubPage(sub) {
             currentSubPage = sub;
             renderSidebar();
 
@@ -1915,6 +1943,21 @@ async function toggleArchCmt(id) {
                 loadIncArchive();
             }
         }
+
+
+// Global exports for onclick handlers (Safari-safe)
+window.switchMainMenu = switchMainMenu;
+window.toggleDropdown = toggleDropdown;
+window.renderSidebar = renderSidebar;
+window.logout = logout;
+window.loadSubPage = loadSubPage;
+window.loadDailyBoard = loadDailyBoard;
+window.dailyShift = dailyShift;
+window.refreshAdminBadges = typeof refreshAdminBadges === 'function' ? refreshAdminBadges : undefined;
+window.loadQueuesData = typeof loadQueuesData === 'function' ? loadQueuesData : undefined;
+window.queuesSetDate = typeof queuesSetDate === 'function' ? queuesSetDate : undefined;
+window.queuesShiftDay = typeof queuesShiftDay === 'function' ? queuesShiftDay : undefined;
+
 </script>
 
     <div class="modal" id="edit-entity-modal" style="display:none">
@@ -1952,5 +1995,25 @@ async function toggleArchCmt(id) {
 <script>document.addEventListener("DOMContentLoaded",function(){var tb=document.getElementById("theme-slot");if(tb){tb.innerHTML=themeToggleHTML();setTheme(localStorage.getItem("oncall_theme")||"system");}});
 setTimeout(hashIncDeepLink,800);
 </script>
+
+<script>
+/* failsafe: if boot did not paint sidebar in 1.5s, try again or show hint */
+setTimeout(function(){
+  var side = document.getElementById('sidebar');
+  var empty = side && !side.innerHTML.trim();
+  if (empty) {
+    console.warn('[admin] sidebar still empty, retry boot');
+    if (typeof window.__bootAdmin === 'function') window.__bootAdmin();
+    else if (typeof window.renderSidebar === 'function') {
+      window.renderSidebar();
+      if (typeof window.loadSubPage === 'function') window.loadSubPage('queues');
+    } else {
+      var c = document.getElementById('page-container');
+      if (c) c.innerHTML = '<div style="padding:16px;color:#b91c1c">Скрипт адмінки не завантажився повністю. Зробіть hard refresh (Cmd+Shift+R) або перевірте <code>git pull</code> на сервері.</div>';
+    }
+  }
+}, 1500);
+</script>
+
 </body>
 </html>
