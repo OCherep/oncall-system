@@ -40,6 +40,43 @@ func setSetting(key, value string) {
 		ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=CURRENT_TIMESTAMP`, key, value)
 }
 
+// onGridSnapshot — публічний зріз режиму (без admin-префіксу в UI).
+func onGridSnapshot() map[string]interface{} {
+	start := getSetting("on_grid_start", "09:00")
+	end := getSetting("on_grid_end", "18:00")
+	tz := getSetting("on_grid_timezone", "Europe/Kyiv")
+	days := getSetting("on_grid_weekdays", "1,2,3,4,5")
+	on := isOnGridNow()
+	label := "неробочий час"
+	mode := "off-grid"
+	onNow := "0"
+	if on {
+		label = "робочий час"
+		mode = "on-grid"
+		onNow = "1"
+	}
+	return map[string]interface{}{
+		"on_grid":          on,
+		"mode":             mode,
+		"label":            label,
+		"on_grid_start":    start,
+		"on_grid_end":      end,
+		"on_grid_timezone": tz,
+		"on_grid_weekdays": days,
+		"_on_grid_now":     onNow,
+	}
+}
+
+func handleOnGridPublic(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	if r.Method != http.MethodGet {
+		http.Error(w, "GET only", 405)
+		return
+	}
+	json.NewEncoder(w).Encode(onGridSnapshot())
+}
+
 func handleAppSettings(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	switch r.Method {
@@ -61,11 +98,19 @@ func handleAppSettings(w http.ResponseWriter, r *http.Request) {
 				out[k] = getSetting(k, "")
 			}
 		}
-		if isOnGridNow() {
-			out["_on_grid_now"] = "1"
-		} else {
-			out["_on_grid_now"] = "0"
+		snap := onGridSnapshot()
+		for k, v := range snap {
+			if ks, ok := v.(string); ok {
+				out[k] = ks
+			} else if kb, ok := v.(bool); ok {
+				if kb {
+					out[k] = "1"
+				} else if k == "on_grid" {
+					out[k] = "0"
+				}
+			}
 		}
+		out["_on_grid_now"] = snap["_on_grid_now"].(string)
 		json.NewEncoder(w).Encode(out)
 	case http.MethodPut, http.MethodPost:
 		var body map[string]string
