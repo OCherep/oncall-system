@@ -927,12 +927,31 @@ func handleIncidents(w http.ResponseWriter, r *http.Request) {
 			inc.Source = "guest"
 		}
 		if guest {
-			if strings.TrimSpace(inc.ReporterEmail) == "" {
-				http.Error(w, "Для гостьового звернення обов'язковий email", http.StatusBadRequest)
+			slackQ := strings.TrimSpace(inc.ReporterSlack)
+			if slackQ == "" {
+				http.Error(w, "Для гостьового звернення обов'язковий Slack (ID або @username)", http.StatusBadRequest)
 				return
 			}
+			// підтягнути ім'я/email з профілю Slack, якщо є токен
+			if tok := slackBotToken(); tok != "" {
+				if m, err := slackResolveUser(tok, slackQ); err == nil && m != nil {
+					inc.ReporterSlack = m.ID
+					if strings.TrimSpace(inc.ReporterEmail) == "" && m.Email() != "" {
+						inc.ReporterEmail = m.Email()
+					}
+					if strings.TrimSpace(inc.ReporterName) == "" || inc.ReporterName == "гість" {
+						inc.ReporterName = m.DisplayName()
+					}
+					if strings.TrimSpace(inc.CreatedBy) == "" || inc.CreatedBy == "гість" {
+						inc.CreatedBy = m.DisplayName()
+					}
+				} else if err != nil {
+					http.Error(w, "Slack: "+err.Error(), http.StatusBadRequest)
+					return
+				}
+			}
 			if strings.TrimSpace(inc.ReporterName) == "" {
-				http.Error(w, "Вкажіть ваше ім'я", http.StatusBadRequest)
+				http.Error(w, "Вкажіть ваше ім'я (або коректний Slack для автозаповнення)", http.StatusBadRequest)
 				return
 			}
 		}
