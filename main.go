@@ -550,6 +550,7 @@ func main() {
 	http.HandleFunc("/api/comments", withIPAllow(handleComments))
 	http.HandleFunc("/api/task-status-log", withIPAllow(handleTaskStatusLog))
 	http.HandleFunc("/api/admin/queues", withIPAllow(handleAdminQueues))
+	http.HandleFunc("/api/admin/badges", withIPAllow(handleAdminBadges))
 	http.HandleFunc("/api/admin/allowed-ips", withIPAllow(handleAdminAllowedIPs))
 
 	// Зовнішні інтеграції: Jira / боти / Slack
