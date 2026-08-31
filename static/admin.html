@@ -1190,7 +1190,10 @@ function isAdminUser() {
                 container.innerHTML = `
                     <div class="card">
                         <div class="card-header"><h2>Члени команди</h2>
-                        <button class="btn btn-primary" onclick="openUserModal()">+ Користувач</button></div>
+                        <div style="display:flex;gap:8px;flex-wrap:wrap">
+                          <button class="btn" type="button" onclick="openSlackImportModal()">Імпорт зі Slack</button>
+                          <button class="btn btn-primary" onclick="openUserModal()">+ Користувач</button>
+                        </div></div>
                         <table><thead><tr><th>Ім'я</th><th>Логін</th><th>Email</th><th>Slack</th><th>Телефон</th><th>Роль</th><th>Команда</th><th>On-call</th><th>Дії</th></tr></thead>
                         <tbody id="users-table"></tbody></table>
                     </div>
