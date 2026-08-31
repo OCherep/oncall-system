@@ -644,6 +644,15 @@ function themeToggleHTML(){
                       <div class="card" style="padding:12px;text-align:center;border-left:3px solid #8b5cf6"><div style="font-size:11px;opacity:.7">Jira</div><div style="font-size:20px;font-weight:700">${d.jira_linked||0}</div></div>
                     `;
                 }
+                const ogLine = document.getElementById('daily-ongrid-line');
+                if (ogLine) {
+                  ogLine.textContent = 'Чергові: '+(d.primary||'—')+' / '+(d.backup||'—')+' · режим завантаження…';
+                  fetch('/api/admin/settings',{credentials:'same-origin'}).then(r=>r.ok?r.json():null).then(s=>{
+                    if (!s || !ogLine) return;
+                    const mode = s._on_grid_now==='1' ? 'ON-GRID' : 'OFF-GRID';
+                    ogLine.innerHTML = 'Чергові: <b>'+(d.primary||'—')+'</b> / <b>'+(d.backup||'—')+'</b> · режим: <b>'+mode+'</b> ('+(s.on_grid_start||'')+'–'+(s.on_grid_end||'')+')';
+                  }).catch(()=>{});
+                }
                 const chips = document.getElementById('daily-status-chips');
                 if (chips) {
                     const chipClass = (s) => {
@@ -869,25 +878,25 @@ function isAdminUser() {
         }
 
         async function loadOnGridSettings() {
-            const box = document.getElementById('ongrid-settings-box');
-            if (!box) return;
+            const line = document.getElementById('ongrid-status-line');
             try {
                 const r = await fetch('/api/admin/settings', { credentials: 'same-origin' });
-                const d = await safeJson(r);
-                const now = d._on_grid_now === '1' ? 'зараз ON-GRID' : 'зараз OFF-GRID';
-                box.innerHTML = `
-                  <div class="card" style="padding:14px;margin-top:16px">
-                    <h3 style="margin:0 0 8px">Час on-grid (розподіл звернень)</h3>
-                    <p style="font-size:12px;opacity:.75;margin:0 0 10px">Статус: <b>${now}</b>. У on-grid звичайні звернення йдуть адміну на розподіл; критичні/термінові — одразу на чергових. Off-grid: сповіщення лише з пріоритетом ≥ «Високий».</p>
-                    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px">
-                      <div class="form-group"><label>Початок</label><input type="time" id="og-start" value="${d.on_grid_start||'09:00'}"></div>
-                      <div class="form-group"><label>Кінець</label><input type="time" id="og-end" value="${d.on_grid_end||'18:00'}"></div>
-                      <div class="form-group"><label>Часовий пояс</label><input type="text" id="og-tz" value="${d.on_grid_timezone||'Europe/Kyiv'}"></div>
-                      <div class="form-group"><label>Дні (1=Пн…7=Нд)</label><input type="text" id="og-days" value="${d.on_grid_weekdays||'1,2,3,4,5'}"></div>
-                    </div>
-                    <button class="btn btn-primary" style="margin-top:10px" onclick="saveOnGridSettings()">Зберегти on-grid</button>
-                  </div>`;
-            } catch (e) { box.innerHTML = '<p style="color:#b91c1c">Не вдалося завантажити налаштування</p>'; }
+                if (!r.ok) {
+                    if (line) line.innerHTML = '<span style="color:#b91c1c">API settings: HTTP '+r.status+' (зробіть rebuild контейнера)</span>';
+                    return;
+                }
+                const d = await r.json();
+                const set = (id, v) => { const el = document.getElementById(id); if (el && v != null) el.value = v; };
+                set('og-start', d.on_grid_start || '09:00');
+                set('og-end', d.on_grid_end || '18:00');
+                set('og-tz', d.on_grid_timezone || 'Europe/Kyiv');
+                set('og-days', d.on_grid_weekdays || '1,2,3,4,5');
+                const now = d._on_grid_now === '1' ? '🟢 зараз ON-GRID' : '🌙 зараз OFF-GRID';
+                if (line) line.innerHTML = 'Статус: <b>'+now+'</b> · '+ (d.on_grid_start||'?')+'–'+(d.on_grid_end||'?')+' · '+(d.on_grid_timezone||'');
+            } catch (e) {
+                console.error(e);
+                if (line) line.innerHTML = '<span style="color:#b91c1c">Помилка: '+(e.message||e)+'</span>';
+            }
         }
         async function saveOnGridSettings() {
             const body = {
@@ -924,6 +933,7 @@ function isAdminUser() {
                     </div>
                   </div>
                   <div id="daily-summary" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:12px"></div>
+                  <div id="daily-ongrid-line" style="font-size:12px;margin-bottom:12px;opacity:.85"></div>
                   <div id="daily-status-chips" class="card" style="padding:12px;margin-bottom:16px"></div>
                   <div class="card" style="padding:14px;margin-bottom:16px">
                     <h3 style="margin:0 0 10px">Задачі на розподіл / у роботі</h3>
@@ -1063,7 +1073,18 @@ function isAdminUser() {
                         <table><thead><tr><th>ID</th><th>CIDR / IP</th><th>Мітка</th><th>Увімк.</th><th>Створено</th><th>Дії</th></tr></thead>
                         <tbody id="allowed-ips-table"><tr><td colspan="6">Завантаження…</td></tr></tbody></table>
                     </div>
-                    <div id="ongrid-settings-box"></div>
+                    <div id="ongrid-settings-box" class="card" style="margin-top:16px;padding:14px">
+                      <h3 style="margin:0 0 8px">Час on-grid (розподіл звернень)</h3>
+                      <p id="ongrid-status-line" style="font-size:12px;opacity:.8;margin:0 0 10px">Завантаження статусу…</p>
+                      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px">
+                        <div class="form-group"><label>Початок</label><input type="time" id="og-start" value="09:00"></div>
+                        <div class="form-group"><label>Кінець</label><input type="time" id="og-end" value="18:00"></div>
+                        <div class="form-group"><label>Часовий пояс</label><input type="text" id="og-tz" value="Europe/Kyiv"></div>
+                        <div class="form-group"><label>Дні (1=Пн…7=Нд)</label><input type="text" id="og-days" value="1,2,3,4,5"></div>
+                      </div>
+                      <button class="btn btn-primary" style="margin-top:10px" type="button" onclick="saveOnGridSettings()">Зберегти on-grid</button>
+                      <p style="font-size:11px;opacity:.65;margin:10px 0 0">On-grid: звичайні → без виконавця + notify admin; критичні/термінові → черговий. Off-grid: ≥ високий → черговий + notify; нижче → без notify.</p>
+                    </div>
                     <div id="jira-import-box" class="card" style="margin-top:16px;padding:14px">
                       <h3 style="margin:0 0 8px">Jira — імпорт задач DevOps</h3>
                       <p style="font-size:12px;opacity:.75;margin:0 0 10px">Підтягує open issues за JQL у <code>daily_tasks</code> з <code>external_id</code>. Повторний імпорт оновлює існуючі.</p>
