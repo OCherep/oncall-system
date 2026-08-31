@@ -1436,6 +1436,38 @@ func handleComments(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+
+
+// handleAdminBadges — лічильники для червоних крапок у меню адмінки.
+func handleAdminBadges(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", 405)
+		return
+	}
+	today := time.Now().Format("2006-01-02")
+	var openIncs, unassigned, newToday, approval, overdue, openTasks int
+	db.QueryRow(`SELECT COUNT(*) FROM incidents WHERE COALESCE(status,'Нове') NOT IN ('Вирішено','Архів') AND COALESCE(converted_to_task_id,0)=0`).Scan(&openIncs)
+	db.QueryRow(`SELECT COUNT(*) FROM incidents WHERE COALESCE(status,'Нове') NOT IN ('Вирішено','Архів') AND COALESCE(converted_to_task_id,0)=0 AND COALESCE(user_name,'')=''`).Scan(&unassigned)
+	db.QueryRow(`SELECT COUNT(*) FROM incidents WHERE date=? AND COALESCE(status,'Нове') NOT IN ('Вирішено','Архів') AND COALESCE(converted_to_task_id,0)=0`, today).Scan(&newToday)
+	db.QueryRow(`SELECT COUNT(*) FROM daily_tasks WHERE COALESCE(status,'Нова') IN ('До перевірки')`).Scan(&approval)
+	db.QueryRow(`SELECT COUNT(*) FROM daily_tasks WHERE due_date != '' AND due_date < ? AND COALESCE(status,'Нова') NOT IN ('Виконана','Архів')`, today).Scan(&overdue)
+	db.QueryRow(`SELECT COUNT(*) FROM daily_tasks WHERE COALESCE(status,'Нова') NOT IN ('Виконана','Архів')`).Scan(&openTasks)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"open_incidents":   openIncs,
+		"unassigned":       unassigned,
+		"incidents_today":  newToday,
+		"approval":         approval,
+		"overdue":          overdue,
+		"open_tasks":       openTasks,
+		// dots: true if something needs attention
+		"dot_queues":       unassigned > 0 || newToday > 0 || overdue > 0,
+		"dot_incidents":    openIncs > 0,
+		"dot_tasks":        overdue > 0,
+		"dot_approval":     approval > 0,
+	})
+}
+
 func handleAdminQueues(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if r.Method != http.MethodGet {
