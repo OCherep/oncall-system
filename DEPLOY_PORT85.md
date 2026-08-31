@@ -1,27 +1,41 @@
-# Друге оточення (гілка grok-1.0.0)
+# Друге оточення (гілка grok-1.0.0) + HTTPS
 
-| | Prod (main / grok) | Це оточення (grok-1.0.0) |
+| | Prod (84) | Це оточення |
 |---|---|---|
-| UI (Nginx) | **:84** | **:85** |
-| App | **:8084** | **:8085** |
-| Containers | `oncall_app_4`, `oncall_nginx_4` | `oncall_app_5`, `oncall_nginx_5` |
-| Логи | `/var/log/oncall-app` | `/var/log/oncall-app-5` |
-| Data | `./data` (окрема копія каталогу!) | `./data` |
+| **HTTPS UI/API** | за вашим проксі | **https://host:85/** |
+| HTTP fallback | — | **http://host:86/** |
+| App (внутрішній) | :8084 | :8085 |
+| Containers | oncall_app_4 / nginx_4 | oncall_app_5 / nginx_5 |
 
-## Підняти поряд із інстансом на 84
+## Підняти
 
 ```bash
-# окремий каталог, щоб не змішувати data/ і compose
-mkdir -p /opt/oncall-app-5
 cd /opt/oncall-app-5
-git clone -b grok-1.0.0 https://github.com/OCherep/oncall-system.git .
-# або: git checkout grok-1.0.0
+git pull origin grok-1.0.0
+mkdir -p data certs /var/log/oncall-app-5
+chmod +x scripts/nginx-entrypoint.sh
 
-mkdir -p data /var/log/oncall-app-5
+# Опційно валідний сертифікат:
+# cp /path/fullchain.pem /path/privkey.pem ./certs/
+# інакше entrypoint згенерує self-signed (CN=www.s.ks.tv)
+
 docker compose up -d --build
-
-# UI:  http://<host>:85/
-# API: http://<host>:85/api/  → app :8085
 ```
 
-Не запускайте цей compose у тому ж каталозі, що й інстанс на порту 84 — різні `container_name` і порти, але спільний `./data` перезапише БД.
+## Slack /brb Request URL
+
+```text
+https://www.s.ks.tv:85/api/webhooks/slack
+```
+
+Перевірка:
+
+```bash
+curl -sk -m 5 -X POST 'https://127.0.0.1:85/api/webhooks/slack' \
+  -H 'Content-Type: application/x-www-form-urlencoded' \
+  -d 'command=/brb&text=01:30&user_name=test&user_id=U0TEST'
+```
+
+Self-signed Slack може відхилити — для production покладіть валідний PEM у `./certs/`.
+
+Відкрийте TCP 85 у firewall. SESSION_SECURE=1 у compose за замовчуванням.
