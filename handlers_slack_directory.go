@@ -174,9 +174,9 @@ func handleSlackDirectory(w http.ResponseWriter, r *http.Request) {
 				}
 				uname = fmt.Sprintf("%s%d", base, i+2)
 			}
-			_, err := db.Exec(`INSERT INTO users (username, password, name, role, team_role_id, is_oncall, slack_id, email, phone)
-				VALUES (?,?,?,?,NULL,?,?,?,?)`,
-				uname, pass, name, role, on, sid, m.Email, m.Phone)
+			_, err := db.Exec(`INSERT INTO users (username, password, name, role, team_role_id, is_oncall, slack_id, email, phone, show_in_roster)
+				VALUES (?,?,?,?,NULL,?,?,?,?,?)`,
+				uname, pass, name, role, on, sid, m.Email, m.Phone, on)
 			if err != nil {
 				log.Printf("slack import insert %s: %v", uname, err)
 				skipped++
