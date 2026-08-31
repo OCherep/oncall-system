@@ -284,6 +284,11 @@ input, select, textarea { background: var(--input-bg) !important; color: var(--t
 
 [data-theme="dark"] tr.q-row:hover{background:#1e3a5f!important}
 tr.q-row:hover{background:#eff6ff}
+
+.nav-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#ef4444;margin-left:8px;vertical-align:middle;box-shadow:0 0 0 2px rgba(239,68,68,.25)}
+.nav-dot.hidden{display:none}
+.sidebar-item{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.sidebar-item .nav-label{flex:1}
 </style>
 </head>
 <body>
@@ -411,7 +416,7 @@ function themeToggleHTML(){
 
         let currentUser = null;
         let currentMainMenu = 'management';
-        let currentSubPage = 'approval';
+        let currentSubPage = 'queues';
         let loadedUsers = [], loadedRoles = [], loadedAbsTypes = [];
 
         window.onload = function() {
@@ -441,7 +446,7 @@ function themeToggleHTML(){
 
             renderSidebar();
 
-            if (menu === 'management') loadSubPage('approval');
+            if (menu === 'management') loadSubPage('queues');
             if (menu === 'settings') loadSubPage('dictionaries');
         }
 
@@ -450,10 +455,10 @@ function themeToggleHTML(){
             if (currentMainMenu === 'management') {
                 sidebar.innerHTML = `
                     <div class="sidebar-section">Менеджмент</div>
-                    <div class="sidebar-item ${currentSubPage==='queues'?'active':''}" onclick="loadSubPage('queues')">Черги задач</div>
-                    <div class="sidebar-item ${currentSubPage==='tasks'?'active':''}" onclick="loadSubPage('tasks')">Усі задачі</div>
-                    <div class="sidebar-item ${currentSubPage==='inc-archive'?'active':''}" onclick="loadSubPage('inc-archive')">Усі звернення</div>
-                    <div class="sidebar-item ${currentSubPage==='approval'?'active':''}" onclick="loadSubPage('approval')">Для затвердження</div>
+                    <div class="sidebar-item ${currentSubPage==='queues'?'active':''}" onclick="loadSubPage('queues')"><span class="nav-label">Черги задач</span><span class="nav-dot hidden" id="dot-queues" title="Є зміни"></span></div>
+                    <div class="sidebar-item ${currentSubPage==='tasks'?'active':''}" onclick="loadSubPage('tasks')"><span class="nav-label">Усі задачі</span><span class="nav-dot hidden" id="dot-tasks" title="Прострочені"></span></div>
+                    <div class="sidebar-item ${currentSubPage==='inc-archive'?'active':''}" onclick="loadSubPage('inc-archive')"><span class="nav-label">Усі звернення</span><span class="nav-dot hidden" id="dot-incidents" title="Відкриті звернення"></span></div>
+                    <div class="sidebar-item ${currentSubPage==='approval'?'active':''}" onclick="loadSubPage('approval')"><span class="nav-label">Для затвердження</span><span class="nav-dot hidden" id="dot-approval" title="На перевірку"></span></div>
                 `;
             } else if (currentMainMenu === 'settings') {
                 sidebar.innerHTML = `
@@ -481,6 +486,30 @@ function themeToggleHTML(){
 
         function toggleDropdown(id) {
             document.getElementById(id).classList.toggle('open');
+        }
+
+        
+        async function refreshAdminBadges() {
+            try {
+                const r = await fetch('/api/admin/badges');
+                if (!r.ok) return;
+                const d = await safeJson(r);
+                const set = (id, on) => {
+                    const el = document.getElementById(id);
+                    if (!el) return;
+                    el.classList.toggle('hidden', !on);
+                    if (on) el.classList.remove('hidden');
+                };
+                set('dot-queues', !!d.dot_queues);
+                set('dot-incidents', !!d.dot_incidents);
+                set('dot-tasks', !!d.dot_tasks);
+                set('dot-approval', !!d.dot_approval);
+                window._adminBadges = d;
+            } catch (e) {}
+        }
+        if (!window._badgeTimer) {
+            window._badgeTimer = setInterval(refreshAdminBadges, 30000);
+            setTimeout(refreshAdminBadges, 800);
         }
 
         async function loadSubPage(sub) {
@@ -986,6 +1015,7 @@ function themeToggleHTML(){
         }
 
         async function loadQueuesData() {
+            try { refreshAdminBadges(); } catch(e) {}
             try {
                 const day = window._queuesDate || (document.getElementById('queues-date')||{}).value || new Date().toISOString().slice(0,10);
                 window._queuesDate = day;
