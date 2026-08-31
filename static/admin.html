@@ -629,7 +629,7 @@ function themeToggleHTML(){
                     });
                     return h;
                 };
-                const taskStatuses = ['Нова','У роботі','На паузі','До перевірки','Виконана','Перевідкрита','Архів'];
+                const taskStatuses = ['Нерозподілена','Нова','У роботі','На паузі','До перевірки','Виконана','Перевідкрита','Архів'];
 
                 const r = await fetch('/api/admin/daily-board?date=' + encodeURIComponent(day), { credentials: 'same-origin' });
                 if (r.status === 401) { alert('Сесія закінчилась — увійдіть знову'); location.href='/'; return; }
@@ -654,7 +654,6 @@ function themeToggleHTML(){
                     `;
                 }
                 const ogLine = document.getElementById('daily-ongrid-line');
-                const sum = document.getElementById('daily-summary');
                 fetchOnGrid().then(s => {
                   const on = s && (s.on_grid === true || s._on_grid_now === '1');
                   if (ogLine) {
@@ -677,6 +676,7 @@ function themeToggleHTML(){
                 if (chips) {
                     const chipClass = (s) => {
                         const x = String(s||'').toLowerCase();
+                        if (x.includes('нерозподіл')) return 'st-chip-unassigned';
                         if (x === 'нова' || x === 'нове') return 'st-chip-nova';
                         if (x.includes('робот')) return 'st-chip-work';
                         if (x.includes('пауз')) return 'st-chip-pause';
@@ -701,7 +701,7 @@ function themeToggleHTML(){
                         });
                         return h || '<span class="st-chip st-chip-default">немає</span>';
                     };
-                    const orderT = ['Нова','У роботі','На паузі','До перевірки','Виконана','Перевідкрита'];
+                    const orderT = ['Нерозподілена','Нова','У роботі','На паузі','До перевірки','Виконана','Перевідкрита'];
                     const orderI = ['Нове','В роботі','На паузі','Вирішено'];
                     chips.innerHTML = `<div class="daily-chips">
                       <div class="daily-chips-row"><span class="daily-chips-label">Задачі</span>${renderChips(orderT, by)}</div>
@@ -1034,7 +1034,7 @@ function isAdminUser() {
                             <input type="text" id="task-filter-user" placeholder="Виконавець" style="padding:6px 10px;border:1px solid #e2e8f0;border-radius:6px">
                             <select id="task-filter-status" style="padding:6px 10px;border:1px solid #e2e8f0;border-radius:6px">
                                 <option value="">Усі статуси</option>
-                                <option>Нова</option><option>У роботі</option><option>На паузі</option>
+                                <option>Нерозподілена</option><option>Нова</option><option>У роботі</option><option>На паузі</option>
                                 <option>До перевірки</option><option>Виконана</option><option>Архів</option>
                             </select>
                             <button class="btn btn-primary" onclick="loadAdminTasks()">Оновити</button>
@@ -1135,7 +1135,7 @@ function isAdminUser() {
                       <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end">
                         <div class="form-group" style="flex:1;min-width:260px;margin:0">
                           <label>JQL</label>
-                          <input type="text" id="jira-jql" style="width:100%" placeholder='project = XXX AND (component = DevOps OR labels = devops) AND statusCategory != Done'>
+                          <input type="text" id="jira-jql" style="width:100%" placeholder='project in (Vidmind) AND (component = DevOps OR labels = DevOps) AND issuetype in (Epic, Story, Task, Sub-task, Bug) AND updated >= -60d ORDER BY updated DESC'>
                         </div>
                         <button class="btn btn-primary" onclick="runJiraImport()">Імпортувати</button>
                       </div>
@@ -1995,7 +1995,7 @@ async function toggleArchCmt(id) {
                     tb.innerHTML = '<tr><td colspan="9" style="color:#64748b">Немає задач</td></tr>';
                     return;
                 }
-                const statuses = ['Нова','У роботі','На паузі','До перевірки','Виконана','Перевідкрита','Архів'];
+                const statuses = ['Нерозподілена','Нова','У роботі','На паузі','До перевірки','Виконана','Перевідкрита','Архів'];
                 const prios = ['Базова','Підвищена','Термінова','Надкритична','Техборг','У шухляду'];
                 tb.innerHTML = list.map(task => {
                     const stOpts = statuses.map(s => `<option ${s===(task.status||'Нова')?'selected':''}>${s}</option>`).join('');
@@ -2204,7 +2204,7 @@ async function toggleArchCmt(id) {
             document.getElementById('edit-vis-wrap').style.display = '';
             fillMemberSelectEl(document.getElementById('edit-user'), task.user_name || '', true);
             fillMemberSelectEl(document.getElementById('edit-resp'), task.responsible || '', true);
-            const statuses = ['Нова','У роботі','На паузі','До перевірки','Виконана','Перевідкрита','Архів'];
+            const statuses = ['Нерозподілена','Нова','У роботі','На паузі','До перевірки','Виконана','Перевідкрита','Архів'];
             const prios = ['Базова','Термінова','Надкритична','Техборг','У шухляду'];
             document.getElementById('edit-status').innerHTML = statuses.map(s => `<option ${s===(task.status||'Нова')?'selected':''}>${s}</option>`).join('');
             document.getElementById('edit-priority').innerHTML = prios.map(s => `<option ${s===(task.priority||'Базова')?'selected':''}>${s}</option>`).join('');
