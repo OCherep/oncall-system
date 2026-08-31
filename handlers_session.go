@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -14,9 +15,18 @@ import (
 	"time"
 )
 
-// Session TTL: робочий день (~14 год), з подовженням при активності.
+// Session TTL з довідника безпеки (app_settings session_ttl_hours), default 14h.
 func sessionTTL() time.Duration {
 	h := 14
+	if v := strings.TrimSpace(getSetting("session_ttl_hours", "")); v != "" {
+		if n, err := time.ParseDuration(v + "h"); err == nil && n > 0 {
+			return n
+		}
+		var n int
+		if _, err := fmt.Sscanf(v, "%d", &n); err == nil && n > 0 {
+			h = n
+		}
+	}
 	return time.Duration(h) * time.Hour
 }
 
@@ -128,7 +138,8 @@ func setSessionCookie(w http.ResponseWriter, token string, expires time.Time) {
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
 		// Secure: true when behind HTTPS — optional via env
-		Secure: strings.EqualFold(os.Getenv("SESSION_SECURE"), "1") || strings.EqualFold(os.Getenv("SESSION_SECURE"), "true"),
+		Secure: strings.EqualFold(os.Getenv("SESSION_SECURE"), "1") || strings.EqualFold(os.Getenv("SESSION_SECURE"), "true") ||
+			getSetting("session_secure", "") == "1" || getSetting("session_secure", "") == "true",
 	})
 }
 
