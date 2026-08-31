@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -248,21 +249,46 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
         WHERE u.username = ? AND u.password = ?`, req.Username, req.Password).
 		Scan(&u.ID, &u.Username, &u.Name, &u.Role, &u.TeamRoleID, &u.TeamRole, &isOncallInt)
 	if err != nil {
-		logAudit(req.Username, "LOGIN_FAILED", clientIP(r), "Невдала спроба входу")
+		ip := clientIP(r)
+		recordLoginAttempt(ip)
+		logAudit(req.Username, "LOGIN_FAILED", ip, "Невдала спроба входу")
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
 		json.NewEncoder(w).Encode(map[string]string{"error": "Невірне ім'я користувача або пароль"})
 		return
 	}
 	u.IsOncall = isOncallInt == 1
-	logAudit(u.Username, "LOGIN_SUCCESS", clientIP(r), "Успішна авторизація")
-	// Довгоживучі cookie (~30 днів) для ідентифікації в UI / nginx
-	maxAge := 30 * 24 * 3600
+	ip := clientIP(r)
+	if loginRateLimited(ip) {
+		logAudit(req.Username, "LOGIN_RATE_LIMIT", ip, "too many attempts")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusTooManyRequests)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Забагато спроб входу. Спробуйте пізніше."})
+		return
+	}
+	logAudit(u.Username, "LOGIN_SUCCESS", ip, "Успішна авторизація")
+	tok, exp, err := createSession(u, ip, r.UserAgent())
+	if err != nil {
+		log.Printf("createSession: %v", err)
+	} else {
+		setSessionCookie(w, tok, exp)
+	}
+	// Legacy cookies для UI (не HttpOnly — читає JS); ім'я/роль для відображення
+	maxAge := int(sessionTTL().Seconds())
 	http.SetCookie(w, &http.Cookie{Name: "oncall_user", Value: u.Username, Path: "/", MaxAge: maxAge, SameSite: http.SameSiteLaxMode})
 	http.SetCookie(w, &http.Cookie{Name: "oncall_name", Value: u.Name, Path: "/", MaxAge: maxAge, SameSite: http.SameSiteLaxMode})
 	http.SetCookie(w, &http.Cookie{Name: "oncall_role", Value: u.Role, Path: "/", MaxAge: maxAge, SameSite: http.SameSiteLaxMode})
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(u)
+	out := map[string]interface{}{
+		"id": u.ID, "username": u.Username, "name": u.Name, "role": u.Role,
+		"team_role_id": u.TeamRoleID, "team_role": u.TeamRole, "is_oncall": u.IsOncall,
+		"session_expires": exp.Format(time.RFC3339),
+	}
+	if tok != "" {
+		out["session_token"] = tok // для Authorization header якщо cookie блокується
+	}
+	json.NewEncoder(w).Encode(out)
+	_ = err
 }
 
 func isAbsentOnDate(userName, dateStr string, absences []AbsenceRequest) bool {
