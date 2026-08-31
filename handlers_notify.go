@@ -402,4 +402,11 @@ func notifyNewIncident(inc IncidentReport) {
 	if assignee != "" {
 		notifyUserSlack(assignee, msg)
 	}
+	// чергова пара
+	p, b := shiftPairForDate(inc.Date)
+	for _, name := range []string{p, b} {
+		if name != "" && name != assignee {
+			notifyUserSlack(name, msg)
+		}
+	}
 }
