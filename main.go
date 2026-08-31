@@ -499,6 +499,7 @@ func initDB() {
 	// backfill converted_to_task_id from existing tasks (cursor closed before UPDATE)
 	backfillConvertedTaskIDs()
 	ensureSessionsTable()
+	ensureAppSettingsTable()
 	ensureTaskExternalID()
 	go func() {
 		for {
@@ -538,6 +539,7 @@ func main() {
 	http.HandleFunc("/api/login", withIPAllow(securityHeaders(handleLogin)))
 	http.HandleFunc("/api/logout", withIPAllow(securityHeaders(handleLogout)))
 	http.HandleFunc("/api/session/me", withIPAllow(securityHeaders(handleSessionMe)))
+	http.HandleFunc("/api/admin/settings", withIPAllow(securityHeaders(handleAppSettings)))
 	http.HandleFunc("/api/admin/daily-board", withIPAllow(securityHeaders(handleDailyBoard)))
 	http.HandleFunc("/api/data", withIPAllow(handleGetData))
 	http.HandleFunc("/api/request-absence", withIPAllow(handleRequestAbsence))
