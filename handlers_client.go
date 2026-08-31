@@ -974,7 +974,7 @@ func handleIncidents(w http.ResponseWriter, r *http.Request) {
 			}
 			extra := "Режим: " + mode
 			if inc.UserName != "" {
-				primary, backup := shiftPairForDate(inc.Date)
+				_, backup := shiftPairForDate(inc.Date)
 				extra += "; авто-призначено: " + inc.UserName
 				if backup != "" && backup != inc.UserName {
 					extra += " (дубль: " + backup + ")"
