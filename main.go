@@ -498,6 +498,14 @@ func initDB() {
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_task_assignees_task ON task_assignees(task_id)")
 	// backfill converted_to_task_id from existing tasks (cursor closed before UPDATE)
 	backfillConvertedTaskIDs()
+	ensureSessionsTable()
+	ensureTaskExternalID()
+	go func() {
+		for {
+			time.Sleep(1 * time.Hour)
+			purgeExpiredSessions()
+		}
+	}()
 db.Exec("CREATE INDEX IF NOT EXISTS idx_comments_entity ON comments(entity_type, entity_id)")
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_incidents_source ON incidents(source)")
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_incidents_date ON incidents(date)")
@@ -527,7 +535,10 @@ func main() {
 	initDB()
 	defer db.Close()
 
-	http.HandleFunc("/api/login", withIPAllow(handleLogin))
+	http.HandleFunc("/api/login", withIPAllow(securityHeaders(handleLogin)))
+	http.HandleFunc("/api/logout", withIPAllow(securityHeaders(handleLogout)))
+	http.HandleFunc("/api/session/me", withIPAllow(securityHeaders(handleSessionMe)))
+	http.HandleFunc("/api/admin/daily-board", withIPAllow(securityHeaders(handleDailyBoard)))
 	http.HandleFunc("/api/data", withIPAllow(handleGetData))
 	http.HandleFunc("/api/request-absence", withIPAllow(handleRequestAbsence))
 	http.HandleFunc("/api/incidents", withIPAllow(handleIncidents))
