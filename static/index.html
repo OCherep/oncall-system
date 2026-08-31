@@ -248,6 +248,16 @@ tr.task-row-due-soon td select{
 .mode-chip.off-grid{background:#e2e8f0;color:#334155;border-color:#cbd5e1}
 [data-theme="dark"] .mode-chip.on-grid{background:#14532d;color:#bbf7d0;border-color:#22c55e}
 [data-theme="dark"] .mode-chip.off-grid{background:#334155;color:#e2e8f0;border-color:#64748b}
+[data-theme="dark"] .chip{background:#1e293b;border-color:#475569;color:#e2e8f0}
+[data-theme="dark"] .chip:hover{box-shadow:0 0 0 2px #3b82f6}
+[data-theme="dark"] .chip.on{background:#1e3a5f;border-color:#3b82f6;color:#93c5fd}
+[data-theme="dark"] .chip.off{opacity:.45;text-decoration:line-through;color:#94a3b8}
+[data-theme="dark"] .chip.duty-primary{background:#7f1d1d;border-color:#ef4444;color:#fecaca;font-weight:700}
+[data-theme="dark"] .chip.duty-backup{background:#713f12;border-color:#eab308;color:#fef08a;font-weight:600}
+[data-theme="dark"] .chip.me{background:#14532d;border-color:#22c55e;color:#bbf7d0}
+[data-theme="dark"] .chip.brb{opacity:.55;filter:saturate(.4);border-style:dashed}
+.chip.brb{opacity:.55;filter:saturate(.5);border-style:dashed}
+
 </style></head><body>
 <div class="navbar"><div class="nav-l"><strong>On-Call</strong><span id="user-info" style="color:#64748b;font-size:13px"></span></div>
 <div class="nav-r">
@@ -860,7 +870,11 @@ function roster(ms,abs){
     if(sh&&sh.primary_user===m.name) cls+=' duty-primary';
     else if(sh&&sh.backup_user===m.name) cls+=' duty-backup';
     else if(U&&U.name===m.name) cls+=' me';
-    return `<span class="${cls}" onclick="showPerson('${esc(m.name)}')">${esc(m.name)}${m.team_role?' · '+esc(m.team_role):''}${off?' (відсутній)':''}</span>`;
+    const brb=typeof brbUntil==='function'?brbUntil(m.name):'';
+    if(brb) cls+=' brb';
+    const brbTxt=brb?(typeof brbLabel==='function'?brbLabel(m.name):' (BRB)'):'';
+    const tip=brb?('Be right back: '+(String(brb).slice(11,16)||brb)):'';
+    return `<span class="${cls}" title="${esc(tip)}" onclick="showPerson('${esc(m.name)}')">${esc(m.name)}${m.team_role?' · '+esc(m.team_role):''}${off?' (відсутній)':''}${esc(brbTxt)}</span>`;
   }).join('');
 }
 function showPerson(name){
