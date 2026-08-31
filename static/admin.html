@@ -571,56 +571,206 @@ function themeToggleHTML(){
             const inp = document.getElementById('daily-date');
             if (inp) inp.value = day;
             try {
+                if (!window._dailyMembers) {
+                    try {
+                        const ur = await fetch('/api/admin/users', { credentials: 'same-origin' });
+                        window._dailyMembers = await safeJson(ur);
+                        if (!Array.isArray(window._dailyMembers)) window._dailyMembers = [];
+                    } catch (e) { window._dailyMembers = []; }
+                }
+                const members = window._dailyMembers || [];
+                const memberOpts = (selected) => {
+                    let h = '<option value="">— без виконавця —</option>';
+                    members.forEach(m => {
+                        const name = m.name || m.username || '';
+                        if (!name) return;
+                        h += `<option value="${name.replace(/"/g,'&quot;')}" ${name===selected?'selected':''}>${name.replace(/</g,'&lt;')}</option>`;
+                    });
+                    return h;
+                };
+                const taskStatuses = ['Нова','У роботі','На паузі','До перевірки','Виконана','Перевідкрита','Архів'];
+
                 const r = await fetch('/api/admin/daily-board?date=' + encodeURIComponent(day), { credentials: 'same-origin' });
                 if (r.status === 401) { alert('Сесія закінчилась — увійдіть знову'); location.href='/'; return; }
                 const d = await safeJson(r);
+                window._dailyBoardCache = d;
+
+                // status chips for tasks + incidents
+                const by = d.by_status || {};
+                const tasks = d.tasks || [];
+                const incs = d.incidents || [];
+                const incBy = {};
+                incs.forEach(i => { const s=i.status||'Нове'; incBy[s]=(incBy[s]||0)+1; });
+
                 const sum = document.getElementById('daily-summary');
                 if (sum) {
-                    const by = d.by_status || {};
                     sum.innerHTML = `
                       <div class="card" style="padding:12px;text-align:center"><div style="font-size:11px;opacity:.7">Дата</div><div style="font-size:18px;font-weight:700">${d.date||day}</div></div>
                       <div class="card" style="padding:12px;text-align:center"><div style="font-size:11px;opacity:.7">Основний</div><div style="font-weight:600">${d.primary||'—'}</div></div>
                       <div class="card" style="padding:12px;text-align:center"><div style="font-size:11px;opacity:.7">Дубль</div><div style="font-weight:600">${d.backup||'—'}</div></div>
                       <div class="card" style="padding:12px;text-align:center;border-left:3px solid #ef4444"><div style="font-size:11px;opacity:.7">Без виконавця</div><div style="font-size:20px;font-weight:700;color:#ef4444">${d.unassigned||0}</div></div>
                       <div class="card" style="padding:12px;text-align:center;border-left:3px solid #8b5cf6"><div style="font-size:11px;opacity:.7">Jira</div><div style="font-size:20px;font-weight:700">${d.jira_linked||0}</div></div>
-                      <div class="card" style="padding:12px;text-align:center"><div style="font-size:11px;opacity:.7">Нова</div><div style="font-size:18px">${by['Нова']||0}</div></div>
-                      <div class="card" style="padding:12px;text-align:center"><div style="font-size:11px;opacity:.7">У роботі</div><div style="font-size:18px">${by['У роботі']||0}</div></div>
                     `;
                 }
+                const chips = document.getElementById('daily-status-chips');
+                if (chips) {
+                    const orderT = ['Нова','У роботі','На паузі','До перевірки','Виконана','Перевідкрита'];
+                    const orderI = ['Нове','В роботі','На паузі','Вирішено'];
+                    let h = '<div style="margin-bottom:8px"><b style="font-size:12px;opacity:.8">Задачі:</b> ';
+                    orderT.forEach(s => {
+                        const n = by[s]||0;
+                        if (!n) return;
+                        h += `<span class="badge" style="margin:2px;padding:4px 10px;background:#1e293b;border:1px solid #334155">${s}: <b>${n}</b></span>`;
+                    });
+                    Object.keys(by).forEach(s => { if (!orderT.includes(s) && by[s]) h += `<span class="badge" style="margin:2px">${s}: ${by[s]}</span>`; });
+                    h += '</div><div><b style="font-size:12px;opacity:.8">Звернення:</b> ';
+                    orderI.forEach(s => {
+                        const n = incBy[s]||0;
+                        if (!n) return;
+                        h += `<span class="badge" style="margin:2px;padding:4px 10px;background:#1e293b;border:1px solid #334155">${s}: <b>${n}</b></span>`;
+                    });
+                    Object.keys(incBy).forEach(s => { if (!orderI.includes(s) && incBy[s]) h += `<span class="badge" style="margin:2px">${s}: ${incBy[s]}</span>`; });
+                    if (!incs.length) h += '<span style="opacity:.6">немає</span>';
+                    h += '</div>';
+                    chips.innerHTML = h;
+                }
+
                 const tb = document.getElementById('daily-tasks-body');
-                const tasks = d.tasks || [];
                 if (tb) {
-                    if (!tasks.length) tb.innerHTML = '<tr><td colspan="8" style="opacity:.6">Немає задач на цю дату</td></tr>';
+                    if (!tasks.length) tb.innerHTML = '<tr><td colspan="9" style="opacity:.6">Немає задач на цю дату</td></tr>';
                     else tb.innerHTML = tasks.map(t => {
                         const src = t.source==='jira'?'<span class="badge" style="background:#7c3aed;color:#fff">Jira</span>':(t.source==='incident'?'<span class="badge" style="background:#2563eb;color:#fff">Inc</span>':'<span class="badge" style="background:#475569;color:#fff">OnCall</span>');
                         const jira = t.external_id ? `<span style="color:#93c5fd">${t.external_id}</span>` : '—';
-                        const whoCell = t.user_name || '<em style="opacity:.6">без виконавця</em>';
-                        return `<tr>
-                          <td>${src}</td><td>#${t.id}</td>
-                          <td style="max-width:280px">${(t.task_description||'').replace(/</g,'&lt;')}</td>
-                          <td>${whoCell}</td>
-                          <td>${t.status||''}</td><td>${t.priority||''}</td>
-                          <td>${t.due_date||'—'}</td><td>${jira}</td>
-                        </tr>`;
+                        const stOpts = taskStatuses.map(s => `<option value="${s}" ${s===(t.status||'')?'selected':''}>${s}</option>`).join('');
+                        return `<tr data-task="${t.id}">
+                          <td>${src}</td>
+                          <td>#${t.id}</td>
+                          <td style="max-width:220px">${(t.task_description||'').replace(/</g,'&lt;')}</td>
+                          <td><select style="min-width:120px;max-width:160px" onchange="dailyPatchTask(${t.id},{user_name:this.value})">${memberOpts(t.user_name||'')}</select></td>
+                          <td><select onchange="dailyPatchTask(${t.id},{status:this.value})">${stOpts}</select></td>
+                          <td>${(t.priority||'').replace(/</g,'&lt;')}</td>
+                          <td><input type="date" value="${t.due_date||''}" style="max-width:130px" onchange="dailyPatchTask(${t.id},{due_date:this.value})"></td>
+                          <td>${jira}</td>
+                          <td style="white-space:nowrap">
+                            <button class="btn" style="padding:2px 8px" title="Коментарі" onclick="dailyToggleTaskCmt(${t.id})">💬</button>
+                          </td>
+                        </tr>
+                        <tr id="daily-cmt-row-${t.id}" style="display:none"><td colspan="9">
+                          <div id="daily-cmt-${t.id}" style="padding:8px;font-size:12px">…</div>
+                          <div style="display:flex;gap:6px;margin-top:6px;max-width:640px">
+                            <input id="daily-cmt-inp-${t.id}" placeholder="Коментар" style="flex:1;padding:6px;border-radius:6px;border:1px solid #334155;background:#0f172a;color:#e2e8f0">
+                            <button class="btn btn-primary" onclick="dailyPostTaskCmt(${t.id})">+</button>
+                          </div>
+                        </td></tr>`;
                     }).join('');
                 }
+
                 const ib = document.getElementById('daily-incs-body');
-                const incs = d.incidents || [];
                 if (ib) {
-                    if (!incs.length) ib.innerHTML = '<tr><td colspan="6" style="opacity:.6">Немає відкритих звернень</td></tr>';
-                    else ib.innerHTML = incs.map(i => `<tr>
-                      <td>#${i.id}</td>
-                      <td>${(i.description||'').replace(/</g,'&lt;')}</td>
-                      <td>${i.status||''}</td><td>${i.priority||''}</td>
-                      <td>${i.user_name||'—'}</td>
-                      <td>${i.source||''}${i.external_id?' · '+i.external_id:''}</td>
-                    </tr>`).join('');
+                    if (!incs.length) ib.innerHTML = '<tr><td colspan="7" style="opacity:.6">Немає відкритих звернень</td></tr>';
+                    else ib.innerHTML = incs.map(i => {
+                        const stOpts = ['Нове','В роботі','На паузі','Вирішено','Архів'].map(s =>
+                          `<option value="${s}" ${s===(i.status||'')?'selected':''}>${s}</option>`).join('');
+                        return `<tr>
+                          <td>#${i.id}</td>
+                          <td style="max-width:220px">${(i.description||'').replace(/</g,'&lt;')}</td>
+                          <td><select onchange="dailyPatchInc(${i.id},{status:this.value})">${stOpts}</select></td>
+                          <td>${(i.priority||'').replace(/</g,'&lt;')}</td>
+                          <td><select style="min-width:120px" onchange="dailyPatchInc(${i.id},{user_name:this.value})">${memberOpts(i.user_name||'')}</select></td>
+                          <td>${i.source||''}${i.external_id?' · '+i.external_id:''}</td>
+                          <td><button class="btn" style="padding:2px 8px" onclick="dailyToggleIncCmt(${i.id})">💬</button></td>
+                        </tr>
+                        <tr id="daily-inc-cmt-row-${i.id}" style="display:none"><td colspan="7">
+                          <div id="daily-inc-cmt-${i.id}" style="padding:8px;font-size:12px">…</div>
+                          <div style="display:flex;gap:6px;margin-top:6px;max-width:640px">
+                            <input id="daily-inc-cmt-inp-${i.id}" placeholder="Коментар" style="flex:1;padding:6px;border-radius:6px;border:1px solid #334155;background:#0f172a;color:#e2e8f0">
+                            <button class="btn btn-primary" onclick="dailyPostIncCmt(${i.id})">+</button>
+                          </div>
+                        </td></tr>`;
+                    }).join('');
                 }
             } catch (e) {
+                console.error(e);
                 alert('Помилка дашборду: ' + e.message);
             }
         }
-        function isAdminUser() {
+
+        async function dailyPatchTask(id, patch) {
+            const body = Object.assign({ id, role: 'admin', actor: (currentUser && (currentUser.name||currentUser.username)) || 'admin' }, patch);
+            const r = await fetch('/api/daily-tasks', { method: 'PUT', credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+            if (!r.ok) alert(await r.text() || 'Помилка оновлення задачі');
+            await loadDailyBoard();
+        }
+        async function dailyPatchInc(id, patch) {
+            const body = Object.assign({ id, role: 'admin', actor: (currentUser && (currentUser.name||currentUser.username)) || 'admin' }, patch);
+            const r = await fetch('/api/incidents', { method: 'PUT', credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+            if (!r.ok) alert(await r.text() || 'Помилка оновлення звернення');
+            await loadDailyBoard();
+        }
+        async function dailyToggleTaskCmt(id) {
+            const row = document.getElementById('daily-cmt-row-' + id);
+            if (!row) return;
+            const open = row.style.display === 'none';
+            row.style.display = open ? 'table-row' : 'none';
+            if (open) {
+                const box = document.getElementById('daily-cmt-' + id);
+                box.innerHTML = 'Завантаження…';
+                const r = await fetch('/api/comments?entity_type=task&entity_id=' + id);
+                const list = await safeJson(r);
+                if (!Array.isArray(list) || !list.length) box.innerHTML = '<em style="opacity:.6">Немає коментарів</em>';
+                else {
+                    box.innerHTML = `<table style="width:100%;font-size:12px"><thead><tr><th>Автор / час</th><th>Текст</th><th>Тип</th></tr></thead><tbody>` +
+                      list.map(c => `<tr><td>${(c.author_name||'').replace(/</g,'&lt;')}<br><span style="opacity:.6">${c.created_at||''}</span></td>
+                        <td>${(c.body||'').replace(/</g,'&lt;')}</td>
+                        <td>${c.is_system?'система':'коментар'}</td></tr>`).join('') + '</tbody></table>';
+                }
+            }
+        }
+        async function dailyPostTaskCmt(id) {
+            const inp = document.getElementById('daily-cmt-inp-' + id);
+            const body = (inp && inp.value || '').trim();
+            if (!body) return;
+            const actor = (currentUser && (currentUser.name||currentUser.username)) || 'admin';
+            await fetch('/api/comments', { method: 'POST', credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ entity_type: 'task', entity_id: id, author_name: actor, body }) });
+            if (inp) inp.value = '';
+            await dailyToggleTaskCmt(id); await dailyToggleTaskCmt(id); // refresh open
+        }
+        async function dailyToggleIncCmt(id) {
+            const row = document.getElementById('daily-inc-cmt-row-' + id);
+            if (!row) return;
+            const open = row.style.display === 'none';
+            row.style.display = open ? 'table-row' : 'none';
+            if (open) {
+                const box = document.getElementById('daily-inc-cmt-' + id);
+                box.innerHTML = 'Завантаження…';
+                const r = await fetch('/api/comments?entity_type=incident&entity_id=' + id);
+                const list = await safeJson(r);
+                if (!Array.isArray(list) || !list.length) box.innerHTML = '<em style="opacity:.6">Немає коментарів</em>';
+                else {
+                    box.innerHTML = `<table style="width:100%;font-size:12px"><thead><tr><th>Автор / час</th><th>Текст</th><th>Тип</th></tr></thead><tbody>` +
+                      list.map(c => `<tr><td>${(c.author_name||'').replace(/</g,'&lt;')}<br><span style="opacity:.6">${c.created_at||''}</span></td>
+                        <td>${(c.body||'').replace(/</g,'&lt;')}</td>
+                        <td>${c.is_system?'система':'коментар'}</td></tr>`).join('') + '</tbody></table>';
+                }
+            }
+        }
+        async function dailyPostIncCmt(id) {
+            const inp = document.getElementById('daily-inc-cmt-inp-' + id);
+            const body = (inp && inp.value || '').trim();
+            if (!body) return;
+            const actor = (currentUser && (currentUser.name||currentUser.username)) || 'admin';
+            await fetch('/api/comments', { method: 'POST', credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ entity_type: 'incident', entity_id: id, author_name: actor, body }) });
+            if (inp) inp.value = '';
+            await dailyToggleIncCmt(id); await dailyToggleIncCmt(id);
+        }
+
+function isAdminUser() {
             try {
                 const u = JSON.parse(localStorage.getItem('u')||localStorage.getItem('currentUser')||'{}');
                 return u && u.role === 'admin';
@@ -650,6 +800,40 @@ function themeToggleHTML(){
             setTimeout(refreshAdminBadges, 800);
         }
 
+        
+        async function loadOnGridSettings() {
+            const box = document.getElementById('ongrid-settings-box');
+            if (!box) return;
+            try {
+                const r = await fetch('/api/admin/settings', { credentials: 'same-origin' });
+                const d = await safeJson(r);
+                const now = d._on_grid_now === '1' ? 'зараз ON-GRID' : 'зараз OFF-GRID';
+                box.innerHTML = `
+                  <div class="card" style="padding:14px;margin-top:16px">
+                    <h3 style="margin:0 0 8px">Час on-grid (розподіл звернень)</h3>
+                    <p style="font-size:12px;opacity:.75;margin:0 0 10px">Статус: <b>${now}</b>. У on-grid звичайні звернення йдуть адміну на розподіл; критичні/термінові — одразу на чергових. Off-grid: сповіщення лише з пріоритетом ≥ «Високий».</p>
+                    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px">
+                      <div class="form-group"><label>Початок</label><input type="time" id="og-start" value="${d.on_grid_start||'09:00'}"></div>
+                      <div class="form-group"><label>Кінець</label><input type="time" id="og-end" value="${d.on_grid_end||'18:00'}"></div>
+                      <div class="form-group"><label>Часовий пояс</label><input type="text" id="og-tz" value="${d.on_grid_timezone||'Europe/Kyiv'}"></div>
+                      <div class="form-group"><label>Дні (1=Пн…7=Нд)</label><input type="text" id="og-days" value="${d.on_grid_weekdays||'1,2,3,4,5'}"></div>
+                    </div>
+                    <button class="btn btn-primary" style="margin-top:10px" onclick="saveOnGridSettings()">Зберегти on-grid</button>
+                  </div>`;
+            } catch (e) { box.innerHTML = '<p style="color:#b91c1c">Не вдалося завантажити налаштування</p>'; }
+        }
+        async function saveOnGridSettings() {
+            const body = {
+                on_grid_start: (document.getElementById('og-start')||{}).value,
+                on_grid_end: (document.getElementById('og-end')||{}).value,
+                on_grid_timezone: (document.getElementById('og-tz')||{}).value,
+                on_grid_weekdays: (document.getElementById('og-days')||{}).value
+            };
+            const r = await fetch('/api/admin/settings', { method: 'PUT', credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+            if (!r.ok) alert(await r.text()); else { alert('Збережено'); loadOnGridSettings(); }
+        }
+
         async function loadSubPage(sub) {
             currentSubPage = sub;
             renderSidebar();
@@ -672,18 +856,19 @@ function themeToggleHTML(){
                       <button class="btn btn-primary" onclick="loadDailyBoard()">Оновити</button>
                     </div>
                   </div>
-                  <div id="daily-summary" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:16px"></div>
+                  <div id="daily-summary" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:12px"></div>
+                  <div id="daily-status-chips" class="card" style="padding:12px;margin-bottom:16px"></div>
                   <div class="card" style="padding:14px;margin-bottom:16px">
                     <h3 style="margin:0 0 10px">Задачі на розподіл / у роботі</h3>
                     <div class="table-wrap"><table><thead><tr>
-                      <th>Джер.</th><th>ID</th><th>Опис</th><th>Виконавець</th><th>Статус</th><th>Пріоритет</th><th>Due</th><th>Jira</th>
-                    </tr></thead><tbody id="daily-tasks-body"><tr><td colspan="8">Завантаження…</td></tr></tbody></table></div>
+                      <th>Джер.</th><th>ID</th><th>Опис</th><th>Виконавець</th><th>Статус</th><th>Пріоритет</th><th>Due</th><th>Jira</th><th></th>
+                    </tr></thead><tbody id="daily-tasks-body"><tr><td colspan="9">Завантаження…</td></tr></tbody></table></div>
                   </div>
                   <div class="card" style="padding:14px">
                     <h3 style="margin:0 0 10px">Звернення дня (ще не в задачах)</h3>
                     <div class="table-wrap"><table><thead><tr>
-                      <th>ID</th><th>Опис</th><th>Статус</th><th>Пріоритет</th><th>Виконавець</th><th>Source</th>
-                    </tr></thead><tbody id="daily-incs-body"><tr><td colspan="6">—</td></tr></tbody></table></div>
+                      <th>ID</th><th>Опис</th><th>Статус</th><th>Пріоритет</th><th>Виконавець</th><th>Source</th><th></th>
+                    </tr></thead><tbody id="daily-incs-body"><tr><td colspan="7">—</td></tr></tbody></table></div>
                   </div>`;
                 loadDailyBoard();
                 return;
@@ -1953,6 +2138,14 @@ window.logout = logout;
 window.loadSubPage = loadSubPage;
 window.loadDailyBoard = loadDailyBoard;
 window.dailyShift = dailyShift;
+window.dailyPatchTask = dailyPatchTask;
+window.dailyPatchInc = dailyPatchInc;
+window.dailyToggleTaskCmt = dailyToggleTaskCmt;
+window.dailyPostTaskCmt = dailyPostTaskCmt;
+window.dailyToggleIncCmt = dailyToggleIncCmt;
+window.dailyPostIncCmt = dailyPostIncCmt;
+window.loadOnGridSettings = loadOnGridSettings;
+window.saveOnGridSettings = saveOnGridSettings;
 window.refreshAdminBadges = typeof refreshAdminBadges === 'function' ? refreshAdminBadges : undefined;
 window.loadQueuesData = typeof loadQueuesData === 'function' ? loadQueuesData : undefined;
 window.queuesSetDate = typeof queuesSetDate === 'function' ? queuesSetDate : undefined;
