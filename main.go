@@ -16,17 +16,18 @@ import (
 var db *sql.DB
 
 type User struct {
-	ID         int    `json:"id"`
-	Username   string `json:"username"`
-	Password   string `json:"password,omitempty"`
-	Name       string `json:"name"`
-	Role       string `json:"role"`
-	TeamRoleID *int   `json:"team_role_id"`
-	TeamRole   string `json:"team_role"`
-	IsOncall   bool   `json:"is_oncall"`
-	SlackID    string `json:"slack_id,omitempty"`
-	Email      string `json:"email,omitempty"`
-	Phone      string `json:"phone,omitempty"`
+	ID           int    `json:"id"`
+	Username     string `json:"username"`
+	Password     string `json:"password,omitempty"`
+	Name         string `json:"name"`
+	Role         string `json:"role"`
+	TeamRoleID   *int   `json:"team_role_id"`
+	TeamRole     string `json:"team_role"`
+	IsOncall     bool   `json:"is_oncall"`
+	ShowInRoster bool   `json:"show_in_roster"`
+	SlackID      string `json:"slack_id,omitempty"`
+	Email        string `json:"email,omitempty"`
+	Phone        string `json:"phone,omitempty"`
 }
 
 type TeamRole struct {
