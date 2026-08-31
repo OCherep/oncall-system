@@ -259,26 +259,51 @@ func handleSlackEvents(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "POST only", 405)
 		return
 	}
-	var raw map[string]interface{}
-	if err := json.NewDecoder(r.Body).Decode(&raw); err != nil {
-		http.Error(w, err.Error(), 400)
-		return
-	}
-	// URL verification
-	if raw["type"] == "url_verification" {
-		json.NewEncoder(w).Encode(map[string]interface{}{"challenge": raw["challenge"]})
-		return
-	}
-	// slash command form-style also possible — for JSON events:
-	text, _ := raw["text"].(string)
-	userName, _ := raw["user_name"].(string)
-	if userName == "" {
-		userName, _ = raw["user"].(string)
+	ct := r.Header.Get("Content-Type")
+	var text, userName, userID string
+
+	// Slack slash commands: application/x-www-form-urlencoded
+	if strings.Contains(ct, "application/x-www-form-urlencoded") {
+		if err := r.ParseForm(); err != nil {
+			http.Error(w, err.Error(), 400)
+			return
+		}
+		text = r.FormValue("text")
+		if text == "" {
+			text = r.FormValue("command") + " " + r.FormValue("text")
+		}
+		userName = r.FormValue("user_name")
+		userID = r.FormValue("user_id")
+		// command may be /brb with text "16:00"
+		if strings.HasPrefix(r.FormValue("command"), "/brb") && !strings.Contains(strings.ToLower(text), "brb") {
+			text = "/brb " + strings.TrimSpace(r.FormValue("text"))
+		}
+	} else {
+		var raw map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&raw); err != nil {
+			http.Error(w, err.Error(), 400)
+			return
+		}
+		// URL verification
+		if raw["type"] == "url_verification" {
+			json.NewEncoder(w).Encode(map[string]interface{}{"challenge": raw["challenge"]})
+			return
+		}
+		text, _ = raw["text"].(string)
+		userName, _ = raw["user_name"].(string)
+		if userName == "" {
+			userName, _ = raw["user"].(string)
+		}
+		if uid, ok := raw["user_id"].(string); ok {
+			userID = uid
+		}
+		_ = userID
 	}
 	if until, ok := parseSlackBRB(text); ok {
 		// map slack to oncall user by slack_id or name
 		var uname string
-		_ = db.QueryRow(`SELECT name FROM users WHERE slack_id=? OR username=? OR name=? LIMIT 1`, userName, userName, userName).Scan(&uname)
+		_ = db.QueryRow(`SELECT name FROM users WHERE slack_id=? OR slack_id=? OR username=? OR name=? LIMIT 1`,
+			userID, userName, userName, userName).Scan(&uname)
 		if uname == "" {
 			uname = userName
 		}
