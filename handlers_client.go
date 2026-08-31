@@ -989,7 +989,12 @@ func handleIncidents(w http.ResponseWriter, r *http.Request) {
 		} else {
 			log.Printf("incident #%d: off-grid low priority — skip notify", inc.ID)
 		}
-		result := map[string]interface{}{"status": "ok", "as_task": false, "id": id}
+		result := map[string]interface{}{
+			"status": "ok", "as_task": false, "id": id,
+			"assignee": inc.UserName,
+			"notified": shouldNotify,
+			"on_grid":  isOnGridNow(),
+		}
 		if isFuture {
 			tid, copied, cerr := convertIncidentToTask(inc, inc.CreatedBy)
 			if cerr == nil {
