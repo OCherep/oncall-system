@@ -418,6 +418,70 @@ function themeToggleHTML(){
         let currentMainMenu = 'management';
         let currentSubPage = 'queues';
 
+
+        function switchMainMenu(menu) {
+            currentMainMenu = menu;
+            document.querySelectorAll('.main-menu-btn').forEach(b => b.classList.remove('active'));
+            const btn = document.getElementById('menu-btn-' + menu);
+            if (btn) btn.classList.add('active');
+            if (menu === 'management') loadSubPage(currentSubPage === 'dictionaries' || String(currentSubPage||'').startsWith('proj-') ? 'queues' : (currentSubPage || 'queues'));
+            if (menu === 'settings') loadSubPage('dictionaries');
+        }
+
+        function toggleDropdown(id) {
+            const el = document.getElementById(id);
+            if (el) el.classList.toggle('open');
+        }
+
+        function renderSidebar() {
+            const sidebar = document.getElementById('sidebar');
+            if (!sidebar) return;
+            if (currentMainMenu === 'management') {
+                sidebar.innerHTML = `
+                    <div class="sidebar-section-title">МЕНЕДЖМЕНТ</div>
+                    <div class="sidebar-item ${currentSubPage==='daily'?'active':''}" onclick="loadSubPage('daily')"><span class="nav-label">Дашборд дейлі</span></div>
+                    <div class="sidebar-item ${currentSubPage==='queues'?'active':''}" onclick="loadSubPage('queues')"><span class="nav-label">Черги задач</span><span class="nav-dot hidden" id="dot-queues" title="Є зміни"></span></div>
+                    <div class="sidebar-item ${currentSubPage==='tasks'?'active':''}" onclick="loadSubPage('tasks')"><span class="nav-label">Усі задачі</span><span class="nav-dot hidden" id="dot-tasks" title="Прострочені"></span></div>
+                    <div class="sidebar-item ${currentSubPage==='inc-archive'?'active':''}" onclick="loadSubPage('inc-archive')"><span class="nav-label">Усі звернення</span><span class="nav-dot hidden" id="dot-incidents" title="Відкриті звернення"></span></div>
+                    <div class="sidebar-item ${currentSubPage==='approval'?'active':''}" onclick="loadSubPage('approval')"><span class="nav-label">Для затвердження</span><span class="nav-dot hidden" id="dot-approval" title="На перевірку"></span></div>
+                `;
+            } else if (currentMainMenu === 'settings') {
+                sidebar.innerHTML = `
+                    <div class="dropdown-container">
+                        <div class="sidebar-item" onclick="toggleDropdown('sys-dropdown')">
+                            <span>Система</span><span>&#9660;</span>
+                        </div>
+                        <div class="dropdown-menu open" id="sys-dropdown">
+                            <div class="sidebar-item ${currentSubPage==='dictionaries'?'active':''}" onclick="loadSubPage('dictionaries')">Довідники</div>
+                        </div>
+                    </div>
+                    <div class="dropdown-container">
+                        <div class="sidebar-item" onclick="toggleDropdown('proj-dropdown')">
+                            <span>Проєкт</span><span>&#9660;</span>
+                        </div>
+                        <div class="dropdown-menu open" id="proj-dropdown">
+                            <div class="sidebar-item ${currentSubPage==='proj-logs'?'active':''}" onclick="loadSubPage('proj-logs')">Логи</div>
+                            <div class="sidebar-item ${currentSubPage==='proj-db'?'active':''}" onclick="loadSubPage('proj-db')">База й таблиці</div>
+                            <div class="sidebar-item ${currentSubPage==='proj-traffic'?'active':''}" onclick="loadSubPage('proj-traffic')">Трафік та логіни</div>
+                        </div>
+                    </div>
+                `;
+            }
+            try { refreshAdminBadges(); } catch (e) {}
+        }
+
+        function logout() {
+            try { fetch('/api/logout', { method: 'POST', credentials: 'same-origin' }); } catch (e) {}
+            localStorage.removeItem('u');
+            localStorage.removeItem('currentUser');
+            localStorage.removeItem('oncall_session_token');
+            document.cookie = 'oncall_user=; Path=/; Max-Age=0; SameSite=Lax';
+            document.cookie = 'oncall_name=; Path=/; Max-Age=0; SameSite=Lax';
+            document.cookie = 'oncall_role=; Path=/; Max-Age=0; SameSite=Lax';
+            window.location.href = '/';
+        }
+
+
         async function ensureSession() {
             try {
                 const r = await fetch('/api/session/me', { credentials: 'same-origin' });
@@ -447,7 +511,7 @@ function themeToggleHTML(){
                 return;
             }
             try {
-                const nameEl = document.getElementById('admin-user-label');
+                const nameEl = document.getElementById('user-info');
                 if (nameEl) nameEl.textContent = currentUser.name || currentUser.username || '';
             } catch (e) {}
             renderSidebar();
