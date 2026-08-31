@@ -1362,6 +1362,95 @@ function isAdminUser() {
             }
             try { return await res.json(); } catch (e) { console.error(e); return []; }
         }
+        
+        let _slackDirCache = [];
+        async function openSlackImportModal() {
+            const m = document.getElementById('slack-import-modal');
+            if (m) m.style.display = 'flex';
+            loadSlackDirectory();
+        }
+        async function loadSlackDirectory() {
+            const st = document.getElementById('slack-import-status');
+            const tb = document.getElementById('slack-import-body');
+            if (st) st.textContent = 'Завантаження зі Slack…';
+            if (tb) tb.innerHTML = '<tr><td colspan="8">…</td></tr>';
+            try {
+                const r = await fetch('/api/admin/slack/users', { credentials: 'same-origin' });
+                const t = await r.text();
+                let d; try { d = JSON.parse(t); } catch(e) { d = { error: t }; }
+                if (!r.ok) {
+                    if (st) st.innerHTML = '<span style="color:#f87171">'+(d.error||r.status)+'</span>';
+                    if (tb) tb.innerHTML = '<tr><td colspan="8">Помилка</td></tr>';
+                    return;
+                }
+                _slackDirCache = d.members || [];
+                if (st) st.textContent = 'Знайдено: '+(_slackDirCache.length)+' (без ботів)';
+                if (!tb) return;
+                if (!_slackDirCache.length) {
+                    tb.innerHTML = '<tr><td colspan="8">Порожньо</td></tr>';
+                    return;
+                }
+                const escH = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;');
+                const escA = s => String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;');
+                tb.innerHTML = _slackDirCache.map((m,i) => {
+                    const linked = m.already_link ? ('вже #'+m.already_id) : 'новий';
+                    return '<tr>'+
+                      '<td><input type="checkbox" class="slack-imp-cb" data-i="'+i+'" '+(m.already_link?'':'checked')+'></td>'+
+                      '<td>'+escH(m.name||m.real_name||'')+'</td>'+
+                      '<td><input type="text" data-field="username" data-i="'+i+'" value="'+escA(m.username||'')+'" style="width:110px;padding:2px 4px"></td>'+
+                      '<td>'+escH(m.email||'—')+'</td>'+
+                      '<td>'+escH(m.phone||'—')+'</td>'+
+                      '<td>'+escH(m.title||'—')+'</td>'+
+                      '<td><code style="font-size:11px">'+escH(m.slack_id||'')+'</code></td>'+
+                      '<td style="font-size:11px;opacity:.8">'+linked+'</td></tr>';
+                }).join('');
+            } catch (e) {
+                if (st) st.textContent = String(e);
+            }
+        }
+        function slackImportSelectAll(on) {
+            document.querySelectorAll('.slack-imp-cb').forEach(cb => { cb.checked = !!on; });
+        }
+        async function runSlackImport() {
+            const pass = (document.getElementById('slack-import-pass')||{}).value || 'ChangeMe1!';
+            const oncall = !!(document.getElementById('slack-import-oncall')||{}).checked;
+            const members = [];
+            document.querySelectorAll('.slack-imp-cb:checked').forEach(cb => {
+                const i = +cb.getAttribute('data-i');
+                const m = _slackDirCache[i];
+                if (!m) return;
+                const unameInp = document.querySelector('input[data-field="username"][data-i="'+i+'"]');
+                members.push({
+                    slack_id: m.slack_id,
+                    name: m.name || m.real_name,
+                    username: (unameInp && unameInp.value) || m.username,
+                    email: m.email || '',
+                    phone: m.phone || '',
+                    title: m.title || '',
+                    is_oncall: oncall,
+                    role: 'user',
+                    update: true
+                });
+            });
+            if (!members.length) { alert('Нікого не обрано'); return; }
+            const st = document.getElementById('slack-import-status');
+            if (st) st.textContent = 'Імпорт '+members.length+'…';
+            const r = await fetch('/api/admin/slack/users', {
+                method: 'POST', credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ members, default_password: pass, default_oncall: oncall })
+            });
+            const d = await r.json().catch(()=>({}));
+            if (!r.ok) { alert(d.error || r.status); return; }
+            alert('Створено: '+(d.created||0)+', оновлено: '+(d.updated||0)+', пропущено: '+(d.skipped||0));
+            loadSlackDirectory();
+            try { loadDictionariesData(); } catch(e) {}
+        }
+        window.openSlackImportModal = openSlackImportModal;
+        window.loadSlackDirectory = loadSlackDirectory;
+        window.runSlackImport = runSlackImport;
+        window.slackImportSelectAll = slackImportSelectAll;
+
         async function loadDictionariesData() {
             try {
                 const [uRes, rRes, aRes] = await Promise.all([
@@ -2488,6 +2577,30 @@ setTimeout(function(){
   }
 }, 1500);
 </script>
+
+
+<div id="slack-import-modal" class="modal" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.6);z-index:2100;align-items:center;justify-content:center;padding:12px">
+  <div class="card" style="max-width:920px;width:96%;max-height:90vh;overflow:auto;padding:16px">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:12px">
+      <h3 style="margin:0">Імпорт користувачів зі Slack</h3>
+      <button class="btn" type="button" onclick="document.getElementById('slack-import-modal').style.display='none'">Закрити</button>
+    </div>
+    <p style="font-size:12px;opacity:.75;margin:0 0 10px">Scopes бота: <code>users:read</code>, <code>users:read.email</code>. Пов’язані за slack_id/email оновлюються.</p>
+    <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px;align-items:center">
+      <button class="btn btn-primary" type="button" onclick="loadSlackDirectory()">Оновити список</button>
+      <button class="btn" type="button" onclick="slackImportSelectAll(true)">Обрати всіх</button>
+      <button class="btn" type="button" onclick="slackImportSelectAll(false)">Зняти</button>
+      <label style="font-size:12px">Пароль <input type="text" id="slack-import-pass" value="ChangeMe1!" style="padding:4px 8px;width:120px"></label>
+      <label style="font-size:12px"><input type="checkbox" id="slack-import-oncall" checked> is_oncall</label>
+      <button class="btn btn-primary" type="button" onclick="runSlackImport()">Імпортувати обраних</button>
+    </div>
+    <div id="slack-import-status" style="font-size:12px;margin-bottom:8px;opacity:.8"></div>
+    <table style="width:100%;font-size:12px">
+      <thead><tr><th></th><th>Ім'я</th><th>Username</th><th>Email</th><th>Phone</th><th>Title</th><th>Slack ID</th><th>Статус</th></tr></thead>
+      <tbody id="slack-import-body"><tr><td colspan="8">Натисніть «Оновити список»</td></tr></tbody>
+    </table>
+  </div>
+</div>
 
 </body>
 </html>
