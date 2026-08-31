@@ -53,6 +53,7 @@ func handleDBUnlock(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleAdminUsers(w http.ResponseWriter, r *http.Request) {
+	ensureUserExtraColumns()
 	w.Header().Set("Content-Type", "application/json")
 	switch r.Method {
 	case http.MethodGet:
