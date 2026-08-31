@@ -240,6 +240,14 @@ tr.task-row-due-soon td select{
   color:#fff!important;font-weight:700;
 }
 
+
+.mode-chip{display:inline-flex;flex-direction:column;align-items:center;padding:6px 10px;border-radius:10px;border:1px solid transparent;line-height:1.15}
+.mode-chip .mode-date{font-weight:700;font-size:13px}
+.mode-chip .mode-sub{font-size:10px;margin-top:2px}
+.mode-chip.on-grid{background:#dcfce7;color:#166534;border-color:#86efac}
+.mode-chip.off-grid{background:#e2e8f0;color:#334155;border-color:#cbd5e1}
+[data-theme="dark"] .mode-chip.on-grid{background:#14532d;color:#bbf7d0;border-color:#22c55e}
+[data-theme="dark"] .mode-chip.off-grid{background:#334155;color:#e2e8f0;border-color:#64748b}
 </style></head><body>
 <div class="navbar"><div class="nav-l"><strong>On-Call</strong><span id="user-info" style="color:#64748b;font-size:13px"></span></div>
 <div class="nav-r">
@@ -391,7 +399,7 @@ tr.task-row-due-soon td select{
   window.__oncallThemeReady=true;
 })();
 function themeToggleHTML(){
-  return '<span class="theme-toggle" title="Тема">'+
+  return '<span id="on-grid-badge" style="margin-right:8px"></span><span class="theme-toggle" title="Тема">'+
     '<button type="button" data-theme="system" onclick="setTheme(\'system\')">Авто</button>'+
     '<button type="button" data-theme="light" onclick="setTheme(\'light\')">☀</button>'+
     '<button type="button" data-theme="dark" onclick="setTheme(\'dark\')">🌙</button></span>';
@@ -537,7 +545,7 @@ function maybeNotifyIncidents(){
 
 async function load(){
   const v=U?encodeURIComponent(U.name):'';
-  const r=await fetch(`/api/data?year=${Y}&month=${M}&viewer=${v}`);D=await r.json();AT=D.absence_types||[];IP=D.incident_priorities||[];
+  const r=await fetch(`/api/data?year=${Y}&month=${M}&viewer=${v}`);D=await r.json(); try{renderOnGridBadge(D.on_grid);}catch(e){};AT=D.absence_types||[];IP=D.incident_priorities||[];
   renderAlerts(D.alerts||[]);
   roster(D.team_members||[],D.absences||[]);
   renderTodayIncs();
@@ -1210,6 +1218,26 @@ async function updTask(id,field,val){const body={id,role:U&&U.role||'user',actor
 async function delTask(id){if(!confirm('Видалити?'))return;await fetch('/api/daily-tasks?id='+id,{method:'DELETE'});cl('m-day');load()}
 
 window.addEventListener('resize',()=>{['m-day','m-col','m-person'].forEach(updateStickyClose);});
-(async()=>{await restoreSession();sess();load()})();
+
+async function renderOnGridBadge(snap){
+  const el=document.getElementById('on-grid-badge');
+  if(!el) return;
+  let s=snap;
+  if(!s){
+    try{
+      const r=await fetch('/api/on-grid',{credentials:'same-origin',cache:'no-store'});
+      if(r.ok) s=await r.json();
+    }catch(e){}
+  }
+  if(!s && window.D && D.on_grid) s=D.on_grid;
+  if(!s){ el.innerHTML=''; return; }
+  const on=s.on_grid===true||s._on_grid_now==='1'||s.mode==='on-grid';
+  const lab=on?'робочий час':'неробочий час';
+  const dayStr=(typeof window.today==='function'?window.today():new Date().toISOString().slice(0,10));
+  el.innerHTML=`<div class="mode-chip ${on?'on-grid':'off-grid'}" title="${on?'ON-GRID':'OFF-GRID'} ${s.on_grid_start||''}–${s.on_grid_end||''}">
+    <span class="mode-date">${dayStr}</span><span class="mode-sub">${lab}</span></div>`;
+}
+
+(async()=>{await restoreSession();sess();load();renderOnGridBadge();})();
 </script><script src="/status-fix.js"></script>
 </body></html>
