@@ -419,7 +419,7 @@ function themeToggleHTML(){
         let currentSubPage = 'queues';
 
 
-        function switchMainMenu(menu) {
+        window.switchMainMenu = function switchMainMenu(menu) {
             currentMainMenu = menu;
             document.querySelectorAll('.main-menu-btn').forEach(b => b.classList.remove('active'));
             const btn = document.getElementById('menu-btn-' + menu);
@@ -428,12 +428,12 @@ function themeToggleHTML(){
             if (menu === 'settings') loadSubPage('dictionaries');
         }
 
-        function toggleDropdown(id) {
+        window.toggleDropdown = function toggleDropdown(id) {
             const el = document.getElementById(id);
             if (el) el.classList.toggle('open');
         }
 
-        function renderSidebar() {
+        window.renderSidebar = function renderSidebar() {
             const sidebar = document.getElementById('sidebar');
             if (!sidebar) return;
             if (currentMainMenu === 'management') {
@@ -470,7 +470,7 @@ function themeToggleHTML(){
             try { refreshAdminBadges(); } catch (e) {}
         }
 
-        function logout() {
+        window.logout = function logout() {
             try { fetch('/api/logout', { method: 'POST', credentials: 'same-origin' }); } catch (e) {}
             localStorage.removeItem('u');
             localStorage.removeItem('currentUser');
@@ -502,23 +502,33 @@ function themeToggleHTML(){
             return false;
         }
 
-        (async function bootAdmin() {
-            const ok = await ensureSession();
-            if (!ok) { window.location.href = '/'; return; }
-            if (!currentUser || currentUser.role !== 'admin') {
-                alert('Доступ лише для адміністраторів');
-                window.location.href = '/';
-                return;
-            }
+        window.__bootAdmin = async function bootAdmin() {
             try {
+                const ok = await ensureSession();
+                if (!ok) { window.location.href = '/'; return; }
+                if (!currentUser || currentUser.role !== 'admin') {
+                    alert('Доступ лише для адміністраторів');
+                    window.location.href = '/';
+                    return;
+                }
                 const nameEl = document.getElementById('user-info');
                 if (nameEl) nameEl.textContent = currentUser.name || currentUser.username || '';
-            } catch (e) {}
-            renderSidebar();
-            loadSubPage(currentSubPage || 'queues');
-        })();
+                if (typeof window.renderSidebar === 'function') window.renderSidebar();
+                if (typeof window.loadSubPage === 'function') await window.loadSubPage(currentSubPage || 'queues');
+                else console.error('loadSubPage missing');
+            } catch (e) {
+                console.error('bootAdmin', e);
+                alert('Помилка ініціалізації адмінки: ' + e.message);
+            }
+        };
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', function(){ window.__bootAdmin(); });
+        } else {
+            // defer after full script parse
+            setTimeout(function(){ window.__bootAdmin(); }, 0);
+        }
 
-        function dailyShift(delta) {
+        window.dailyShift = function dailyShift(delta) {
             const cur = window._dailyDate || new Date().toISOString().slice(0,10);
             const d = new Date(cur + 'T12:00:00');
             d.setDate(d.getDate() + delta);
@@ -527,7 +537,7 @@ function themeToggleHTML(){
             if (inp) inp.value = window._dailyDate;
             loadDailyBoard();
         }
-        async function loadDailyBoard() {
+        window.loadDailyBoard = async function loadDailyBoard() {
             const day = window._dailyDate || new Date().toISOString().slice(0,10);
             window._dailyDate = day;
             const inp = document.getElementById('daily-date');
@@ -612,7 +622,7 @@ function themeToggleHTML(){
             setTimeout(refreshAdminBadges, 800);
         }
 
-        async function loadSubPage(sub) {
+        window.loadSubPage = async function loadSubPage(sub) {
             currentSubPage = sub;
             renderSidebar();
 
