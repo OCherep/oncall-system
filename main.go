@@ -554,6 +554,7 @@ func main() {
 	http.HandleFunc("/api/incidents", withIPAllow(handleIncidents))
 	http.HandleFunc("/api/daily-tasks", withIPAllow(handleDailyTasks))
 
+	http.HandleFunc("/api/admin/slack/users", withIPAllow(securityHeaders(handleSlackDirectory)))
 	http.HandleFunc("/api/admin/users", withIPAllow(handleAdminUsers))
 	http.HandleFunc("/api/admin/roles", withIPAllow(handleAdminRoles))
 	http.HandleFunc("/api/admin/team-roles", withIPAllow(handleAdminRoles))
