@@ -492,10 +492,19 @@ function themeToggleHTML(){
 
             if (sub === 'queues') {
                 breadcrumbs.innerHTML = `Головна / Адміністрування / Менеджмент / <b>Черги задач</b>`;
+                if (!window._queuesDate) window._queuesDate = new Date().toISOString().slice(0,10);
                 container.innerHTML = `
-                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px">
                         <h2 style="margin:0">Черги задач і звернень</h2>
-                        <button class="btn btn-primary" onclick="loadQueuesData()">Оновити</button>
+                        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                          <button class="btn" type="button" title="Попередній день" onclick="queuesShiftDay(-1)">‹</button>
+                          <input type="date" id="queues-date" value="${window._queuesDate}"
+                            style="padding:6px 10px;border-radius:8px;border:1px solid #334155;background:#0f172a;color:#e2e8f0"
+                            onchange="queuesSetDate(this.value)">
+                          <button class="btn" type="button" title="Наступний день" onclick="queuesShiftDay(1)">›</button>
+                          <button class="btn" type="button" onclick="queuesSetDate(new Date().toISOString().slice(0,10))">Сьогодні</button>
+                          <button class="btn btn-primary" onclick="loadQueuesData()">Оновити</button>
+                        </div>
                     </div>
                     <div id="queues-summary" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:20px"></div>
                     <div class="card">
@@ -507,7 +516,7 @@ function themeToggleHTML(){
                         <table><thead><tr><th>Виконавець</th><th>Усього</th><th>Відкриті</th></tr></thead><tbody id="queues-by-assignee"></tbody></table>
                     </div>
                     <div class="card">
-                        <div class="card-header"><h2>Звернення сьогодні за статусом</h2></div>
+                        <div class="card-header"><h2>Звернення за день (статус)</h2></div>
                         <table><thead><tr><th>Статус</th><th>Кількість</th></tr></thead><tbody id="queues-inc-status"></tbody></table>
                     </div>
                 `;
@@ -960,9 +969,29 @@ function themeToggleHTML(){
             loadRequestsData();
         }
 
+        
+        function queuesSetDate(v) {
+            if (!v) return;
+            window._queuesDate = v;
+            const inp = document.getElementById('queues-date');
+            if (inp) inp.value = v;
+            loadQueuesData();
+        }
+        function queuesShiftDay(delta) {
+            const cur = window._queuesDate || new Date().toISOString().slice(0,10);
+            const d = new Date(cur + 'T12:00:00');
+            d.setDate(d.getDate() + delta);
+            const v = d.toISOString().slice(0,10);
+            queuesSetDate(v);
+        }
+
         async function loadQueuesData() {
             try {
-                const r = await fetch('/api/admin/queues');
+                const day = window._queuesDate || (document.getElementById('queues-date')||{}).value || new Date().toISOString().slice(0,10);
+                window._queuesDate = day;
+                const inp = document.getElementById('queues-date');
+                if (inp && inp.value !== day) inp.value = day;
+                const r = await fetch('/api/admin/queues?date=' + encodeURIComponent(day));
                 if (!r.ok) { alert('Помилка завантаження черг: ' + (await r.text())); return; }
                 const d = await r.json();
                 window._queuesCache = d;
@@ -970,10 +999,10 @@ function themeToggleHTML(){
                 if (sum) {
                     const incAll = (d.incidents_today_by_status && d.incidents_today_by_status['усі']) || 0;
                     sum.innerHTML = `
-                        <div class="card" style="padding:14px;text-align:center"><div style="font-size:11px;color:var(--muted,#64748b)">Сьогодні</div><div style="font-size:22px;font-weight:700">${d.today||'—'}</div></div>
+                        <div class="card" style="padding:14px;text-align:center"><div style="font-size:11px;color:var(--muted,#64748b)">${(d.server_today && d.today===d.server_today)?'Сьогодні':'Дата'}</div><div style="font-size:22px;font-weight:700">${d.today||'—'}</div></div>
                         <div class="card" style="padding:14px;text-align:center;border-left:4px solid #ef4444"><div style="font-size:11px;color:var(--muted,#64748b)">Прострочені</div><div style="font-size:22px;font-weight:700;color:#ef4444">${d.tasks_overdue||0}</div></div>
-                        <div class="card" style="padding:14px;text-align:center;border-left:4px solid #f59e0b"><div style="font-size:11px;color:var(--muted,#64748b)">Due сьогодні</div><div style="font-size:22px;font-weight:700;color:#f59e0b">${d.tasks_due_today||0}</div></div>
-                        <div class="card" style="padding:14px;text-align:center;border-left:4px solid #2563eb"><div style="font-size:11px;color:var(--muted,#64748b)">Звернення сьогодні</div><div style="font-size:22px;font-weight:700;color:#2563eb">${incAll}</div></div>
+                        <div class="card" style="padding:14px;text-align:center;border-left:4px solid #f59e0b"><div style="font-size:11px;color:var(--muted,#64748b)">Due на дату</div><div style="font-size:22px;font-weight:700;color:#f59e0b">${d.tasks_due_today||0}</div></div>
+                        <div class="card" style="padding:14px;text-align:center;border-left:4px solid #2563eb"><div style="font-size:11px;color:var(--muted,#64748b)">Звернення за день</div><div style="font-size:22px;font-weight:700;color:#2563eb">${incAll}</div></div>
                     `;
                 }
                 const stBody = document.getElementById('queues-by-status');
@@ -1002,7 +1031,7 @@ function themeToggleHTML(){
                     const keys = [...order.filter(k=>by[k]!=null && k!=='усі'), ...Object.keys(by).filter(k=>k!=='усі'&&!order.includes(k))];
                     incBody.innerHTML = keys.length
                         ? keys.map(k=>`<tr class="q-row" style="cursor:pointer" onclick="openQueueIncsByStatus('${String(k).replace(/'/g,"\\'")}')"><td><span class="badge badge-secondary">${k}</span></td><td><b>${by[k]}</b></td></tr>`).join('')
-                        : '<tr><td colspan="2">Немає звернень сьогодні</td></tr>';
+                        : '<tr><td colspan="2">Немає звернень за цей день</td></tr>';
                 }
             } catch (e) {
                 alert('Помилка: ' + e.message);
@@ -1108,15 +1137,15 @@ function themeToggleHTML(){
 
         async function openQueueIncsByStatus(status) {
             const m = ensureQueueModal();
-            document.getElementById('queue-detail-title').textContent = 'Звернення сьогодні · «' + status + '»';
+            document.getElementById('queue-detail-title').textContent = 'Звернення · ' + (window._queuesDate||'') + ' · «' + status + '»';
             document.getElementById('queue-detail-body').textContent = 'Завантаження…';
             m.style.display = 'flex';
             try {
-                const today = (window._queuesCache && window._queuesCache.today) || new Date().toISOString().slice(0,10);
+                const day = window._queuesDate || (window._queuesCache && window._queuesCache.today) || new Date().toISOString().slice(0,10);
                 const r = await fetch('/api/incidents?limit=200&status=' + encodeURIComponent(status));
                 let list = await safeJson(r);
                 if (!Array.isArray(list)) list = [];
-                list = list.filter(i => i.date === today && (i.status||'Нове') === status);
+                list = list.filter(i => i.date === day && (i.status||'Нове') === status);
                 const byUser = {};
                 list.forEach(i => {
                     const u = i.user_name || '(без виконавця)';
