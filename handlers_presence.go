@@ -254,11 +254,12 @@ func parseSlackBRB(text string) (until string, ok bool) {
 		return "", false
 	}
 	until = parts[0]
-	if len(until) == 4 && until[1] == ':' { // 9:00
+	// normalize H:MM → HH:MM
+	if len(until) == 4 && until[1] == ':' {
 		until = "0" + until
 	}
-	if len(until) >= 4 && until[2] == ':' {
-		return until, true
+	if len(until) >= 5 && until[2] == ':' {
+		return until[:5], true
 	}
 	return "", false
 }
@@ -310,20 +311,30 @@ func handleSlackEvents(w http.ResponseWriter, r *http.Request) {
 		_ = userID
 	}
 	if until, ok := parseSlackBRB(text); ok {
-		// map slack to oncall user by slack_id or name
 		var uname string
 		_ = db.QueryRow(`SELECT name FROM users WHERE slack_id=? OR slack_id=? OR username=? OR name=? LIMIT 1`,
 			userID, userName, userName, userName).Scan(&uname)
 		if uname == "" {
 			uname = userName
 		}
+		msg := fmt.Sprintf("BRB до %s для %s", until, uname)
 		if err := setBRB(uname, until, "slack"); err != nil {
-			http.Error(w, err.Error(), 400)
-			return
+			msg = "Помилка BRB: " + err.Error()
+			log.Printf("slack BRB err: %v", err)
+		} else {
+			log.Printf("slack BRB: %s until %s", uname, until)
 		}
-		log.Printf("slack BRB: %s until %s", uname, until)
-		json.NewEncoder(w).Encode(map[string]string{"response_type": "ephemeral", "text": fmt.Sprintf("BRB до %s для %s", until, uname)})
+		// Slack slash expects 200 within 3s; plain text also OK
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"response_type": "ephemeral",
+			"text":          msg,
+		})
 		return
 	}
-	json.NewEncoder(w).Encode(map[string]string{"status": "ignored"})
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"response_type": "ephemeral",
+		"text":          "Не розпізнано. Приклад: /brb 16:00",
+	})
 }
