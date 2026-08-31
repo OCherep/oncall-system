@@ -417,78 +417,114 @@ function themeToggleHTML(){
         let currentUser = null;
         let currentMainMenu = 'management';
         let currentSubPage = 'queues';
-        let loadedUsers = [], loadedRoles = [], loadedAbsTypes = [];
 
-        window.onload = function() {
-            // index.html stores session as 'u'; keep fallback to 'currentUser'
+        async function ensureSession() {
+            try {
+                const r = await fetch('/api/session/me', { credentials: 'same-origin' });
+                if (r.ok) {
+                    const u = await r.json();
+                    currentUser = u;
+                    localStorage.setItem('u', JSON.stringify(u));
+                    return true;
+                }
+            } catch (e) {}
             const saved = localStorage.getItem('u') || localStorage.getItem('currentUser');
-            if (!saved) { window.location.href = '/'; return; }
-            try { currentUser = JSON.parse(saved); } catch (e) { window.location.href = '/'; return; }
+            if (saved) {
+                try {
+                    currentUser = JSON.parse(saved);
+                    return true;
+                } catch (e) {}
+            }
+            return false;
+        }
+
+        (async function bootAdmin() {
+            const ok = await ensureSession();
+            if (!ok) { window.location.href = '/'; return; }
             if (!currentUser || currentUser.role !== 'admin') {
-                alert('Доступ лише для admin');
+                alert('Доступ лише для адміністраторів');
                 window.location.href = '/';
                 return;
             }
-            document.getElementById('user-info').innerText = `${currentUser.name} (${currentUser.role})`;
-            switchMainMenu('management');
-        };
-
-        function logout() {
-            localStorage.removeItem('u');
-            localStorage.removeItem('currentUser');
-            window.location.href = '/';
-        }
-
-        function switchMainMenu(menu) {
-            currentMainMenu = menu;
-            document.getElementById('menu-btn-management').classList.toggle('active', menu === 'management');
-            document.getElementById('menu-btn-settings').classList.toggle('active', menu === 'settings');
-
+            try {
+                const nameEl = document.getElementById('admin-user-label');
+                if (nameEl) nameEl.textContent = currentUser.name || currentUser.username || '';
+            } catch (e) {}
             renderSidebar();
+            loadSubPage(currentSubPage || 'queues');
+        })();
 
-            if (menu === 'management') loadSubPage('queues');
-            if (menu === 'settings') loadSubPage('dictionaries');
+        function dailyShift(delta) {
+            const cur = window._dailyDate || new Date().toISOString().slice(0,10);
+            const d = new Date(cur + 'T12:00:00');
+            d.setDate(d.getDate() + delta);
+            window._dailyDate = d.toISOString().slice(0,10);
+            const inp = document.getElementById('daily-date');
+            if (inp) inp.value = window._dailyDate;
+            loadDailyBoard();
         }
-
-        function renderSidebar() {
-            const sidebar = document.getElementById('sidebar');
-            if (currentMainMenu === 'management') {
-                sidebar.innerHTML = `
-                    <div class="sidebar-section">Менеджмент</div>
-                    <div class="sidebar-item ${currentSubPage==='queues'?'active':''}" onclick="loadSubPage('queues')"><span class="nav-label">Черги задач</span><span class="nav-dot hidden" id="dot-queues" title="Є зміни"></span></div>
-                    <div class="sidebar-item ${currentSubPage==='tasks'?'active':''}" onclick="loadSubPage('tasks')"><span class="nav-label">Усі задачі</span><span class="nav-dot hidden" id="dot-tasks" title="Прострочені"></span></div>
-                    <div class="sidebar-item ${currentSubPage==='inc-archive'?'active':''}" onclick="loadSubPage('inc-archive')"><span class="nav-label">Усі звернення</span><span class="nav-dot hidden" id="dot-incidents" title="Відкриті звернення"></span></div>
-                    <div class="sidebar-item ${currentSubPage==='approval'?'active':''}" onclick="loadSubPage('approval')"><span class="nav-label">Для затвердження</span><span class="nav-dot hidden" id="dot-approval" title="На перевірку"></span></div>
-                `;
-            } else if (currentMainMenu === 'settings') {
-                sidebar.innerHTML = `
-                    <div class="dropdown-container">
-                        <div class="sidebar-item" onclick="toggleDropdown('sys-dropdown')">
-                            <span>Система</span><span>&#9660;</span>
-                        </div>
-                        <div class="dropdown-menu open" id="sys-dropdown">
-                            <div class="sidebar-item ${currentSubPage==='dictionaries'?'active':''}" onclick="loadSubPage('dictionaries')">Довідники</div>
-                        </div>
-                    </div>
-                    <div class="dropdown-container">
-                        <div class="sidebar-item" onclick="toggleDropdown('proj-dropdown')">
-                            <span>Проєкт</span><span>&#9660;</span>
-                        </div>
-                        <div class="dropdown-menu open" id="proj-dropdown">
-                            <div class="sidebar-item ${currentSubPage==='proj-logs'?'active':''}" onclick="loadSubPage('proj-logs')">Логи</div>
-                            <div class="sidebar-item ${currentSubPage==='proj-db'?'active':''}" onclick="loadSubPage('proj-db')">База й таблиці</div>
-                            <div class="sidebar-item ${currentSubPage==='proj-traffic'?'active':''}" onclick="loadSubPage('proj-traffic')">Трафік та логіни</div>
-                        </div>
-                    </div>
-                `;
+        async function loadDailyBoard() {
+            const day = window._dailyDate || new Date().toISOString().slice(0,10);
+            window._dailyDate = day;
+            const inp = document.getElementById('daily-date');
+            if (inp) inp.value = day;
+            try {
+                const r = await fetch('/api/admin/daily-board?date=' + encodeURIComponent(day), { credentials: 'same-origin' });
+                if (r.status === 401) { alert('Сесія закінчилась — увійдіть знову'); location.href='/'; return; }
+                const d = await safeJson(r);
+                const sum = document.getElementById('daily-summary');
+                if (sum) {
+                    const by = d.by_status || {};
+                    sum.innerHTML = `
+                      <div class="card" style="padding:12px;text-align:center"><div style="font-size:11px;opacity:.7">Дата</div><div style="font-size:18px;font-weight:700">${d.date||day}</div></div>
+                      <div class="card" style="padding:12px;text-align:center"><div style="font-size:11px;opacity:.7">Основний</div><div style="font-weight:600">${d.primary||'—'}</div></div>
+                      <div class="card" style="padding:12px;text-align:center"><div style="font-size:11px;opacity:.7">Дубль</div><div style="font-weight:600">${d.backup||'—'}</div></div>
+                      <div class="card" style="padding:12px;text-align:center;border-left:3px solid #ef4444"><div style="font-size:11px;opacity:.7">Без виконавця</div><div style="font-size:20px;font-weight:700;color:#ef4444">${d.unassigned||0}</div></div>
+                      <div class="card" style="padding:12px;text-align:center;border-left:3px solid #8b5cf6"><div style="font-size:11px;opacity:.7">Jira</div><div style="font-size:20px;font-weight:700">${d.jira_linked||0}</div></div>
+                      <div class="card" style="padding:12px;text-align:center"><div style="font-size:11px;opacity:.7">Нова</div><div style="font-size:18px">${by['Нова']||0}</div></div>
+                      <div class="card" style="padding:12px;text-align:center"><div style="font-size:11px;opacity:.7">У роботі</div><div style="font-size:18px">${by['У роботі']||0}</div></div>
+                    `;
+                }
+                const tb = document.getElementById('daily-tasks-body');
+                const tasks = d.tasks || [];
+                if (tb) {
+                    if (!tasks.length) tb.innerHTML = '<tr><td colspan="8" style="opacity:.6">Немає задач на цю дату</td></tr>';
+                    else tb.innerHTML = tasks.map(t => {
+                        const src = t.source==='jira'?'<span class="badge" style="background:#7c3aed;color:#fff">Jira</span>':(t.source==='incident'?'<span class="badge" style="background:#2563eb;color:#fff">Inc</span>':'<span class="badge" style="background:#475569;color:#fff">OnCall</span>');
+                        const jira = t.external_id ? `<span style="color:#93c5fd">${t.external_id}</span>` : '—';
+                        const whoCell = t.user_name || '<em style="opacity:.6">без виконавця</em>';
+                        return `<tr>
+                          <td>${src}</td><td>#${t.id}</td>
+                          <td style="max-width:280px">${(t.task_description||'').replace(/</g,'&lt;')}</td>
+                          <td>${whoCell}</td>
+                          <td>${t.status||''}</td><td>${t.priority||''}</td>
+                          <td>${t.due_date||'—'}</td><td>${jira}</td>
+                        </tr>`;
+                    }).join('');
+                }
+                const ib = document.getElementById('daily-incs-body');
+                const incs = d.incidents || [];
+                if (ib) {
+                    if (!incs.length) ib.innerHTML = '<tr><td colspan="6" style="opacity:.6">Немає відкритих звернень</td></tr>';
+                    else ib.innerHTML = incs.map(i => `<tr>
+                      <td>#${i.id}</td>
+                      <td>${(i.description||'').replace(/</g,'&lt;')}</td>
+                      <td>${i.status||''}</td><td>${i.priority||''}</td>
+                      <td>${i.user_name||'—'}</td>
+                      <td>${i.source||''}${i.external_id?' · '+i.external_id:''}</td>
+                    </tr>`).join('');
+                }
+            } catch (e) {
+                alert('Помилка дашборду: ' + e.message);
             }
         }
-
-        function toggleDropdown(id) {
-            document.getElementById(id).classList.toggle('open');
+        function isAdminUser() {
+            try {
+                const u = JSON.parse(localStorage.getItem('u')||localStorage.getItem('currentUser')||'{}');
+                return u && u.role === 'admin';
+            } catch(e) { return false; }
         }
 
-        
         async function refreshAdminBadges() {
             try {
                 const r = await fetch('/api/admin/badges');
@@ -519,6 +555,37 @@ function themeToggleHTML(){
             const container = document.getElementById('page-container');
             const breadcrumbs = document.getElementById('breadcrumbs');
 
+            if (sub === 'daily') {
+                breadcrumbs.innerHTML = `Головна / Адміністрування / Менеджмент / <b>Дашборд дейлі</b>`;
+                if (!window._dailyDate) window._dailyDate = new Date().toISOString().slice(0,10);
+                container.innerHTML = `
+                  <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:16px">
+                    <h2 style="margin:0">Дашборд дейлі</h2>
+                    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                      <button class="btn" onclick="dailyShift(-1)">‹</button>
+                      <input type="date" id="daily-date" value="${window._dailyDate}" onchange="window._dailyDate=this.value;loadDailyBoard()"
+                        style="padding:6px 10px;border-radius:8px;border:1px solid #334155;background:#0f172a;color:#e2e8f0">
+                      <button class="btn" onclick="dailyShift(1)">›</button>
+                      <button class="btn" onclick="window._dailyDate=new Date().toISOString().slice(0,10);loadDailyBoard()">Сьогодні</button>
+                      <button class="btn btn-primary" onclick="loadDailyBoard()">Оновити</button>
+                    </div>
+                  </div>
+                  <div id="daily-summary" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:16px"></div>
+                  <div class="card" style="padding:14px;margin-bottom:16px">
+                    <h3 style="margin:0 0 10px">Задачі на розподіл / у роботі</h3>
+                    <div class="table-wrap"><table><thead><tr>
+                      <th>Джер.</th><th>ID</th><th>Опис</th><th>Виконавець</th><th>Статус</th><th>Пріоритет</th><th>Due</th><th>Jira</th>
+                    </tr></thead><tbody id="daily-tasks-body"><tr><td colspan="8">Завантаження…</td></tr></tbody></table></div>
+                  </div>
+                  <div class="card" style="padding:14px">
+                    <h3 style="margin:0 0 10px">Звернення дня (ще не в задачах)</h3>
+                    <div class="table-wrap"><table><thead><tr>
+                      <th>ID</th><th>Опис</th><th>Статус</th><th>Пріоритет</th><th>Виконавець</th><th>Source</th>
+                    </tr></thead><tbody id="daily-incs-body"><tr><td colspan="6">—</td></tr></tbody></table></div>
+                  </div>`;
+                loadDailyBoard();
+                return;
+            }
             if (sub === 'queues') {
                 breadcrumbs.innerHTML = `Головна / Адміністрування / Менеджмент / <b>Черги задач</b>`;
                 if (!window._queuesDate) window._queuesDate = new Date().toISOString().slice(0,10);
