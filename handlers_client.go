@@ -279,10 +279,13 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 	http.SetCookie(w, &http.Cookie{Name: "oncall_name", Value: u.Name, Path: "/", MaxAge: maxAge, SameSite: http.SameSiteLaxMode})
 	http.SetCookie(w, &http.Cookie{Name: "oncall_role", Value: u.Role, Path: "/", MaxAge: maxAge, SameSite: http.SameSiteLaxMode})
 	w.Header().Set("Content-Type", "application/json")
+	var needsResume int
+	_ = db.QueryRow(`SELECT COALESCE(needs_resume,0) FROM users WHERE id=?`, u.ID).Scan(&needsResume)
 	out := map[string]interface{}{
 		"id": u.ID, "username": u.Username, "name": u.Name, "role": u.Role,
 		"team_role_id": u.TeamRoleID, "team_role": u.TeamRole, "is_oncall": u.IsOncall,
 		"session_expires": exp.Format(time.RFC3339),
+		"needs_resume": needsResume == 1,
 	}
 	if tok != "" {
 		out["session_token"] = tok // для Authorization header якщо cookie блокується
@@ -402,9 +405,16 @@ func allowedNextStatuses(cur, role string) []string {
 	isAdmin := role == "admin"
 	var next []string
 	switch cur {
+	case "Нерозподілена":
+		// лише admin/task-master: виведення на денну дошку як «Нова»
+		if isAdmin {
+			next = []string{"Нерозподілена", "Нова", "Архів"}
+		} else {
+			next = []string{"Нерозподілена"}
+		}
 	case "Нова":
 		if isAdmin {
-			next = []string{"Нова", "У роботі", "Архів"}
+			next = []string{"Нова", "У роботі", "Архів", "Нерозподілена"}
 		} else {
 			next = []string{"Нова", "У роботі"}
 		}
@@ -440,7 +450,7 @@ func allowedNextStatuses(cur, role string) []string {
 		}
 	default:
 		if isAdmin {
-			next = []string{cur, "Нова", "У роботі", "На паузі", "До перевірки", "Виконана", "Перевідкрита", "Архів"}
+			next = []string{cur, "Нерозподілена", "Нова", "У роботі", "На паузі", "До перевірки", "Виконана", "Перевідкрита", "Архів"}
 		} else {
 			next = []string{cur, "У роботі"}
 		}
@@ -600,8 +610,17 @@ func handleGetData(w http.ResponseWriter, r *http.Request) {
 		taskRows.Close()
 	}
 	// no duplicate tasks from the same incident in UI payloads
+	// «Нерозподілена» — лише адмін-інтерфейс, не публічний календар
 	for day, list := range dailyTasks {
-		dailyTasks[day] = dedupeTasksByIncident(list)
+		list = dedupeTasksByIncident(list)
+		filtered := list[:0]
+		for _, t := range list {
+			if t.Status == "Нерозподілена" {
+				continue
+			}
+			filtered = append(filtered, t)
+		}
+		dailyTasks[day] = filtered
 	}
 	atRows, _ := db.Query(`SELECT id, name, code FROM absence_types ORDER BY name`)
 	var absenceTypes []AbsenceType
@@ -621,6 +640,7 @@ func handleGetData(w http.ResponseWriter, r *http.Request) {
 		"shifts": shifts, "absences": absences, "incidents": incidents, "stats": stats,
 		"daily_tasks": dailyTasks,
 		"on_grid": snap,
+		"brb": activeBRBMap(),
 	})
 }
 
@@ -754,7 +774,7 @@ func convertIncidentToTask(inc IncidentReport, actor string) (int64, int, error)
 	desc := fmt.Sprintf("[зі звернення #%d] %s", inc.ID, inc.Description)
 	prio := mapIncidentPrioToTask(inc.Priority)
 	res, err := db.Exec(`INSERT INTO daily_tasks (user_name, date, task_description, status, priority, total_minutes, created_at, created_by, responsible)
-		VALUES (?, ?, ?, 'Нова', ?, 0, CURRENT_TIMESTAMP, ?, ?)`,
+		VALUES (?, ?, ?, 'Нерозподілена', ?, 0, CURRENT_TIMESTAMP, ?, ?)`,
 		inc.UserName, inc.Date, desc, prio, actor, actor)
 	if err != nil {
 		return 0, 0, err
@@ -1228,6 +1248,15 @@ func handleDailyTasks(w http.ResponseWriter, r *http.Request) {
 		}
 		if t.VisibleFrom == "" {
 			t.VisibleFrom = t.Date
+		}
+		if strings.TrimSpace(t.Status) == "" || t.Status == "Нова" {
+			// нові задачі з адмінки/планування стартують як нерозподілені
+			if roleHint := strings.ToLower(strings.TrimSpace(t.CreatedBy)); true {
+				_ = roleHint
+			}
+			if t.Status == "" {
+				t.Status = "Нерозподілена"
+			}
 		}
 		res, err := db.Exec(`INSERT INTO daily_tasks (user_name, date, task_description, status, priority, total_minutes, created_at, visible_from, due_date, created_by, responsible)
 			VALUES (?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP, ?, ?, ?, ?)`,
