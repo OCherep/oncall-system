@@ -1443,6 +1443,14 @@ func handleAdminQueues(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	today := time.Now().Format("2006-01-02")
+	day := strings.TrimSpace(r.URL.Query().Get("date"))
+	if day == "" {
+		day = today
+	}
+	// basic validate YYYY-MM-DD
+	if len(day) != 10 {
+		day = today
+	}
 
 	// by status
 	byStatus := map[string]int{}
@@ -1480,30 +1488,31 @@ func handleAdminQueues(w http.ResponseWriter, r *http.Request) {
 	// overdue: due_date < today and not done
 	overdue := 0
 	db.QueryRow(`SELECT COUNT(*) FROM daily_tasks
-		WHERE due_date != '' AND due_date < ? AND COALESCE(status,'Нова') NOT IN ('Виконана','Архів')`, today).Scan(&overdue)
+		WHERE due_date != '' AND due_date < ? AND COALESCE(status,'Нова') NOT IN ('Виконана','Архів')`, day).Scan(&overdue)
 
-	// due today
+	// due on selected day
 	dueToday := 0
 	db.QueryRow(`SELECT COUNT(*) FROM daily_tasks
-		WHERE due_date = ? AND COALESCE(status,'Нова') NOT IN ('Виконана','Архів')`, today).Scan(&dueToday)
+		WHERE due_date = ? AND COALESCE(status,'Нова') NOT IN ('Виконана','Архів')`, day).Scan(&dueToday)
 
-	// incidents today by status
+	// incidents on selected day by status
 	incToday := 0
-	db.QueryRow(`SELECT COUNT(*) FROM incidents WHERE date=?`, today).Scan(&incToday)
+	db.QueryRow(`SELECT COUNT(*) FROM incidents WHERE date=?`, day).Scan(&incToday)
 	incByStatus := map[string]int{"усі": incToday}
-	incRows, _ := db.Query(`SELECT COALESCE(status,'Нове'), COUNT(*) FROM incidents WHERE date=? GROUP BY COALESCE(status,'Нове')`, today)
+	incRows, _ := db.Query(`SELECT COALESCE(status,'Нове'), COUNT(*) FROM incidents WHERE date=? GROUP BY COALESCE(status,'Нове')`, day)
 	if incRows != nil {
 		defer incRows.Close()
 		for incRows.Next() {
 			var s string
-			var c int
-			incRows.Scan(&s, &c)
-			incByStatus[s] = c
+			var cnt int
+			incRows.Scan(&s, &cnt)
+			incByStatus[s] = cnt
 		}
 	}
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"today":                     today,
+		"today":                     day,
+		"server_today":              today,
 		"tasks_by_status":           byStatus,
 		"tasks_by_assignee":         byAssignee,
 		"tasks_overdue":             overdue,
