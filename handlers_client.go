@@ -695,7 +695,7 @@ func allowedIncNextStatuses(cur, role string) []string {
 		return []string{"Нове", "В роботі"}
 	case "В роботі":
 		if isAdmin {
-			return []string{"В роботі", "На паузі", "Вирішено", "Архів"}
+			return []string{"В роботі", "На паузі", "Вирішено", "У задачу", "Архів"}
 		}
 		return []string{"В роботі", "На паузі", "Вирішено"}
 	case "На паузі":
@@ -703,6 +703,11 @@ func allowedIncNextStatuses(cur, role string) []string {
 			return []string{"На паузі", "В роботі", "Архів"}
 		}
 		return []string{"На паузі", "В роботі"}
+	case "У задачу":
+		if isAdmin {
+			return []string{"У задачу", "Архів", "Нове"}
+		}
+		return []string{"У задачу"}
 	case "Вирішено":
 		if isAdmin {
 			return []string{"Вирішено", "Архів", "Нове"}
@@ -781,7 +786,7 @@ func convertIncidentToTask(inc IncidentReport, actor string) (int64, int, error)
 	_ = db.QueryRow(`SELECT id FROM daily_tasks WHERE task_description LIKE ? ORDER BY id ASC LIMIT 1`,
 		fmt.Sprintf("[зі звернення #%d]%%", inc.ID)).Scan(&legacyID)
 	if legacyID > 0 {
-		db.Exec(`UPDATE incidents SET converted_to_task_id=?, status=CASE WHEN status IN ('Вирішено','Архів') THEN status ELSE 'Вирішено' END WHERE id=?`, legacyID, inc.ID)
+		db.Exec(`UPDATE incidents SET converted_to_task_id=?, status=CASE WHEN status IN ('Вирішено','Архів','У задачу') THEN status ELSE 'У задачу' END WHERE id=?`, legacyID, inc.ID)
 		return int64(legacyID), 0, fmt.Errorf("звернення #%d вже має задачу #%d", inc.ID, legacyID)
 	}
 
@@ -799,7 +804,7 @@ func convertIncidentToTask(inc IncidentReport, actor string) (int64, int, error)
 		db.Exec(`INSERT OR IGNORE INTO task_assignees (task_id, user_name, total_minutes) VALUES (?,?,0)`, tid, inc.UserName)
 	}
 	copied := copyComments("incident", inc.ID, "task", int(tid))
-	db.Exec(`UPDATE incidents SET converted_to_task_id=?, status='Вирішено' WHERE id=?`, tid, inc.ID)
+	db.Exec(`UPDATE incidents SET converted_to_task_id=?, status='У задачу' WHERE id=?`, tid, inc.ID)
 	addSystemComment("incident", inc.ID, fmt.Sprintf("Переведено в задачу #%d", tid))
 	openTaskStatusLog(int(tid), "Нова", actor)
 	addSystemComment("task", int(tid), fmt.Sprintf("Створено зі звернення #%d (скопійовано коментарів: %d)", inc.ID, copied))
@@ -899,7 +904,7 @@ func handleIncidents(w http.ResponseWriter, r *http.Request) {
 				&inc.ReporterName, &inc.ReporterEmail, &inc.ReporterSlack)
 			if inc.TotalMinutes > 0 {
 				inc.FactMinutes = inc.TotalMinutes
-			} else if inc.Status == "Вирішено" || inc.Status == "Архів" {
+			} else if inc.Status == "Вирішено" || inc.Status == "Архів" || inc.Status == "У задачу" {
 				// fallback: від створення (точніше — після наступних резолвів з assigned_at)
 				inc.FactMinutes = incidentFactMinutes("", inc.CreatedAt, "")
 			}
@@ -1138,7 +1143,7 @@ func handleIncidents(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, cerr.Error(), 500)
 				return
 			}
-			cur.Status = "Вирішено"
+			cur.Status = "У задачу"
 			cur.ConvertedToTaskID = int(tid)
 			logAudit(actor, "CONVERT_INCIDENT_TO_TASK", clientIP(r), fmt.Sprintf("inc=%d task=%d copied=%d", id, tid, copied))
 			json.NewEncoder(w).Encode(map[string]interface{}{
@@ -1563,9 +1568,9 @@ func handleAdminBadges(w http.ResponseWriter, r *http.Request) {
 	}
 	today := time.Now().Format("2006-01-02")
 	var openIncs, unassigned, newToday, approval, overdue, openTasks int
-	db.QueryRow(`SELECT COUNT(*) FROM incidents WHERE COALESCE(status,'Нове') NOT IN ('Вирішено','Архів') AND COALESCE(converted_to_task_id,0)=0`).Scan(&openIncs)
-	db.QueryRow(`SELECT COUNT(*) FROM incidents WHERE COALESCE(status,'Нове') NOT IN ('Вирішено','Архів') AND COALESCE(converted_to_task_id,0)=0 AND COALESCE(user_name,'')=''`).Scan(&unassigned)
-	db.QueryRow(`SELECT COUNT(*) FROM incidents WHERE date=? AND COALESCE(status,'Нове') NOT IN ('Вирішено','Архів') AND COALESCE(converted_to_task_id,0)=0`, today).Scan(&newToday)
+	db.QueryRow(`SELECT COUNT(*) FROM incidents WHERE COALESCE(status,'Нове') NOT IN ('Вирішено','Архів','У задачу') AND COALESCE(converted_to_task_id,0)=0`).Scan(&openIncs)
+	db.QueryRow(`SELECT COUNT(*) FROM incidents WHERE COALESCE(status,'Нове') NOT IN ('Вирішено','Архів','У задачу') AND COALESCE(converted_to_task_id,0)=0 AND COALESCE(user_name,'')=''`).Scan(&unassigned)
+	db.QueryRow(`SELECT COUNT(*) FROM incidents WHERE date=? AND COALESCE(status,'Нове') NOT IN ('Вирішено','Архів','У задачу') AND COALESCE(converted_to_task_id,0)=0`, today).Scan(&newToday)
 	db.QueryRow(`SELECT COUNT(*) FROM daily_tasks WHERE COALESCE(status,'Нова') IN ('До перевірки')`).Scan(&approval)
 	db.QueryRow(`SELECT COUNT(*) FROM daily_tasks WHERE due_date != '' AND due_date < ? AND COALESCE(status,'Нова') NOT IN ('Виконана','Архів')`, today).Scan(&overdue)
 	db.QueryRow(`SELECT COUNT(*) FROM daily_tasks WHERE COALESCE(status,'Нова') NOT IN ('Виконана','Архів')`).Scan(&openTasks)
