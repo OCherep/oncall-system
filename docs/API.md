@@ -76,7 +76,28 @@ Cookies: `oncall_session` (HttpOnly), legacy `oncall_user` / `oncall_name` / `on
 
 ---
 
-## 3. Календар і дані UI
+## 3. Публічний режим on-grid
+
+### `GET /api/on-grid`
+
+Без авторизації (лише IP allowlist). Поточний режим розподілу:
+
+```json
+{
+  "on_grid": true,
+  "mode": "on-grid",
+  "label": "робочий час",
+  "on_grid_start": "09:00",
+  "on_grid_end": "18:00",
+  "on_grid_timezone": "Europe/Kyiv",
+  "on_grid_weekdays": "1,2,3,4,5",
+  "_on_grid_now": "1"
+}
+```
+
+Також вкладено в `GET /api/data` як поле `on_grid`.
+
+## 3b. Календар і дані UI
 
 ### `GET /api/data`
 
@@ -423,5 +444,6 @@ Env `JIRA_STATUS_MAP` JSON, напр.:
 
 | Дата | Зміна |
 |------|--------|
+| 2026-08-31 | `GET /api/on-grid`, `on_grid` у `/api/data`, чіпи на UI |
 | 2026-08-31 | Початкова версія: повний реєстр маршрутів гілки `grok-1.0.0`, матриця on-grid routing, session, Jira import, webhooks |
 
