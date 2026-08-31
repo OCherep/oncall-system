@@ -23,7 +23,7 @@ RUN go build -o main .
 # Фінальний мінімальний образ
 FROM alpine:latest
 
-RUN apk add --no-cache ca-certificates sqlite-libs
+RUN apk add --no-cache ca-certificates sqlite-libs tzdata
 
 WORKDIR /app
 
