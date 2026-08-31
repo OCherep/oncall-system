@@ -500,6 +500,7 @@ func initDB() {
 	backfillConvertedTaskIDs()
 	ensureSessionsTable()
 	ensureAppSettingsTable()
+	ensurePresenceTables()
 	ensureTaskExternalID()
 	go func() {
 		for {
@@ -540,6 +541,9 @@ func main() {
 	http.HandleFunc("/api/logout", withIPAllow(securityHeaders(handleLogout)))
 	http.HandleFunc("/api/session/me", withIPAllow(securityHeaders(handleSessionMe)))
 	http.HandleFunc("/api/admin/jira/import", withIPAllow(securityHeaders(handleJiraImport)))
+	http.HandleFunc("/api/brb", withIPAllow(securityHeaders(handleBRB)))
+	http.HandleFunc("/api/admin/shift-relief", withIPAllow(securityHeaders(handleShiftRelief)))
+	http.HandleFunc("/api/webhooks/slack", withIPAllow(handleSlackEvents))
 	http.HandleFunc("/api/on-grid", withIPAllow(securityHeaders(handleOnGridPublic)))
 	http.HandleFunc("/api/admin/settings", withIPAllow(securityHeaders(handleAppSettings)))
 	http.HandleFunc("/api/admin/daily-board", withIPAllow(securityHeaders(handleDailyBoard)))
