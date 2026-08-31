@@ -383,6 +383,7 @@ tr.q-row:hover{background:#eff6ff}
             <div class="form-group"><label>Slack ID</label><input type="text" id="user-slack" placeholder="U0123ABC"></div>
             <div class="form-group"><label>Телефон</label><input type="text" id="user-phone" placeholder="+380…"></div>
             <div style="display:flex; gap:10px;"><input type="checkbox" id="user-is-oncall" checked><label>Чергує</label></div>
+            <div style="display:flex; gap:10px;margin-top:6px"><input type="checkbox" id="user-show-roster" checked><label>Показувати у чіпсах зверху</label></div>
             <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 10px;">
                 <button class="btn" onclick="closeModal('user-modal')">Скасувати</button>
                 <button class="btn btn-primary" onclick="saveUser()">Зберегти</button>
@@ -500,6 +501,7 @@ function themeToggleHTML(){
                         </div>
                         <div class="dropdown-menu open" id="sys-dropdown">
                             <div class="sidebar-item ${currentSubPage==='dictionaries'?'active':''}" onclick="loadSubPage('dictionaries')">Довідники</div>
+                            <div class="sidebar-item ${currentSubPage==='security'?'active':''}" onclick="loadSubPage('security')">Безпека</div>
                         </div>
                     </div>
                     <div class="dropdown-container">
@@ -1451,6 +1453,38 @@ function isAdminUser() {
         window.runSlackImport = runSlackImport;
         window.slackImportSelectAll = slackImportSelectAll;
 
+        
+        async function loadSecuritySettings() {
+            try {
+                const r = await fetch('/api/admin/settings', { credentials: 'same-origin' });
+                const d = await r.json();
+                const s = d.settings || d;
+                const ttl = document.getElementById('sec-ttl');
+                if (ttl) ttl.value = s.session_ttl_hours || '14';
+                const m = document.getElementById('sec-login-max');
+                if (m) m.value = s.login_max_attempts || '10';
+                const l = document.getElementById('sec-login-lock');
+                if (l) l.value = s.login_lockout_minutes || '15';
+                const sc = document.getElementById('sec-secure-cookie');
+                if (sc) sc.checked = s.session_secure === '1' || s.session_secure === 'true';
+            } catch (e) { console.error(e); }
+        }
+        async function saveSecuritySettings() {
+            const body = {
+                session_ttl_hours: String((document.getElementById('sec-ttl')||{}).value || '14'),
+                login_max_attempts: String((document.getElementById('sec-login-max')||{}).value || '10'),
+                login_lockout_minutes: String((document.getElementById('sec-login-lock')||{}).value || '15'),
+                session_secure: (document.getElementById('sec-secure-cookie')||{}).checked ? '1' : '0'
+            };
+            const r = await fetch('/api/admin/settings', {
+                method: 'PUT', credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            });
+            const st = document.getElementById('sec-status');
+            if (st) st.textContent = r.ok ? 'Збережено. Нові сесії з новим TTL.' : ('Помилка '+r.status);
+        }
+
         async function loadDictionariesData() {
             try {
                 const [uRes, rRes, aRes] = await Promise.all([
@@ -1477,6 +1511,7 @@ function isAdminUser() {
                             <td>${escHtml(u.role||'')}</td>
                             <td>${escHtml(u.team_role||'—')}</td>
                             <td>${u.is_oncall ? 'Так' : 'Ні'}</td>
+                            <td>${(u.show_in_roster!==false && u.show_in_roster!==0) ? 'Так' : 'Ні'}</td>
                             <td>
                                 <button class="btn" onclick="editUser(${u.id})">Редагувати</button>
                                 <button class="btn btn-danger" onclick="deleteUser(${u.id})">Видалити</button>
@@ -1544,6 +1579,7 @@ function isAdminUser() {
             document.getElementById('user-password').value = '';
             document.getElementById('user-role').value = 'user';
             document.getElementById('user-is-oncall').checked = true;
+            const _sr=document.getElementById('user-show-roster'); if(_sr) _sr.checked = true;
             fillTeamRoleSelect('');
             const ue = document.getElementById('user-email'); if (ue) ue.value = '';
             const us = document.getElementById('user-slack'); if (us) us.value = '';
@@ -1561,6 +1597,7 @@ function isAdminUser() {
             document.getElementById('user-password').value = '';
             document.getElementById('user-role').value = u.role || 'user';
             document.getElementById('user-is-oncall').checked = !!u.is_oncall;
+            const sr=document.getElementById('user-show-roster'); if(sr) sr.checked = u.show_in_roster!==false && u.show_in_roster!==0;
             const ue = document.getElementById('user-email'); if (ue) ue.value = u.email || '';
             const us = document.getElementById('user-slack'); if (us) us.value = u.slack_id || '';
             const up = document.getElementById('user-phone'); if (up) up.value = u.phone || '';
@@ -1579,6 +1616,7 @@ function isAdminUser() {
                 role: document.getElementById('user-role').value,
                 team_role_id: parseInt(document.getElementById('user-team-role').value) || null,
                 is_oncall: document.getElementById('user-is-oncall').checked,
+                show_in_roster: !!(document.getElementById('user-show-roster')||{}).checked,
                 email: (document.getElementById('user-email')||{}).value||'',
                 slack_id: (document.getElementById('user-slack')||{}).value||'',
                 phone: (document.getElementById('user-phone')||{}).value||''
