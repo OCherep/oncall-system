@@ -491,6 +491,17 @@ function sess(){
   }
 }
 function toggleAuth(){if(U){U=null;localStorage.removeItem('u');(async()=>{await restoreSession();sess();load()})()}else document.getElementById('m-login').style.display='flex'}
+async function resumeShift(){
+  try{
+    const r=await fetch('/api/admin/shift-relief',{method:'PUT',credentials:'same-origin',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({user_name:U&&U.name,actor:U&&U.name})});
+    if(!r.ok){alert(await r.text());return}
+    alert('Вас повернуто до чергування');
+    if(U) U.needs_resume=false;
+    const m=document.getElementById('m-resume'); if(m)m.style.display='none';
+    load();
+  }catch(e){alert(e)}
+}
 async function doLogin(){
   const r=await fetch('/api/login',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({username:document.getElementById('lu').value,password:document.getElementById('lp').value})});
@@ -1110,6 +1121,11 @@ function openAbs(){const s=document.getElementById('at');s.innerHTML='';AT.forEa
 async function subAbs(){const r=await fetch('/api/request-absence',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_name:U.name,type:document.getElementById('at').value,start_date:document.getElementById('as').value,end_date:document.getElementById('ae').value})});if(r.ok){alert('Надіслано');cl('m-abs');load()}else alert('Помилка')}
 function fillMemberSelect(selId,includeSelf){const sel=document.getElementById(selId);const ms=membersList();let opts='';if(includeSelf&&U)opts+=`<option value="${esc(U.name)}">${esc(U.name)} (я)</option>`;ms.forEach(m=>{if(!includeSelf||m.name!==U.name)opts+=`<option value="${esc(m.name)}">${esc(m.name)}</option>`});sel.innerHTML=opts||`<option value="${esc(U&&U.name||'')}">${esc(U&&U.name||'')}</option>`}
 
+
+function brbUntil(name){const m=(D&&D.brb)||{}; return m[name]||m[(name||'').trim()]||'';}
+function brbLabel(name){const u=brbUntil(name); if(!u) return ''; const t=String(u).slice(11,16)||String(u); return ' (BRB: '+t+')';}
+function brbDimStyle(name){return brbUntil(name)?'opacity:.5;filter:saturate(.5)':'';}
+
 function priorityColorClass(p){
   p=String(p||'').trim();
   if(/Надкрит|Критичн|Critical/i.test(p)) return 'prio-c-critical';
@@ -1238,6 +1254,8 @@ async function renderOnGridBadge(snap){
     <span class="mode-date">${dayStr}</span><span class="mode-sub">${lab}</span></div>`;
 }
 
-(async()=>{await restoreSession();sess();load();renderOnGridBadge();})();
+(async()=>{await restoreSession();sess();load();renderOnGridBadge();
+  if(U&&U.needs_resume){const m=document.getElementById('m-resume'); if(m)m.style.display='flex';}
+})();
 </script><script src="/status-fix.js"></script>
 </body></html>
