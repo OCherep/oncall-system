@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -159,12 +160,22 @@ func shiftPairForDate(date string) (primary, backup string) {
 }
 
 // applyIncidentRouting — авто-призначення й чи слати сповіщення.
-// Повертає: assignee (user_name), shouldNotify.
+// Повертає shouldNotify.
+// Явне призначення лише для source=manual (admin обрав виконавця у формі).
+// guest/self/webhook/jira — завжди через правила on-grid / off-grid.
 func applyIncidentRouting(inc *IncidentReport) (shouldNotify bool) {
-	// якщо вже призначено вручну — не перетираємо
-	if strings.TrimSpace(inc.UserName) != "" {
+	src := strings.ToLower(strings.TrimSpace(inc.Source))
+	explicit := src == "manual" || src == "admin"
+	if explicit && strings.TrimSpace(inc.UserName) != "" {
+		log.Printf("routing: explicit assignee=%q source=%s prio=%s", inc.UserName, src, inc.Priority)
 		return true
 	}
+
+	// для guest/self скинути «себе як виконавця» — розподіл окремо
+	if !explicit {
+		inc.UserName = ""
+	}
+
 	date := inc.Date
 	if date == "" {
 		date = time.Now().Format("2006-01-02")
@@ -172,20 +183,17 @@ func applyIncidentRouting(inc *IncidentReport) (shouldNotify bool) {
 	primary, backup := shiftPairForDate(date)
 	onGrid := isOnGridNow()
 	prio := inc.Priority
+	_ = backup
 
 	if onGrid {
 		if isHotPriority(prio) {
-			// критичний/терміновий → пара чергових
 			if primary != "" {
 				inc.UserName = primary
 			}
-			if backup != "" && primary != "" {
-				// secondary note via comment after insert
-				_ = backup
-			}
+			log.Printf("routing: on-grid HOT prio=%s → assignee=%q (shift primary=%q backup=%q)", prio, inc.UserName, primary, backup)
 			return true
 		}
-		// звичайні/підвищені → без виконавця, notify admin для розподілу
+		log.Printf("routing: on-grid normal prio=%s → unassigned, notify admin (shift %q/%q)", prio, primary, backup)
 		return true
 	}
 	// off-grid
@@ -193,8 +201,9 @@ func applyIncidentRouting(inc *IncidentReport) (shouldNotify bool) {
 		if primary != "" {
 			inc.UserName = primary
 		}
+		log.Printf("routing: off-grid high+ prio=%s → assignee=%q", prio, inc.UserName)
 		return true
 	}
-	// низький пріоритет off-grid — без виконавця, без шуму
+	log.Printf("routing: off-grid low prio=%s → unassigned, no notify", prio)
 	return false
 }
