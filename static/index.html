@@ -296,11 +296,13 @@ tr.task-row-due-soon td select{
 
 <div class="modal" id="m-inc"><div class="mc" style="max-width:440px"><h3>Звернення</h3>
 <div class="fg" id="inc-guest-wrap" style="display:none">
-<label>Ваше ім'я *</label><input type="text" id="iguest" placeholder="Як до вас звертатись" autocomplete="name">
-<label style="margin-top:8px">Email * <span style="font-weight:400;opacity:.8">(для сповіщень про коментарі та статус)</span></label>
-<input type="email" id="iguest-email" placeholder="name@company.com" autocomplete="email">
-<label style="margin-top:8px">Slack <span style="font-weight:400;opacity:.8">(опційно, ID або @username)</span></label>
-<input type="text" id="iguest-slack" placeholder="U0123ABC або @username" autocomplete="off">
+<label>Slack * <span style="font-weight:400;opacity:.8">(ID U… або @username — перевірка в workspace)</span></label>
+<input type="text" id="iguest-slack" placeholder="@username або U0123ABC" autocomplete="off" onblur="lookupGuestSlack()">
+<div id="iguest-slack-status" style="font-size:12px;margin-top:4px;opacity:.8"></div>
+<label style="margin-top:8px">Ваше ім'я <span style="font-weight:400;opacity:.8">(підтягнеться зі Slack)</span></label>
+<input type="text" id="iguest" placeholder="Авто зі Slack або введіть вручну" autocomplete="name">
+<label style="margin-top:8px">Email <span style="font-weight:400;opacity:.8">(з профілю Slack, якщо є)</span></label>
+<input type="email" id="iguest-email" placeholder="авто зі Slack" autocomplete="email">
 </div>
 <div class="fg" id="inc-who-wrap" style="display:none"><label>Чиє звернення / виконавець</label><select id="iuser"></select></div>
 <div class="fg"><label>Дата</label><input type="date" id="id"></div>
@@ -1187,9 +1189,44 @@ function openInc(){
       const em=document.getElementById('iguest-email'); if(em)em.value='';
       const sl=document.getElementById('iguest-slack'); if(sl)sl.value='';
     }
-    hint.innerText="Заповніть ім'я та email (обов'язково). Slack — за бажанням. Пріоритет можна обрати будь-який.";
+    hint.innerText="Обов'язковий Slack (ID або @username). Ім'я та email підтягнуться з профілю. Пріоритет — будь-який.";
   }
   document.getElementById('m-inc').style.display='flex';
+}
+async function lookupGuestSlack(silent){
+  const sl=(document.getElementById('iguest-slack')&&document.getElementById('iguest-slack').value||'').trim();
+  const st=document.getElementById('iguest-slack-status');
+  window._guestSlackOk=false;
+  window._guestSlackErr='';
+  window._guestSlackProfile=null;
+  if(!sl){ if(st) st.textContent=''; return false; }
+  if(st) st.textContent='Перевірка Slack…';
+  try{
+    const r=await fetch('/api/slack/lookup?q='+encodeURIComponent(sl),{credentials:'same-origin'});
+    const d=await r.json().catch(()=>({}));
+    if(!r.ok||!d.found){
+      window._guestSlackErr=d.error||'Не знайдено у Slack';
+      if(st) st.innerHTML='<span style="color:#f87171">'+(window._guestSlackErr)+'</span>';
+      return false;
+    }
+    window._guestSlackOk=true;
+    window._guestSlackProfile=d;
+    const nameEl=document.getElementById('iguest');
+    const emEl=document.getElementById('iguest-email');
+    const slEl=document.getElementById('iguest-slack');
+    if(nameEl && (!nameEl.value.trim() || nameEl.dataset.fromSlack==='1')){
+      nameEl.value=d.name||d.real_name||'';
+      nameEl.dataset.fromSlack='1';
+    }
+    if(emEl && d.email){ emEl.value=d.email; emEl.dataset.fromSlack='1'; }
+    if(slEl && d.slack_id){ slEl.value=d.slack_id; }
+    if(st) st.innerHTML='<span style="color:#86efac">✓ '+esc(d.name||'')+(d.email?' · '+esc(d.email):'')+'</span>';
+    return true;
+  }catch(e){
+    window._guestSlackErr=String(e.message||e);
+    if(st) st.innerHTML='<span style="color:#f87171">'+esc(window._guestSlackErr)+'</span>';
+    return false;
+  }
 }
 async function subInc(){
   const desc=document.getElementById('idesc').value.trim();
@@ -1202,10 +1239,14 @@ async function subInc(){
   } else if(U){
     who=U.name; role=U.role||'user'; createdBy=U.name; source='self';
   } else {
-    createdBy=(document.getElementById('iguest').value||'').trim();
-    if(!createdBy){alert("Вкажіть ваше ім'я");return}
-    const em=(document.getElementById('iguest-email')&&document.getElementById('iguest-email').value||'').trim();
-    if(!em){alert('Вкажіть email для сповіщень');return}
+    const sl=(document.getElementById('iguest-slack')&&document.getElementById('iguest-slack').value||'').trim();
+    if(!sl){alert('Вкажіть Slack (U… або @username)');return}
+    // якщо ще не резолвили — спробувати зараз
+    if(!window._guestSlackOk){
+      try{ await lookupGuestSlack(true); }catch(e){}
+      if(!window._guestSlackOk){ alert(window._guestSlackErr||'Slack-користувача не знайдено'); return; }
+    }
+    createdBy=(document.getElementById('iguest').value||'').trim() || (window._guestSlackProfile&&window._guestSlackProfile.name) || 'гість';
     role='guest'; source='guest'; who='';
   }
   const body={
