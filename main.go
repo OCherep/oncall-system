@@ -499,6 +499,7 @@ func initDB() {
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_task_assignees_task ON task_assignees(task_id)")
 	// backfill converted_to_task_id from existing tasks (cursor closed before UPDATE)
 	backfillConvertedTaskIDs()
+	ensureUserExtraColumns()
 	ensureSessionsTable()
 	ensureAppSettingsTable()
 	ensureOnGridExceptions()
