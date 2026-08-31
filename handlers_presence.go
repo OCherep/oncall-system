@@ -36,8 +36,14 @@ func ensurePresenceTables() {
 // activeBRBMap user_name → until_at (only future/active)
 func activeBRBMap() map[string]string {
 	out := map[string]string{}
+	tzName := getSetting("on_grid_timezone", "Europe/Kyiv")
+	loc, err := time.LoadLocation(tzName)
+	if err != nil {
+		loc = time.FixedZone("EET", 2*3600)
+	}
+	now := time.Now().In(loc).Format("2006-01-02 15:04:05")
 	rows, err := db.Query(`SELECT user_name, until_at FROM user_brb
-		WHERE cleared_at IS NULL AND until_at > datetime('now','localtime')`)
+		WHERE cleared_at IS NULL AND until_at > ?`, now)
 	if err != nil {
 		return out
 	}
@@ -56,12 +62,16 @@ func setBRB(userName, untilHHMM, note string) error {
 	if userName == "" || untilHHMM == "" {
 		return fmt.Errorf("user and until required")
 	}
-	// accept HH:MM or full datetime
+	// accept HH:MM or full datetime (Europe/Kyiv)
 	until := untilHHMM
 	if len(untilHHMM) <= 5 {
-		today := time.Now().Format("2006-01-02")
-		until = today + " " + untilHHMM + ":00"
-		// if time already passed today, assume still today (UI shows until)
+		tzName := getSetting("on_grid_timezone", "Europe/Kyiv")
+		loc, err := time.LoadLocation(tzName)
+		if err != nil {
+			loc = time.FixedZone("EET", 2*3600)
+		}
+		now := time.Now().In(loc)
+		until = now.Format("2006-01-02") + " " + untilHHMM + ":00"
 	}
 	// clear previous active
 	db.Exec(`UPDATE user_brb SET cleared_at=CURRENT_TIMESTAMP WHERE user_name=? AND cleared_at IS NULL`, userName)
