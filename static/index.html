@@ -876,7 +876,7 @@ function roster(ms,abs){
     if(brb) cls+=' brb';
     const brbTxt=brb?(typeof brbLabel==='function'?brbLabel(m.name):' (BRB)'):'';
     const tip=brb?('Be right back: '+(String(brb).slice(11,16)||brb)):'';
-    return `<span class="${cls}" title="${esc(tip)}" onclick="showPerson('${esc(m.name)}')">${esc(m.name)}${m.team_role?' · '+esc(m.team_role):''}${off?' (відсутній)':''}${esc(brbTxt)}</span>`;
+    return `<span class="${cls}" title="${esc(tip)}" onclick="showPerson('${esc(m.name)}')">${esc(m.name)}${off?' (відсутній)':''}${esc(brbTxt)}</span>`;
   }).join('');
 }
 function showPerson(name){
@@ -887,6 +887,8 @@ function showPerson(name){
   const incs=visibleIncidents((D.incidents||{})[ds]||[]).filter(i=>i.user_name===name||i.reported_for===name);
   const sh=D.shifts&&D.shifts[ds];
   let h='';
+  const mem=(D.team_members||[]).find(x=>x.name===name);
+  if(mem&&mem.team_role) h+=`<p><b>Роль у команді:</b> ${esc(mem.team_role)}</p>`;
   if(sh&&(sh.primary_user===name||sh.backup_user===name))
     h+=`<p><b>Чергування:</b> ${sh.primary_user===name?'Основний':''}${sh.backup_user===name?(sh.primary_user===name?' · ':'')+'Дублюючий':''}</p>`;
   h+=`<h4>Відсутності</h4>`+(abs.length?abs.map(a=>`• <b>${esc(a.type)}</b> (${a.start_date}–${a.end_date})`).join('<br>'):'Немає');
