@@ -946,6 +946,7 @@ func handleIncidents(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Гість може створювати звернення лише на сьогодні або майбутню дату", http.StatusForbidden)
 			return
 		}
+		shouldNotify := applyIncidentRouting(&inc)
 		res, err := db.Exec(`INSERT INTO incidents (user_name, date, type, duration_minutes, description, created_at,
 			status, priority, source, total_minutes, created_by, reported_for, reporter_name, reporter_email, reporter_slack)
 			VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -966,8 +967,28 @@ func handleIncidents(w http.ResponseWriter, r *http.Request) {
 			who = inc.Source
 		}
 		addSystemComment("incident", int(id), fmt.Sprintf("Створено %s (%s)", who, inc.Source))
-		// Сповіщення: командний канал + Admin (поки розподільник не налаштовано)
-		go notifyNewIncident(inc)
+		if on := isOnGridNow(); true {
+			mode := "off-grid"
+			if on {
+				mode = "on-grid"
+			}
+			extra := "Режим: " + mode
+			if inc.UserName != "" {
+				primary, backup := shiftPairForDate(inc.Date)
+				extra += "; авто-призначено: " + inc.UserName
+				if backup != "" && backup != inc.UserName {
+					extra += " (дубль: " + backup + ")"
+				}
+			} else {
+				extra += "; без виконавця (очікує розподілу)"
+			}
+			addSystemComment("incident", int(id), extra)
+		}
+		if shouldNotify {
+			go notifyNewIncident(inc)
+		} else {
+			log.Printf("incident #%d: off-grid low priority — skip notify", inc.ID)
+		}
 		result := map[string]interface{}{"status": "ok", "as_task": false, "id": id}
 		if isFuture {
 			tid, copied, cerr := convertIncidentToTask(inc, inc.CreatedBy)
