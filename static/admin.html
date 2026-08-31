@@ -328,6 +328,9 @@ tr.q-row:hover{background:#eff6ff}
 .mode-chip .mode-sub{font-size:11px;margin-top:3px;opacity:.9}
 .mode-chip.on-grid{background:#dcfce7;color:#166534;border-color:#86efac}
 .mode-chip.off-grid{background:#e2e8f0;color:#334155;border-color:#cbd5e1}
+.mode-chip-date{background:#1e293b;color:#e2e8f0;border-color:#475569}
+[data-theme="light"] .mode-chip-date, :root:not([data-theme="dark"]) .mode-chip-date{background:#f1f5f9;color:#0f172a;border-color:#cbd5e1}
+
 [data-theme="dark"] .mode-chip.on-grid{background:#14532d;color:#bbf7d0;border-color:#22c55e}
 [data-theme="dark"] .mode-chip.off-grid{background:#334155;color:#e2e8f0;border-color:#64748b}
 </style>
@@ -648,8 +651,18 @@ function themeToggleHTML(){
 
                 const sum = document.getElementById('daily-summary');
                 const boardDay = d.date || day || window._dailyDate || '';
-                const todayStr = new Date().toISOString().slice(0,10);
+                const todayStr = (typeof localToday==='function') ? localToday() : new Date().toISOString().slice(0,10);
                 const isTodayBoard = boardDay === todayStr;
+                const tbChip = document.getElementById('daily-date-chip');
+                if (tbChip) {
+                  if (isTodayBoard) {
+                    tbChip.innerHTML = modeChipHtml(boardDay, null);
+                    fetchOnGrid().then(s => { tbChip.innerHTML = modeChipHtml(boardDay, s); }).catch(()=>{});
+                  } else {
+                    tbChip.innerHTML = modeChipHtml(boardDay, null);
+                  }
+                }
+
                 if (sum) {
                     // один чіп дати (mode підставимо після fetchOnGrid для «сьогодні»)
                     sum.innerHTML = modeChipHtml(boardDay, null) + `
@@ -904,6 +917,10 @@ function isAdminUser() {
         }
 
         
+        function localToday() {
+            const n = new Date();
+            return n.getFullYear() + '-' + String(n.getMonth()+1).padStart(2,'0') + '-' + String(n.getDate()).padStart(2,'0');
+        }
         async function fetchOnGrid() {
             try {
                 const r = await fetch('/api/on-grid', { credentials: 'same-origin', cache: 'no-store' });
@@ -914,11 +931,10 @@ function isAdminUser() {
         function modeChipHtml(dateStr, snap, opts) {
             opts = opts || {};
             const d = dateStr || '';
-            const today = new Date().toISOString().slice(0,10);
+            const today = (typeof localToday === 'function') ? localToday() : new Date().toISOString().slice(0,10);
             const isToday = !d || d === today;
-            // минулі (і майбутні) дати — лише дата, без on/off-grid
             if (!isToday && !opts.forceMode) {
-                return `<div class="mode-chip off-grid" title="${d}">
+                return `<div class="mode-chip mode-chip-date" title="${d}">
                   <span class="mode-date">${d}</span>
                 </div>`;
             }
@@ -929,6 +945,70 @@ function isAdminUser() {
               <span class="mode-date">${d || today}</span>
               <span class="mode-sub">${label}</span>
             </div>`;
+        }
+
+        
+        async function loadOnGridExceptions() {
+            const tb = document.getElementById('ongrid-exceptions-body');
+            if (!tb) return;
+            try {
+                const r = await fetch('/api/admin/on-grid-exceptions', { credentials: 'same-origin' });
+                if (!r.ok) { tb.innerHTML = '<tr><td colspan="4" style="color:#f87171">API '+r.status+'</td></tr>'; return; }
+                const list = await r.json();
+                if (!Array.isArray(list) || !list.length) {
+                    tb.innerHTML = '<tr><td colspan="4" style="opacity:.6">Немає винятків</td></tr>';
+                    return;
+                }
+                tb.innerHTML = list.map(x => {
+                    const key = x.date || x.year_month || '';
+                    const mode = x.mode || '';
+                    const note = (x.note || '') + (x.start ? ' '+x.start+'-'+x.end : '');
+                    return `<tr><td>${key}</td><td>${mode}</td><td>${(note||'').replace(/</g,'&lt;')}</td>
+                      <td><button class="btn btn-danger" style="padding:2px 8px" onclick="delOnGridException('${key}')">✕</button></td></tr>`;
+                }).join('');
+            } catch (e) {
+                tb.innerHTML = '<tr><td colspan="4">'+String(e).replace(/</g,'&lt;')+'</td></tr>';
+            }
+        }
+        async function addOnGridException() {
+            const date = (document.getElementById('og-ex-date')||{}).value;
+            const mode = (document.getElementById('og-ex-mode')||{}).value || 'off';
+            const note = (document.getElementById('og-ex-note')||{}).value || '';
+            if (!date) { alert('Вкажіть дату'); return; }
+            const r = await fetch('/api/admin/on-grid-exceptions', {
+                method: 'POST', credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ date, mode, note })
+            });
+            if (!r.ok) alert(await r.text());
+            else { loadOnGridExceptions(); loadOnGridSettings(); loadOnGridExceptions(); }
+        }
+        async function delOnGridException(key) {
+            if (!confirm('Видалити виняток '+key+'?')) return;
+            const r = await fetch('/api/admin/on-grid-exceptions?key=' + encodeURIComponent(key), {
+                method: 'DELETE', credentials: 'same-origin'
+            });
+            if (!r.ok) alert(await r.text());
+            else loadOnGridExceptions();
+        }
+        async function saveOnGridMonthOverride() {
+            const ym = (document.getElementById('og-month')||{}).value;
+            if (!ym) { alert('Вкажіть місяць'); return; }
+            const body = {
+                year_month: ym,
+                mode: 'month',
+                weekdays: (document.getElementById('og-month-days')||{}).value || '1,2,3,4,5',
+                start: (document.getElementById('og-month-start')||{}).value || '09:00',
+                end: (document.getElementById('og-month-end')||{}).value || '18:00',
+                note: 'override '+ym
+            };
+            const r = await fetch('/api/admin/on-grid-exceptions', {
+                method: 'POST', credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            });
+            if (!r.ok) alert(await r.text());
+            else { alert('Збережено'); loadOnGridExceptions(); }
         }
 
         async function loadOnGridSettings() {
@@ -982,10 +1062,12 @@ function isAdminUser() {
                     <h2 style="margin:0">Дашборд дейлі</h2>
                     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
                       <button class="btn" onclick="dailyShift(-1)">‹</button>
+                      <span id="daily-date-chip"></span>
                       <input type="date" id="daily-date" value="${window._dailyDate}" onchange="window._dailyDate=this.value;loadDailyBoard()"
-                        style="padding:6px 10px;border-radius:8px;border:1px solid #334155;background:#0f172a;color:#e2e8f0">
+                        style="position:absolute;opacity:0;width:1px;height:1px;pointer-events:none" aria-hidden="true">
+                      <button class="btn" type="button" title="Обрати дату" onclick="document.getElementById('daily-date').showPicker&&document.getElementById('daily-date').showPicker();document.getElementById('daily-date').click()">📅</button>
                       <button class="btn" onclick="dailyShift(1)">›</button>
-                      <button class="btn" onclick="window._dailyDate=new Date().toISOString().slice(0,10);loadDailyBoard()">Сьогодні</button>
+                      <button class="btn" onclick="window._dailyDate=localToday();loadDailyBoard()">Сьогодні</button>
                       <button class="btn btn-primary" onclick="loadDailyBoard()">Оновити</button>
                     </div>
                   </div>
@@ -1016,7 +1098,8 @@ function isAdminUser() {
                         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
                           <button class="btn" type="button" title="Попередній день" onclick="queuesShiftDay(-1)">‹</button>
                           <span id="queues-mode-chip"></span>
-                          <input type="date" id="queues-date" value="${window._queuesDate}"
+                          <button class="btn" type="button" title="Обрати дату" onclick="(function(){var i=document.getElementById('queues-date');if(i.showPicker)i.showPicker();else i.click();})()">📅</button>
+                          <input type="date" id="queues-date" value="${window._queuesDate}" style="position:absolute;opacity:0;width:1px;height:1px"
                             style="padding:6px 10px;border-radius:8px;border:1px solid #334155;background:#0f172a;color:#e2e8f0"
                             onchange="queuesSetDate(this.value)">
                           <button class="btn" type="button" title="Наступний день" onclick="queuesShiftDay(1)">›</button>
@@ -1143,6 +1226,26 @@ function isAdminUser() {
                       </div>
                       <button class="btn btn-primary" style="margin-top:10px" type="button" onclick="saveOnGridSettings()">Зберегти on-grid</button>
                       <p style="font-size:11px;opacity:.65;margin:10px 0 0">On-grid: звичайні → без виконавця + notify admin; критичні/термінові → черговий. Off-grid: ≥ високий → черговий + notify; нижче → без notify.</p>
+                      <hr style="border:none;border-top:1px solid #334155;margin:16px 0">
+                      <h4 style="margin:0 0 8px">Винятки (свята / особливі дні)</h4>
+                      <p style="font-size:12px;opacity:.7;margin:0 0 8px">Примусово off-grid або on-grid на конкретну дату (ігнорує тижневий графік).</p>
+                      <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;margin-bottom:8px">
+                        <div class="form-group" style="margin:0"><label>Дата</label><input type="date" id="og-ex-date"></div>
+                        <div class="form-group" style="margin:0"><label>Режим</label>
+                          <select id="og-ex-mode"><option value="off">off-grid (свято)</option><option value="on">on-grid (робочий)</option></select>
+                        </div>
+                        <div class="form-group" style="margin:0;min-width:160px"><label>Мітка</label><input type="text" id="og-ex-note" placeholder="День Незалежності"></div>
+                        <button class="btn btn-primary" type="button" onclick="addOnGridException()">+ Виняток</button>
+                      </div>
+                      <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;margin-bottom:8px">
+                        <div class="form-group" style="margin:0"><label>Місяць (YYYY-MM)</label><input type="month" id="og-month"></div>
+                        <div class="form-group" style="margin:0"><label>Дні</label><input type="text" id="og-month-days" placeholder="1,2,3,4,5,6" style="width:120px"></div>
+                        <div class="form-group" style="margin:0"><label>Початок</label><input type="time" id="og-month-start" value="09:00"></div>
+                        <div class="form-group" style="margin:0"><label>Кінець</label><input type="time" id="og-month-end" value="18:00"></div>
+                        <button class="btn" type="button" onclick="saveOnGridMonthOverride()">Зберегти місяць</button>
+                      </div>
+                      <table style="width:100%;font-size:13px"><thead><tr><th>Дата / місяць</th><th>Режим</th><th>Мітка</th><th></th></tr></thead>
+                        <tbody id="ongrid-exceptions-body"><tr><td colspan="4" style="opacity:.6">—</td></tr></tbody></table>
                     </div>
                     <div id="jira-import-box" class="card" style="margin-top:16px;padding:14px">
                       <h3 style="margin:0 0 8px">Jira — імпорт задач DevOps</h3>
@@ -1552,7 +1655,6 @@ function isAdminUser() {
                 if (sum) {
                     const incAll = (d.incidents_today_by_status && d.incidents_today_by_status['усі']) || 0;
                     sum.innerHTML = `
-                        <div class="card" style="padding:14px;text-align:center"><div style="font-size:11px;color:var(--muted,#64748b)">${(d.server_today && d.today===d.server_today)?'Сьогодні':'Дата'}</div><div style="font-size:22px;font-weight:700">${d.today||'—'}</div></div>
                         <div class="card" style="padding:14px;text-align:center;border-left:4px solid #ef4444"><div style="font-size:11px;color:var(--muted,#64748b)">Прострочені</div><div style="font-size:22px;font-weight:700;color:#ef4444">${d.tasks_overdue||0}</div></div>
                         <div class="card" style="padding:14px;text-align:center;border-left:4px solid #f59e0b"><div style="font-size:11px;color:var(--muted,#64748b)">Due на дату</div><div style="font-size:22px;font-weight:700;color:#f59e0b">${d.tasks_due_today||0}</div></div>
                         <div class="card" style="padding:14px;text-align:center;border-left:4px solid #2563eb"><div style="font-size:11px;color:var(--muted,#64748b)">Звернення за день</div><div style="font-size:22px;font-weight:700;color:#2563eb">${incAll}</div></div>
