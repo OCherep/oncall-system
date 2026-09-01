@@ -34,9 +34,7 @@ services:
     container_name: oncall_nginx_5
     restart: always
     ports:
-      # UI + API + Slack webhooks (HTTPS)
       - "85:443"
-      # HTTP: ACME (Let's Encrypt) + локальний fallback
       - "80:80"
     environment:
       - TLS_CN=${TLS_CN:-www.s.ks.tv}
