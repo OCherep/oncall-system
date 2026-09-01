@@ -1,41 +1,50 @@
-# Друге оточення (гілка grok-1.0.0) + HTTPS
+# OnCall grok-1.0.0 — порт 85 + Let's Encrypt
 
-| | Prod (84) | Це оточення |
-|---|---|---|
-| **HTTPS UI/API** | за вашим проксі | **https://host:85/** |
-| HTTP fallback | — | **http://host:86/** |
-| App (внутрішній) | :8084 | :8085 |
-| Containers | oncall_app_4 / nginx_4 | oncall_app_5 / nginx_5 |
+| Порт хоста | Призначення |
+|---|---|
+| **85** | HTTPS UI/API (`https://www.s.ks.tv:85/`) |
+| **80** | HTTP + ACME challenge Let's Encrypt |
 
-## Підняти
+## Деплой
 
 ```bash
 cd /opt/oncall-app-5
 git pull origin grok-1.0.0
-mkdir -p data certs /var/log/oncall-app-5
-chmod +x scripts/nginx-entrypoint.sh
-
-# Опційно валідний сертифікат:
-# cp /path/fullchain.pem /path/privkey.pem ./certs/
-# інакше entrypoint згенерує self-signed (CN=www.s.ks.tv)
-
+mkdir -p data certs certbot/www certbot/conf /var/log/oncall-app-5
+chmod +x scripts/*.sh
 docker compose up -d --build
 ```
 
-## Slack /brb Request URL
+## Let's Encrypt (одноразово)
+
+1. DNS `www.s.ks.tv` → IP сервера  
+2. Порт **80** відкритий з інтернету  
+3. Якщо на хості вже зайнятий :80 — зупиніть конфліктний сервіс на час випуску або використайте DNS-01  
+
+```bash
+export LETSENCRYPT_EMAIL=you@company.com
+export TLS_CN=www.s.ks.tv
+./scripts/issue-letsencrypt.sh
+```
+
+Скрипт кладе `fullchain.pem` + `privkey.pem` у `./certs/` і робить `docker compose restart nginx`.
+
+Оновлення (cron раз на 2 місяці):
+
+```bash
+cd /opt/oncall-app-5 && ./scripts/issue-letsencrypt.sh
+```
+
+## Slack `/brb`
 
 ```text
 https://www.s.ks.tv:85/api/webhooks/slack
 ```
 
-Перевірка:
+## Перевірка
 
 ```bash
-curl -sk -m 5 -X POST 'https://127.0.0.1:85/api/webhooks/slack' \
+curl -sS -m 5 -X POST 'https://www.s.ks.tv:85/api/webhooks/slack' \
   -H 'Content-Type: application/x-www-form-urlencoded' \
-  -d 'command=/brb&text=01:30&user_name=test&user_id=U0TEST'
+  -d 'command=/brb&text=14:00&user_name=test&user_id=U0TEST'
 ```
-
-Self-signed Slack може відхилити — для production покладіть валідний PEM у `./certs/`.
-
-Відкрийте TCP 85 у firewall. SESSION_SECURE=1 у compose за замовчуванням.
