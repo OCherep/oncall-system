@@ -1194,7 +1194,48 @@ function isAdminUser() {
                 breadcrumbs.innerHTML = `Головна / Адміністрування / Менеджмент / <b>Для затвердження</b>`;
                 container.innerHTML = `<h2>Сторінка затвердження відпусток</h2><div id="requests-tables"></div>`;
                 loadRequestsData();
+                        } else if (sub === 'security') {
+                breadcrumbs.innerHTML = `Головна / Адміністрування / Налаштування / Система / <b>Безпека</b>`;
+                container.innerHTML = `
+                  <h2 style="margin:0 0 16px">Безпека</h2>
+                  <div class="card" style="padding:16px;max-width:640px">
+                    <p style="font-size:13px;opacity:.8;margin:0 0 14px">Параметри сесії, логіну та cookie. Зміни застосовуються до <b>нових</b> сесій (і подовження активних за новим TTL).</p>
+                    <div class="form-group">
+                      <label>TTL сесії (години)</label>
+                      <input type="number" id="sec-ttl" min="1" max="168" value="14" style="width:120px;padding:6px 10px">
+                      <div style="font-size:12px;opacity:.7;margin-top:4px">Час життя сесії після останньої активності. Клієнт пінгує /api/session/me кожні 5 хв.</div>
+                    </div>
+                    <div class="form-group" style="margin-top:12px">
+                      <label>Макс. спроб логіну з одного IP</label>
+                      <input type="number" id="sec-login-max" min="3" max="100" value="10" style="width:120px;padding:6px 10px">
+                    </div>
+                    <div class="form-group" style="margin-top:12px">
+                      <label>Блокування після ліміту (хвилини)</label>
+                      <input type="number" id="sec-login-lock" min="1" max="1440" value="15" style="width:120px;padding:6px 10px">
+                    </div>
+                    <div class="form-group" style="margin-top:12px">
+                      <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+                        <input type="checkbox" id="sec-secure-cookie"> Secure-cookie (лише HTTPS)
+                      </label>
+                      <div style="font-size:12px;opacity:.7;margin-top:4px">Рекомендовано при роботі через https://…:85</div>
+                    </div>
+                    <div style="margin-top:16px;display:flex;gap:8px;align-items:center">
+                      <button class="btn btn-primary" type="button" onclick="saveSecuritySettings()">Зберегти</button>
+                      <button class="btn" type="button" onclick="loadSecuritySettings()">Оновити</button>
+                    </div>
+                    <p id="sec-status" style="font-size:12px;margin-top:10px;opacity:.85"></p>
+                  </div>
+                  <div class="card" style="padding:16px;max-width:640px;margin-top:16px">
+                    <h3 style="margin:0 0 8px">Підказка</h3>
+                    <ul style="font-size:13px;opacity:.85;margin:0;padding-left:18px">
+                      <li>IP allowlist — у <b>Довідники</b> (розділ «Дозволені IP-адреси»).</li>
+                      <li>Порожній allowlist = доступ з будь-якої IP.</li>
+                      <li>Logout: <code>POST /api/logout</code> + очищення cookie.</li>
+                    </ul>
+                  </div>`;
+                try { loadSecuritySettings(); } catch (e) { console.error(e); }
             } else if (sub === 'dictionaries') {
+
                 breadcrumbs.innerHTML = `Головна / Адміністрування / Налаштування / Система / <b>Довідники</b>`;
                 container.innerHTML = `
                     <div class="card">
@@ -2595,6 +2636,8 @@ window.toggleDropdown = toggleDropdown;
 window.renderSidebar = renderSidebar;
 window.logout = logout;
 window.loadSubPage = loadSubPage;
+window.loadSecuritySettings = loadSecuritySettings;
+window.saveSecuritySettings = saveSecuritySettings;
 window.loadDailyBoard = loadDailyBoard;
 window.loadAdminTasks = loadAdminTasks;
 window.loadIncArchive = loadIncArchive;
