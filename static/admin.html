@@ -551,11 +551,12 @@ function themeToggleHTML(){
             return false;
         }
 
-        window.__bootAdmin = function sessionKeepAlive(){
+        function sessionKeepAlive(){
           fetch('/api/session/me',{credentials:'same-origin'}).then(r=>{
             if(r.status===401){ try{ logout(); }catch(e){ location.href='/'; } }
           }).catch(()=>{});
         }
+        window.sessionKeepAlive = sessionKeepAlive;
         setInterval(sessionKeepAlive, 5*60*1000);
         async function bootAdmin() {
             const showErr = (msg) => {
@@ -609,7 +610,7 @@ function themeToggleHTML(){
             }
         };
         // Always schedule after full parse
-        setTimeout(function(){ window.__bootAdmin(); }, 0);
+        setTimeout(function(){ if (typeof bootAdmin==='function') bootAdmin(); }, 0);
 
         function dailyShift(delta) {
             const cur = window._dailyDate || new Date().toISOString().slice(0,10);
@@ -1490,6 +1491,65 @@ function isAdminUser() {
             const st = document.getElementById('sec-status');
             if (st) st.textContent = r.ok ? 'Збережено. Нові сесії з новим TTL.' : ('Помилка '+r.status);
         }
+
+        
+        async function loadAllowedIPs() {
+            const tb = document.getElementById('allowed-ips-table');
+            if (!tb) return;
+            try {
+                const r = await fetch('/api/admin/allowed-ips', { credentials: 'same-origin' });
+                if (!r.ok) { tb.innerHTML = '<tr><td colspan="6" style="color:#f87171">API '+r.status+'</td></tr>'; return; }
+                const list = await r.json();
+                if (!Array.isArray(list) || !list.length) {
+                    tb.innerHTML = '<tr><td colspan="6" style="opacity:.6">Список порожній — доступ відкритий для всіх (до першого запису)</td></tr>';
+                    return;
+                }
+                tb.innerHTML = list.map(x => `<tr>
+                    <td>${x.id}</td>
+                    <td><code>${escHtml(x.cidr||'')}</code></td>
+                    <td>${escHtml(x.label||'')}</td>
+                    <td>${x.enabled?'Так':'Ні'}</td>
+                    <td>${escHtml(x.created_at||'')}</td>
+                    <td>
+                      <button class="btn" style="padding:2px 8px" onclick="toggleAllowedIP(${x.id},${x.enabled?0:1})">${x.enabled?'Вимк.':'Увімк.'}</button>
+                      <button class="btn btn-danger" style="padding:2px 8px" onclick="deleteAllowedIP(${x.id})">✕</button>
+                    </td>
+                </tr>`).join('');
+            } catch (e) {
+                tb.innerHTML = '<tr><td colspan="6">'+String(e).replace(/</g,'&lt;')+'</td></tr>';
+            }
+        }
+        async function addAllowedIP() {
+            const cidr = prompt('IP або CIDR (напр. 1.2.3.4 або 10.0.0.0/8):');
+            if (!cidr) return;
+            const label = prompt('Мітка (опційно):') || '';
+            const r = await fetch('/api/admin/allowed-ips', {
+                method: 'POST', credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ cidr: cidr.trim(), label, enabled: true })
+            });
+            if (!r.ok) alert(await r.text());
+            else loadAllowedIPs();
+        }
+        async function deleteAllowedIP(id) {
+            if (!confirm('Видалити #'+id+'?')) return;
+            const r = await fetch('/api/admin/allowed-ips?id='+id, { method: 'DELETE', credentials: 'same-origin' });
+            if (!r.ok) alert(await r.text());
+            else loadAllowedIPs();
+        }
+        async function toggleAllowedIP(id, en) {
+            const r = await fetch('/api/admin/allowed-ips', {
+                method: 'PUT', credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id, enabled: !!en })
+            });
+            if (!r.ok) alert(await r.text());
+            else loadAllowedIPs();
+        }
+        window.loadAllowedIPs = loadAllowedIPs;
+        window.addAllowedIP = addAllowedIP;
+        window.deleteAllowedIP = deleteAllowedIP;
+        window.toggleAllowedIP = toggleAllowedIP;
 
         async function loadDictionariesData() {
             try {
@@ -2610,7 +2670,7 @@ setTimeout(function(){
   var empty = side && !side.innerHTML.trim();
   if (empty) {
     console.warn('[admin] sidebar still empty, retry boot');
-    if (typeof window.__bootAdmin === 'function') window.__bootAdmin();
+    if (typeof bootAdmin === 'function') bootAdmin(); else if (typeof window.__bootAdmin === 'function') window.__bootAdmin();
     else if (typeof window.renderSidebar === 'function') {
       window.renderSidebar();
       if (typeof window.loadSubPage === 'function') window.loadSubPage('queues');
