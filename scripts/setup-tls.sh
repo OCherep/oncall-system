@@ -1,24 +1,39 @@
 #!/bin/bash
-# Універсальне підключення TLS для OnCall (порт 85).
-# Режими:
+# TLS helper for OnCall :85
 #   ./scripts/setup-tls.sh le          — Let's Encrypt HTTP-01
-#   ./scripts/setup-tls.sh copy-host   — скопіювати з /etc/letsencrypt/live/$DOMAIN
-#   ./scripts/setup-tls.sh selfsigned  — self-signed (лише dev; Slack НЕ прийме)
+#   ./scripts/setup-tls.sh copy-host   — з /etc/letsencrypt/live/$DOMAIN
+#   ./scripts/setup-tls.sh selfsigned  — self-signed (dev only)
 set -euo pipefail
-cd "$(dirname "$0")/.."
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT"
 DOMAIN="${TLS_CN:-www.s.ks.tv}"
-MODE="${1:-le}"
+MODE="${1:-}"
 mkdir -p certs certbot/www certbot/conf
 
-case "$MODE" in
-  le|letsencrypt)
-    exec ./scripts/issue-letsencrypt.sh
+usage() {
+  cat <<USAGE
+Usage:
+  TLS_CN=www.s.ks.tv LETSENCRYPT_EMAIL=you@company.com $0 le
+  TLS_CN=www.s.ks.tv HOST_LE_LIVE=/etc/letsencrypt/live/www.s.ks.tv $0 copy-host
+  $0 selfsigned
+
+Env:
+  TLS_CN                domain (default www.s.ks.tv)
+  LETSENCRYPT_EMAIL     email for LE
+  LETSENCRYPT_STAGING=1 test CA
+  EXTRA_DOMAINS         "s.ks.tv other.example"
+  HOST_LE_LIVE          path to live cert dir for copy-host
+USAGE
+}
+
+case "${MODE}" in
+  le|letsencrypt|certbot)
+    exec "$ROOT/scripts/issue-letsencrypt.sh"
     ;;
   copy-host|host)
     SRC="${HOST_LE_LIVE:-/etc/letsencrypt/live/${DOMAIN}}"
-    if [ ! -f "${SRC}/fullchain.pem" ]; then
-      echo "Немає ${SRC}/fullchain.pem"
-      echo "Вкажіть HOST_LE_LIVE=/path/to/live/domain"
+    if [ ! -f "${SRC}/fullchain.pem" ] || [ ! -f "${SRC}/privkey.pem" ]; then
+      echo "Немає ${SRC}/fullchain.pem або privkey.pem"
       exit 1
     fi
     cp -L "${SRC}/fullchain.pem" certs/fullchain.pem
@@ -26,15 +41,20 @@ case "$MODE" in
     chmod 644 certs/fullchain.pem
     chmod 640 certs/privkey.pem || true
     docker compose restart nginx
-    echo "OK: скопійовано з ${SRC}"
+    echo "OK: скопійовано з ${SRC} → ./certs/ і nginx перезапущено"
+    echo "Перевірка: curl -sS -m 5 -o /dev/null -w '%{http_code}\\n' https://${DOMAIN}:85/"
     ;;
   selfsigned|dev)
     rm -f certs/fullchain.pem certs/privkey.pem
     docker compose restart nginx
-    echo "OK: entrypoint згенерує self-signed (Slack/браузери будуть скаржитись)"
+    echo "OK: self-signed (Slack НЕ прийме цей сертифікат)"
+    ;;
+  ""|-h|--help)
+    usage
+    exit 0
     ;;
   *)
-    echo "Usage: $0 le|copy-host|selfsigned"
+    usage
     exit 1
     ;;
 esac
