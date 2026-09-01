@@ -34,14 +34,17 @@ services:
     container_name: oncall_nginx_5
     restart: always
     ports:
+      # UI + API + Slack webhooks (HTTPS)
       - "85:443"
-      - "86:80"
+      # HTTP: ACME (Let's Encrypt) + локальний fallback
+      - "80:80"
     environment:
       - TLS_CN=${TLS_CN:-www.s.ks.tv}
     volumes:
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
       - ./static:/usr/share/nginx/html:ro
       - ./certs:/etc/nginx/certs
+      - ./certbot/www:/var/www/certbot:ro
       - ./scripts/nginx-entrypoint.sh:/nginx-entrypoint.sh:ro
       - /var/log/oncall-app-5:/var/log/oncall-app-5
     entrypoint: ["/bin/sh", "/nginx-entrypoint.sh"]
