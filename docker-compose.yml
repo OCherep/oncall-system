@@ -1,3 +1,7 @@
+# OnCall grok-1.0.0
+# HTTPS UI/API: https://www.s.ks.tv:85/
+# HTTP + Let's Encrypt ACME: http://www.s.ks.tv/  (host port 80)
+
 services:
   app:
     build: .
@@ -6,7 +10,7 @@ services:
     environment:
       - PORT=8085
       - DB_PATH=/app/data/oncall.db
-      - DB_ADMIN_PASSWORD=db-admin-change-me
+      - DB_ADMIN_PASSWORD=${DB_ADMIN_PASSWORD:-db-admin-change-me}
       - ENABLE_INCIDENT_WEBHOOK=${ENABLE_INCIDENT_WEBHOOK:-0}
       - WEBHOOK_SECRET=${WEBHOOK_SECRET:-change-me-webhook-secret}
       - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL:-}
@@ -34,8 +38,8 @@ services:
     container_name: oncall_nginx_5
     restart: always
     ports:
-      - "85:443"
-      - "80:80"
+      - "85:443"   # HTTPS — UI, API, Slack webhooks
+      - "80:80"    # HTTP — Let's Encrypt ACME + fallback
     environment:
       - TLS_CN=${TLS_CN:-www.s.ks.tv}
     volumes:
