@@ -990,7 +990,8 @@ function isAdminUser() {
                 body: JSON.stringify({ date, mode, note })
             });
             if (!r.ok) alert(await r.text());
-            else { loadOnGridExceptions(); loadOnGridSettings(); loadOnGridExceptions(); }
+            else { loadOnGridExceptions(); loadOnGridSettings();
+                try { loadShiftsMonth(); } catch(e) {} loadOnGridExceptions(); }
         }
         async function delOnGridException(key) {
             if (!confirm('Видалити виняток '+key+'?')) return;
@@ -1300,6 +1301,40 @@ function isAdminUser() {
                       <table style="width:100%;font-size:13px"><thead><tr><th>Дата / місяць</th><th>Режим</th><th>Мітка</th><th></th></tr></thead>
                         <tbody id="ongrid-exceptions-body"><tr><td colspan="4" style="opacity:.6">—</td></tr></tbody></table>
                     </div>
+                    
+                    <div class="card" style="margin-top:16px;padding:14px" id="shifts-admin-card">
+                      <h3 style="margin:0 0 8px">Графік чергувань</h3>
+                      <p style="font-size:12px;opacity:.75;margin:0 0 12px">
+                        Ручне вирівнювання днів або <b>перерахунок лише вперед</b> від поточної пари (минуле не змінюється).
+                        Тимчасова заміна на один день — через API relief / «Я знову на місці».
+                      </p>
+                      <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin-bottom:12px">
+                        <div class="form-group" style="margin:0"><label>Місяць</label>
+                          <input type="month" id="sh-month" onchange="loadShiftsMonth()"></div>
+                        <button class="btn" type="button" onclick="loadShiftsMonth()">Завантажити</button>
+                      </div>
+                      <div class="table-wrap" style="max-height:280px;overflow:auto;margin-bottom:14px">
+                        <table style="width:100%;font-size:13px">
+                          <thead><tr><th>Дата</th><th>Основний</th><th>Дубль</th><th></th></tr></thead>
+                          <tbody id="shifts-edit-body"><tr><td colspan="4" style="opacity:.6">Оберіть місяць</td></tr></tbody>
+                        </table>
+                      </div>
+                      <button class="btn btn-primary" type="button" onclick="saveShiftsBulk()">Зберегти зміни днів</button>
+                      <hr style="border:none;border-top:1px solid var(--border,#334155);margin:16px 0">
+                      <h4 style="margin:0 0 8px">Перерахунок вперед</h4>
+                      <p style="font-size:12px;opacity:.75;margin:0 0 10px">База: попередня пара (для порядку ротації) + поточна пара на дату старту. Далі — ротація on-call з урахуванням затверджених відсутностей.</p>
+                      <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end">
+                        <div class="form-group" style="margin:0"><label>З дати</label><input type="date" id="sh-from"></div>
+                        <div class="form-group" style="margin:0"><label>До (опц.)</label><input type="date" id="sh-until"></div>
+                        <div class="form-group" style="margin:0"><label>Попер. основний</label><select id="sh-prev-p"></select></div>
+                        <div class="form-group" style="margin:0"><label>Попер. дубль</label><select id="sh-prev-b"></select></div>
+                        <div class="form-group" style="margin:0"><label>Поточн. основний *</label><select id="sh-cur-p"></select></div>
+                        <div class="form-group" style="margin:0"><label>Поточн. дубль</label><select id="sh-cur-b"></select></div>
+                        <button class="btn btn-primary" type="button" onclick="recalcShiftsForward()">Перерахувати вперед</button>
+                      </div>
+                      <pre id="sh-status" style="font-size:12px;margin-top:10px;min-height:1.2em"></pre>
+                    </div>
+
                     <div id="jira-import-box" class="card" style="margin-top:16px;padding:14px">
                       <h3 style="margin:0 0 8px">Jira — імпорт задач DevOps</h3>
                       <p style="font-size:12px;opacity:.75;margin:0 0 10px">Підтягує open issues за JQL у <code>daily_tasks</code> з <code>external_id</code>. Повторний імпорт оновлює існуючі.</p>
@@ -2635,6 +2670,105 @@ window.switchMainMenu = switchMainMenu;
 window.toggleDropdown = toggleDropdown;
 window.renderSidebar = renderSidebar;
 window.logout = logout;
+
+        let _shiftsOncall = [];
+        let _shiftsDays = [];
+        function fillShiftSelects(ids) {
+            const opts = ['<option value="">—</option>'].concat(_shiftsOncall.map(n => `<option value="${escHtml(n)}">${escHtml(n)}</option>`)).join('');
+            ids.forEach(id => { const el = document.getElementById(id); if (el) el.innerHTML = opts; });
+        }
+        async function loadShiftsMonth() {
+            const mEl = document.getElementById('sh-month');
+            if (!mEl) return;
+            if (!mEl.value) {
+                const n = new Date();
+                mEl.value = n.getFullYear() + '-' + String(n.getMonth()+1).padStart(2,'0');
+            }
+            const st = document.getElementById('sh-status');
+            if (st) st.textContent = 'Завантаження…';
+            try {
+                const r = await fetch('/api/admin/shifts?month=' + encodeURIComponent(mEl.value), { credentials: 'same-origin' });
+                const d = await r.json();
+                if (!r.ok) throw new Error(d.error || r.status);
+                _shiftsOncall = d.oncall || [];
+                _shiftsDays = d.days || [];
+                fillShiftSelects(['sh-prev-p','sh-prev-b','sh-cur-p','sh-cur-b']);
+                const fromEl = document.getElementById('sh-from');
+                if (fromEl && !fromEl.value) fromEl.value = new Date().toISOString().slice(0,10);
+                const tb = document.getElementById('shifts-edit-body');
+                if (!tb) return;
+                if (!_shiftsDays.length) {
+                    tb.innerHTML = '<tr><td colspan="4" style="opacity:.6">Немає рядків — згенеруються після відкриття календаря або перерахунку</td></tr>';
+                } else {
+                    const opt = _shiftsOncall.map(n => `<option value="${escHtml(n)}">${escHtml(n)}</option>`).join('');
+                    tb.innerHTML = _shiftsDays.map((x,i) => `<tr data-i="${i}">
+                      <td>${escHtml(x.date)}</td>
+                      <td><select data-f="primary">${opt.replace(`value="${escHtml(x.primary)}"`,`value="${escHtml(x.primary)}" selected`)}</select></td>
+                      <td><select data-f="backup">${opt.replace(`value="${escHtml(x.backup)}"`,`value="${escHtml(x.backup)}" selected`)}</select></td>
+                      <td style="font-size:11px;opacity:.6">${escHtml(x.date) < (new Date().toISOString().slice(0,10)) ? 'минуле' : ''}</td>
+                    </tr>`).join('');
+                    // fix selected - replace above is fragile; set values
+                    tb.querySelectorAll('tr[data-i]').forEach(tr => {
+                        const i = +tr.getAttribute('data-i');
+                        const x = _shiftsDays[i];
+                        const ps = tr.querySelector('select[data-f="primary"]');
+                        const bs = tr.querySelector('select[data-f="backup"]');
+                        if (ps) ps.value = x.primary || '';
+                        if (bs) bs.value = x.backup || '';
+                    });
+                }
+                if (st) st.textContent = 'Днів: ' + _shiftsDays.length;
+            } catch (e) {
+                if (st) st.textContent = String(e);
+            }
+        }
+        async function saveShiftsBulk() {
+            const tb = document.getElementById('shifts-edit-body');
+            if (!tb) return;
+            const days = [];
+            tb.querySelectorAll('tr[data-i]').forEach(tr => {
+                const i = +tr.getAttribute('data-i');
+                const date = (_shiftsDays[i] || {}).date;
+                const primary = (tr.querySelector('select[data-f="primary"]') || {}).value;
+                const backup = (tr.querySelector('select[data-f="backup"]') || {}).value;
+                if (date && primary) days.push({ date, primary, backup });
+            });
+            const r = await fetch('/api/admin/shifts', {
+                method: 'PUT', credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ actor: (currentUser && (currentUser.name || currentUser.username)) || 'admin', days })
+            });
+            const d = await r.json().catch(()=>({}));
+            const st = document.getElementById('sh-status');
+            if (st) st.textContent = r.ok ? ('Збережено днів: ' + (d.updated || 0)) : ('Помилка ' + (d.error || r.status));
+            if (r.ok) loadShiftsMonth();
+        }
+        async function recalcShiftsForward() {
+            const body = {
+                actor: (currentUser && (currentUser.name || currentUser.username)) || 'admin',
+                from_date: (document.getElementById('sh-from') || {}).value || '',
+                until_date: (document.getElementById('sh-until') || {}).value || '',
+                previous_primary: (document.getElementById('sh-prev-p') || {}).value || '',
+                previous_backup: (document.getElementById('sh-prev-b') || {}).value || '',
+                current_primary: (document.getElementById('sh-cur-p') || {}).value || '',
+                current_backup: (document.getElementById('sh-cur-b') || {}).value || ''
+            };
+            if (!body.current_primary) { alert('Вкажіть поточного основного'); return; }
+            if (!confirm('Перерахувати графік З ' + body.from_date + ' лише вперед? Минулі дні не зміняться.')) return;
+            const r = await fetch('/api/admin/shifts', {
+                method: 'POST', credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            });
+            const d = await r.json().catch(()=>({}));
+            const st = document.getElementById('sh-status');
+            if (st) st.textContent = r.ok ? ('Оновлено вперед: ' + (d.updated || 0) + ' днів') : ('Помилка: ' + (await r.text().catch(()=>r.status)));
+            if (r.ok) loadShiftsMonth();
+        }
+        window.loadShiftsMonth = loadShiftsMonth;
+        window.saveShiftsBulk = saveShiftsBulk;
+        window.recalcShiftsForward = recalcShiftsForward;
+
 window.loadSubPage = loadSubPage;
 window.loadSecuritySettings = loadSecuritySettings;
 window.saveSecuritySettings = saveSecuritySettings;
