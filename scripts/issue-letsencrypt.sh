@@ -8,7 +8,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-DOMAIN="${TLS_CN:-www.s.ks.tv}"
+DOMAIN="${TLS_CN:-s.ks.tv}"
 EMAIL="${LETSENCRYPT_EMAIL:-admin@${DOMAIN}}"
 STAGING="${LETSENCRYPT_STAGING:-0}"
 # додаткові імена через пробіл, напр. EXTRA_DOMAINS="s.ks.tv"
