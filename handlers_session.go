@@ -259,11 +259,30 @@ var loginAttempts = struct {
 	m map[string][]time.Time
 }{m: make(map[string][]time.Time)}
 
+func loginLockSettings() (maxAttempts int, windowMin int) {
+	maxAttempts = 10
+	windowMin = 15
+	if v := strings.TrimSpace(getSetting("login_max_attempts", "")); v != "" {
+		var n int
+		if _, err := fmt.Sscanf(v, "%d", &n); err == nil && n > 0 {
+			maxAttempts = n
+		}
+	}
+	if v := strings.TrimSpace(getSetting("login_lockout_minutes", "")); v != "" {
+		var n int
+		if _, err := fmt.Sscanf(v, "%d", &n); err == nil && n > 0 {
+			windowMin = n
+		}
+	}
+	return maxAttempts, windowMin
+}
+
 func loginRateLimited(ip string) bool {
+	maxAttempts, windowMin := loginLockSettings()
 	loginAttempts.Lock()
 	defer loginAttempts.Unlock()
 	now := time.Now()
-	cut := now.Add(-15 * time.Minute)
+	cut := now.Add(-time.Duration(windowMin) * time.Minute)
 	arr := loginAttempts.m[ip]
 	var kept []time.Time
 	for _, t := range arr {
@@ -272,7 +291,7 @@ func loginRateLimited(ip string) bool {
 		}
 	}
 	loginAttempts.m[ip] = kept
-	return len(kept) >= 20 // 20 / 15 хв з однієї IP
+	return len(kept) >= maxAttempts
 }
 
 func recordLoginAttempt(ip string) {
