@@ -2024,41 +2024,63 @@ function isAdminUser() {
             m.style.display = 'flex';
             try {
                 const q = name === '(на розгляді)' || name === '—' ? '' : name;
-                const r = await fetch('/api/admin/tasks?' + (q ? 'user=' + encodeURIComponent(q) : ''));
+                const r = await fetch('/api/admin/tasks?' + (q ? 'user=' + encodeURIComponent(q) : ''), { credentials: 'same-origin' });
                 let list = await safeJson(r);
                 if (!Array.isArray(list)) list = [];
                 if (name === '(на розгляді)' || name === '—') list = list.filter(t => !t.user_name);
                 else list = list.filter(t => t.user_name === name);
-                // open only preferred but show all with status
-                let h = '<table><thead><tr><th>ID</th><th>Опис</th><th>Статус</th><th>Пріоритет</th><th>Хв</th><th>Коментарі / зміни статусу</th></tr></thead><tbody>';
+                let h = '<p style="font-size:12px;opacity:.75;margin:0 0 10px">Клік по рядку — коментарі та історія статусів (таблиця).</p>';
+                h += '<table><thead><tr><th>ID</th><th>Опис</th><th>Статус</th><th>Пріоритет</th><th>Хв</th><th></th></tr></thead><tbody>';
                 if (!list.length) h += '<tr><td colspan="6">Немає задач</td></tr>';
                 for (const t of list) {
-                    let cmts = '';
-                    try {
-                        const cr = await fetch('/api/comments?entity_type=task&entity_id=' + t.id);
-                        const cl = await safeJson(cr);
-                        if (Array.isArray(cl) && cl.length) {
-                            cmts = cl.map(c => {
-                                const body = (c.body||'');
-                                const isSt = /Статус|статус/.test(body) || c.is_system;
-                                return `<div style="font-size:12px;margin:2px 0;${isSt?'color:#94a3b8;font-style:italic':''}"><b>${(c.author_name||'')}</b> ${c.created_at||''}: ${(body).replace(/</g,'&lt;')}</div>`;
-                            }).join('');
-                        } else cmts = '<span style="color:#94a3b8;font-size:12px">—</span>';
-                    } catch (e) { cmts = '—'; }
-                    h += `<tr>
+                    const desc = (t.task_description||'').replace(/</g,'&lt;');
+                    h += `<tr class="q-row" style="cursor:pointer" onclick="toggleQueueTaskCmt(${t.id})">
                         <td>#${t.id}</td>
-                        <td style="max-width:220px">${(t.task_description||'').replace(/</g,'&lt;')}</td>
-                        <td><span class="badge badge-secondary">${t.status||''}</span></td>
-                        <td>${t.priority||''}</td>
+                        <td style="max-width:280px">${desc}</td>
+                        <td><span class="badge badge-secondary">${(t.status||'').replace(/</g,'&lt;')}</span></td>
+                        <td>${(t.priority||'').replace(/</g,'&lt;')}</td>
                         <td>${t.total_minutes||0}</td>
-                        <td style="max-width:320px">${cmts}</td>
+                        <td><span class="btn" style="padding:2px 8px" title="Коментарі">💬</span></td>
+                    </tr>
+                    <tr id="q-task-cmt-row-${t.id}" style="display:none">
+                      <td colspan="6" onclick="event.stopPropagation()">
+                        <div id="q-task-cmt-${t.id}" style="font-size:12px;padding:8px 4px"><em style="opacity:.6">коментарі…</em></div>
+                      </td>
                     </tr>`;
                 }
                 h += '</tbody></table>';
-                h += '<p style="font-size:12px;color:#94a3b8;margin-top:10px">Час у статусах відображається через системні коментарі змін статусу (якщо є).</p>';
                 document.getElementById('queue-detail-body').innerHTML = h;
             } catch (e) {
                 document.getElementById('queue-detail-body').textContent = 'Помилка: ' + e;
+            }
+        }
+
+        async function toggleQueueTaskCmt(id) {
+            const row = document.getElementById('q-task-cmt-row-' + id);
+            if (!row) return;
+            const open = row.style.display === 'none';
+            row.style.display = open ? 'table-row' : 'none';
+            if (!open) return;
+            const box = document.getElementById('q-task-cmt-' + id);
+            if (!box) return;
+            box.innerHTML = '<em style="opacity:.6">Завантаження…</em>';
+            try {
+                const cr = await fetch('/api/comments?entity_type=task&entity_id=' + id, { credentials: 'same-origin' });
+                const cl = await safeJson(cr);
+                if (!Array.isArray(cl) || !cl.length) {
+                    box.innerHTML = '<span style="opacity:.6">Немає коментарів</span>';
+                    return;
+                }
+                let th = '<table style="width:100%;font-size:12px"><thead><tr><th>Коли</th><th>Автор</th><th>Текст</th></tr></thead><tbody>';
+                cl.forEach(c => {
+                    const body = (c.body||'').replace(/</g,'&lt;');
+                    const isSt = !!(c.is_system) || /Статус|статус/.test(body);
+                    th += `<tr style="${isSt?'opacity:.75;font-style:italic':''}"><td style="white-space:nowrap">${(c.created_at||'').replace(/</g,'&lt;')}</td><td>${(c.author_name||'').replace(/</g,'&lt;')}</td><td>${body}</td></tr>`;
+                });
+                th += '</tbody></table>';
+                box.innerHTML = th;
+            } catch (e) {
+                box.textContent = String(e);
             }
         }
 
