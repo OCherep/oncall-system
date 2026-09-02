@@ -276,7 +276,9 @@ func handleSlackEvents(w http.ResponseWriter, r *http.Request) {
 	// Slack slash commands: application/x-www-form-urlencoded
 	if strings.Contains(ct, "application/x-www-form-urlencoded") {
 		if err := r.ParseForm(); err != nil {
-			http.Error(w, err.Error(), 400)
+			log.Printf("slack webhook parse form: %v", err)
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{"response_type": "ephemeral", "text": "Parse error"})
 			return
 		}
 		text = r.FormValue("text")
