@@ -6,19 +6,19 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
-DOMAIN="${TLS_CN:-www.s.ks.tv}"
+DOMAIN="${TLS_CN:-s.ks.tv}"
 MODE="${1:-}"
 mkdir -p certs certbot/www certbot/conf
 
 usage() {
   cat <<USAGE
 Usage:
-  TLS_CN=www.s.ks.tv LETSENCRYPT_EMAIL=you@company.com $0 le
-  TLS_CN=www.s.ks.tv HOST_LE_LIVE=/etc/letsencrypt/live/www.s.ks.tv $0 copy-host
+  TLS_CN=s.ks.tv LETSENCRYPT_EMAIL=you@company.com $0 le
+  TLS_CN=s.ks.tv HOST_LE_LIVE=/etc/letsencrypt/live/s.ks.tv $0 copy-host
   $0 selfsigned
 
 Env:
-  TLS_CN                domain (default www.s.ks.tv)
+  TLS_CN                domain (default s.ks.tv)
   LETSENCRYPT_EMAIL     email for LE
   LETSENCRYPT_STAGING=1 test CA
   EXTRA_DOMAINS         "s.ks.tv other.example"
