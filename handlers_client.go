@@ -772,6 +772,30 @@ func copyComments(fromType string, fromID int, toType string, toID int) int {
 	return n
 }
 
+
+// mapIncidentStatusToTask — при конвертації зберігаємо сенс статусу й виконавця.
+// Без виконавця → «Нерозподілена»; інакше мапимо на статуси задач.
+func mapIncidentStatusToTask(incStatus, assignee string) string {
+	if strings.TrimSpace(assignee) == "" {
+		return "Нерозподілена"
+	}
+	s := strings.ToLower(strings.TrimSpace(incStatus))
+	switch {
+	case strings.Contains(s, "робот"):
+		return "У роботі"
+	case strings.Contains(s, "пауз"):
+		return "На паузі"
+	case strings.Contains(s, "перевір"):
+		return "До перевірки"
+	case strings.Contains(s, "виріш") || strings.Contains(s, "виконан") || s == "у задачу":
+		return "До перевірки"
+	case s == "нове" || s == "нова" || s == "new" || s == "":
+		return "Нова"
+	default:
+		return "Нова"
+	}
+}
+
 // convertIncidentToTask створює задачу з звернення, копіює коментарі (залишаючи їх і на зверненні).
 func convertIncidentToTask(inc IncidentReport, actor string) (int64, int, error) {
 	// Запобіжник від дублювання
@@ -791,22 +815,30 @@ func convertIncidentToTask(inc IncidentReport, actor string) (int64, int, error)
 
 	desc := fmt.Sprintf("[зі звернення #%d] %s", inc.ID, inc.Description)
 	prio := mapIncidentPrioToTask(inc.Priority)
+	assignee := strings.TrimSpace(inc.UserName)
+	taskStatus := mapIncidentStatusToTask(inc.Status, assignee)
+	// responsible: поточний виконавець, інакше актор конвертації
+	responsible := assignee
+	if responsible == "" {
+		responsible = actor
+	}
 	res, err := db.Exec(`INSERT INTO daily_tasks (user_name, date, task_description, status, priority, total_minutes, created_at, created_by, responsible)
-		VALUES (?, ?, ?, 'Нерозподілена', ?, 0, CURRENT_TIMESTAMP, ?, ?)`,
-		inc.UserName, inc.Date, desc, prio, actor, actor)
+		VALUES (?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP, ?, ?)`,
+		assignee, inc.Date, desc, taskStatus, prio, actor, responsible)
 	if err != nil {
 		return 0, 0, err
 	}
 	tid, _ := res.LastInsertId()
-	// primary assignee row
-	if strings.TrimSpace(inc.UserName) != "" {
-		db.Exec(`INSERT OR IGNORE INTO task_assignees (task_id, user_name, total_minutes) VALUES (?,?,0)`, tid, inc.UserName)
+	// primary assignee row (для чіпсів / навантаження)
+	if assignee != "" {
+		db.Exec(`INSERT OR IGNORE INTO task_assignees (task_id, user_name, total_minutes) VALUES (?,?,0)`, tid, assignee)
 	}
 	copied := copyComments("incident", inc.ID, "task", int(tid))
 	db.Exec(`UPDATE incidents SET converted_to_task_id=?, status='У задачу' WHERE id=?`, tid, inc.ID)
-	addSystemComment("incident", inc.ID, fmt.Sprintf("Переведено в задачу #%d", tid))
-	openTaskStatusLog(int(tid), "Нова", actor)
-	addSystemComment("task", int(tid), fmt.Sprintf("Створено зі звернення #%d (скопійовано коментарів: %d)", inc.ID, copied))
+	addSystemComment("incident", inc.ID, fmt.Sprintf("Переведено в задачу #%d (статус задачі: %s, виконавець: %s)", tid, taskStatus, assignee))
+	openTaskStatusLog(int(tid), taskStatus, actor)
+	addSystemComment("task", int(tid), fmt.Sprintf("Створено зі звернення #%d · статус «%s» · виконавець «%s» (скопійовано коментарів: %d)",
+		inc.ID, taskStatus, assignee, copied))
 	return tid, copied, nil
 }
 
