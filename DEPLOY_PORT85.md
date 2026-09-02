@@ -40,10 +40,10 @@ rm certbot/www/ping
 
 ## 2. Випуск Let's Encrypt
 
-**Умови:** DNS `www.s.ks.tv` → IP цього сервера; TCP/80 відкритий з інтернету.
+**Умови:** DNS `s.ks.tv` → IP цього сервера; TCP/80 відкритий з інтернету.
 
 ```bash
-export TLS_CN=www.s.ks.tv
+export TLS_CN=s.ks.tv
 export LETSENCRYPT_EMAIL=you@company.com
 # export EXTRA_DOMAINS="s.ks.tv"   # опційно
 
@@ -56,8 +56,8 @@ export LETSENCRYPT_EMAIL=you@company.com
 **Перевірка без `-k`:**
 
 ```bash
-curl -sS -m 5 -o /dev/null -w "%{http_code}\n" https://www.s.ks.tv:85/
-echo | openssl s_client -connect www.s.ks.tv:85 -servername www.s.ks.tv 2>/dev/null \
+curl -sS -m 5 -o /dev/null -w "%{http_code}\n" https://s.ks.tv:85/
+echo | openssl s_client -connect s.ks.tv:85 -servername s.ks.tv 2>/dev/null \
   | openssl x509 -noout -issuer -subject -dates
 ```
 
@@ -68,8 +68,8 @@ Issuer: `Let's Encrypt`, не self-signed.
 ## 3. Сертифікат уже є на хості
 
 ```bash
-export TLS_CN=www.s.ks.tv
-export HOST_LE_LIVE=/etc/letsencrypt/live/www.s.ks.tv
+export TLS_CN=s.ks.tv
+export HOST_LE_LIVE=/etc/letsencrypt/live/s.ks.tv
 ./scripts/setup-tls.sh copy-host
 ```
 
@@ -97,13 +97,13 @@ location ^~ /.well-known/acme-challenge/ {
 ## 5. Slack `/brb`
 
 ```text
-https://www.s.ks.tv:85/api/webhooks/slack
+https://s.ks.tv:85/api/webhooks/slack
 ```
 
 Socket Mode для slash command — **OFF**.
 
 ```bash
-curl -sS -m 5 -X POST 'https://www.s.ks.tv:85/api/webhooks/slack' \
+curl -sS -m 5 -X POST 'https://s.ks.tv:85/api/webhooks/slack' \
   -H 'Content-Type: application/x-www-form-urlencoded' \
   -d 'command=/brb&text=18:30&user_name=test&user_id=U0TEST'
 ```
@@ -113,5 +113,34 @@ curl -sS -m 5 -X POST 'https://www.s.ks.tv:85/api/webhooks/slack' \
 ## 6. Оновлення (cron)
 
 ```bash
-0 3 1 * * cd /opt/oncall-app-5 && TLS_CN=www.s.ks.tv LETSENCRYPT_EMAIL=you@company.com ./scripts/issue-letsencrypt.sh >>/var/log/oncall-app-5/le-renew.log 2>&1
+0 3 1 * * cd /opt/oncall-app-5 && TLS_CN=s.ks.tv LETSENCRYPT_EMAIL=you@company.com ./scripts/issue-letsencrypt.sh >>/var/log/oncall-app-5/le-renew.log 2>&1
+```
+
+---
+
+## ZeroSSL / готовий ZIP (certificate.crt + ca_bundle + private.key)
+
+**Важливо:** ваш сертифікат має CN/SAN = `s.ks.tv` (не `www.s.ks.tv`).  
+Публічний URL: **https://s.ks.tv:85/**
+
+На сервері:
+
+```bash
+cd /opt/oncall-app-5
+# скопіюйте розпакований архів, напр. у /tmp/ssl-ks/
+./scripts/install-zerossl.sh /tmp/ssl-ks
+
+# .env
+cat >> .env <<'E'
+TLS_CN=s.ks.tv
+APP_PUBLIC_URL=https://s.ks.tv:85
+SESSION_SECURE=1
+E
+docker compose up -d
+```
+
+Slack Request URL:
+
+```text
+https://s.ks.tv:85/api/webhooks/slack
 ```
