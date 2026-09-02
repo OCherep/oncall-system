@@ -241,23 +241,6 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	var u User
-	var isOncallInt int
-	err := db.QueryRow(`
-        SELECT u.id, u.username, u.name, u.role, u.team_role_id, COALESCE(tr.name, ''), COALESCE(u.is_oncall, 1)
-        FROM users u LEFT JOIN team_roles tr ON u.team_role_id = tr.id
-        WHERE u.username = ? AND u.password = ?`, req.Username, req.Password).
-		Scan(&u.ID, &u.Username, &u.Name, &u.Role, &u.TeamRoleID, &u.TeamRole, &isOncallInt)
-	if err != nil {
-		ip := clientIP(r)
-		recordLoginAttempt(ip)
-		logAudit(req.Username, "LOGIN_FAILED", ip, "Невдала спроба входу")
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(map[string]string{"error": "Невірне ім'я користувача або пароль"})
-		return
-	}
-	u.IsOncall = isOncallInt == 1
 	ip := clientIP(r)
 	if loginRateLimited(ip) {
 		logAudit(req.Username, "LOGIN_RATE_LIMIT", ip, "too many attempts")
@@ -266,6 +249,22 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]string{"error": "Забагато спроб входу. Спробуйте пізніше."})
 		return
 	}
+	var u User
+	var isOncallInt int
+	err := db.QueryRow(`
+        SELECT u.id, u.username, u.name, u.role, u.team_role_id, COALESCE(tr.name, ''), COALESCE(u.is_oncall, 1)
+        FROM users u LEFT JOIN team_roles tr ON u.team_role_id = tr.id
+        WHERE u.username = ? AND u.password = ?`, req.Username, req.Password).
+		Scan(&u.ID, &u.Username, &u.Name, &u.Role, &u.TeamRoleID, &u.TeamRole, &isOncallInt)
+	if err != nil {
+		recordLoginAttempt(ip)
+		logAudit(req.Username, "LOGIN_FAILED", ip, "Невдала спроба входу")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Невірне ім'я користувача або пароль"})
+		return
+	}
+	u.IsOncall = isOncallInt == 1
 	logAudit(u.Username, "LOGIN_SUCCESS", ip, "Успішна авторизація")
 	tok, exp, err := createSession(u, ip, r.UserAgent())
 	if err != nil {
