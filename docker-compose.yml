@@ -1,6 +1,6 @@
 # OnCall grok-1.0.0
-# HTTPS UI/API: https://www.s.ks.tv:85/
-# HTTP + Let's Encrypt ACME: http://www.s.ks.tv/  (host port 80)
+# HTTPS UI/API: https://s.ks.tv:85/
+# HTTP + Let's Encrypt ACME: http://s.ks.tv/  (host port 80)
 
 services:
   app:
@@ -16,7 +16,7 @@ services:
       - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL:-}
       - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN:-}
       - SLACK_TEAM_CHANNEL=${SLACK_TEAM_CHANNEL:-}
-      - APP_PUBLIC_URL=${APP_PUBLIC_URL:-https://www.s.ks.tv:85}
+      - APP_PUBLIC_URL=${APP_PUBLIC_URL:-https://s.ks.tv:85}
       - SESSION_SECURE=${SESSION_SECURE:-1}
       - SOFT_AUTH=${SOFT_AUTH:-1}
       - NOTIFY_ON_INCIDENT=${NOTIFY_ON_INCIDENT:-1}
@@ -28,7 +28,7 @@ services:
       - JIRA_API_TOKEN=${JIRA_API_TOKEN:-}
       - JIRA_STATUS_MAP=${JIRA_STATUS_MAP:-}
       - AUDIT_LOG_PATH=/var/log/oncall-app-5/app.log
-      - TLS_CN=${TLS_CN:-www.s.ks.tv}
+      - TLS_CN=${TLS_CN:-s.ks.tv}
     volumes:
       - ./data:/app/data
       - /var/log/oncall-app-5:/var/log/oncall-app-5
@@ -41,7 +41,7 @@ services:
       - "85:443"   # HTTPS — UI, API, Slack webhooks
       - "80:80"    # HTTP — Let's Encrypt ACME + fallback
     environment:
-      - TLS_CN=${TLS_CN:-www.s.ks.tv}
+      - TLS_CN=${TLS_CN:-s.ks.tv}
     volumes:
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
       - ./static:/usr/share/nginx/html:ro
