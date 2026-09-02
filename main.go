@@ -546,6 +546,7 @@ func main() {
 	http.HandleFunc("/api/admin/jira/import", withIPAllow(securityHeaders(handleJiraImport)))
 	http.HandleFunc("/api/brb", withIPAllow(securityHeaders(handleBRB)))
 	http.HandleFunc("/api/admin/shift-relief", withIPAllow(securityHeaders(handleShiftRelief)))
+	http.HandleFunc("/api/admin/shifts", withIPAllow(securityHeaders(handleAdminShifts)))
 	http.HandleFunc("/api/webhooks/slack", handleSlackEvents) // no IP allow — Slack egress IPs vary
 	http.HandleFunc("/api/on-grid", withIPAllow(securityHeaders(handleOnGridPublic)))
 	http.HandleFunc("/api/admin/on-grid-exceptions", withIPAllow(securityHeaders(handleOnGridExceptions)))
