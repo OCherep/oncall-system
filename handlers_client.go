@@ -441,11 +441,17 @@ func allowedNextStatuses(cur, role string) []string {
 		} else {
 			next = []string{"Виконана"}
 		}
-	case "Перевідкрита", "Архів":
+	case "Перевідкрита":
 		if isAdmin {
-			next = []string{"Перевідкрита", "Нова", "Архів", "У роботі"}
+			next = []string{"Перевідкрита", "Нова", "Нерозподілена", "У роботі", "Архів"}
 		} else {
-			next = []string{cur}
+			next = []string{"Перевідкрита", "У роботі"}
+		}
+	case "Архів":
+		if isAdmin {
+			next = []string{"Архів", "Перевідкрита", "Нова", "Нерозподілена"}
+		} else {
+			next = []string{"Архів"}
 		}
 	default:
 		if isAdmin {
