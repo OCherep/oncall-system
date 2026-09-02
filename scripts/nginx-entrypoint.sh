@@ -10,7 +10,7 @@ else
   if ! command -v openssl >/dev/null 2>&1; then
     apk add --no-cache openssl >/dev/null
   fi
-  CN="${TLS_CN:-www.s.ks.tv}"
+  CN="${TLS_CN:-s.ks.tv}"
   openssl req -x509 -nodes -days 825 -newkey rsa:2048 \
     -keyout "$CERT_DIR/privkey.pem" \
     -out "$CERT_DIR/fullchain.pem" \
