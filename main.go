@@ -546,7 +546,7 @@ func main() {
 	http.HandleFunc("/api/admin/jira/import", withIPAllow(securityHeaders(handleJiraImport)))
 	http.HandleFunc("/api/brb", withIPAllow(securityHeaders(handleBRB)))
 	http.HandleFunc("/api/admin/shift-relief", withIPAllow(securityHeaders(handleShiftRelief)))
-	http.HandleFunc("/api/webhooks/slack", withIPAllow(handleSlackEvents))
+	http.HandleFunc("/api/webhooks/slack", handleSlackEvents) // no IP allow — Slack egress IPs vary
 	http.HandleFunc("/api/on-grid", withIPAllow(securityHeaders(handleOnGridPublic)))
 	http.HandleFunc("/api/admin/on-grid-exceptions", withIPAllow(securityHeaders(handleOnGridExceptions)))
 	http.HandleFunc("/api/admin/settings", withIPAllow(securityHeaders(handleAppSettings)))
@@ -579,8 +579,8 @@ func main() {
 	http.HandleFunc("/api/admin/allowed-ips", withIPAllow(handleAdminAllowedIPs))
 
 	// Зовнішні інтеграції: Jira / боти / Slack
-	http.HandleFunc("/api/webhooks/incidents", withIPAllow(handleWebhookIncidents))
-	http.HandleFunc("/api/webhooks/health", withIPAllow(handleWebhookHealth))
+	http.HandleFunc("/api/webhooks/incidents", handleWebhookIncidents) // secret in header
+	http.HandleFunc("/api/webhooks/health", handleWebhookHealth)
 
 	fs := http.FileServer(http.Dir("./static"))
 	http.HandleFunc("/", withIPAllow(func(w http.ResponseWriter, r *http.Request) {
