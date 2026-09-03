@@ -103,7 +103,7 @@ func recalculateShiftsForward(fromDate, untilDate, currPrimary, currBackup, prev
 	}
 	abs := loadApprovedAbsences()
 
-	// rotation index: prefer current primary in full pool; else after previous primary; else 0
+	// Стартовий індекс ротації в повному пулі (алфавітний порядок on-call).
 	rot := indexInPool(pool, currPrimary)
 	if rot < 0 {
 		rot = indexInPool(pool, prevPrimary)
@@ -130,69 +130,54 @@ func recalculateShiftsForward(fromDate, untilDate, currPrimary, currBackup, prev
 	first := true
 	for d := start; !d.After(end); d = d.AddDate(0, 0, 1) {
 		dateStr := d.Format("2006-01-02")
-		avail := availableOnDate(pool, dateStr, abs)
-		if len(avail) == 0 {
-			continue
-		}
 		var primary, backup string
 		if first {
-			// pin current pair if they are available; else best-effort from seed names
 			primary = strings.TrimSpace(currPrimary)
 			backup = strings.TrimSpace(currBackup)
 			if primary == "" || isAbsentOnDate(primary, dateStr, abs) {
-				// map rot into avail
-				idx := 0
-				if pi := indexInPool(avail, currPrimary); pi >= 0 {
-					idx = pi
+				primary, pNext := nextOncallFrom(pool, rot, dateStr, abs, nil)
+				if primary == "" {
+					continue
 				}
-				primary, backup = pickPair(avail, idx)
-			} else {
-				if backup == "" || backup == primary || isAbsentOnDate(backup, dateStr, abs) {
-					// next available after primary
+				backup, _ = nextOncallFrom(pool, pNext, dateStr, abs, map[string]bool{primary: true})
+				if backup == "" {
 					backup = primary
-					for _, cand := range avail {
-						if cand != primary {
-							backup = cand
-							break
-						}
+				}
+				rot = pNext
+			} else {
+				// Зафіксувати поточну пару; backup — наступний у пулі після primary, якщо не заданий/absent
+				pIdx := indexInPool(pool, primary)
+				if pIdx < 0 {
+					pIdx = rot
+				}
+				if backup == "" || backup == primary || isAbsentOnDate(backup, dateStr, abs) {
+					backup, _ = nextOncallFrom(pool, (pIdx+1)%len(pool), dateStr, abs, map[string]bool{primary: true})
+					if backup == "" {
+						backup = primary
 					}
 				}
-			}
-			// advance rot to after current primary in full pool for next days
-			if pi := indexInPool(pool, primary); pi >= 0 {
-				rot = (pi + 1) % len(pool)
-			} else {
-				rot = (rot + 1) % len(pool)
+				rot = (pIdx + 1) % len(pool)
 			}
 			first = false
 		} else {
-			// find next primary starting from rot in full pool, constrained to avail
-			primary = ""
-			for try := 0; try < len(pool); try++ {
-				cand := pool[(rot+try)%len(pool)]
-				if !isAbsentOnDate(cand, dateStr, abs) {
-					primary = cand
-					rot = (rot + try + 1) % len(pool)
-					break
-				}
-			}
+			// primary = наступний у ротації; backup = наступний після нього (не «перший алфавітно»)
+			var pNext int
+			primary, pNext = nextOncallFrom(pool, rot, dateStr, abs, nil)
 			if primary == "" {
-				primary = avail[0]
+				continue
 			}
-			backup = primary
-			for _, cand := range avail {
-				if cand != primary {
-					backup = cand
-					break
-				}
+			backup, _ = nextOncallFrom(pool, pNext, dateStr, abs, map[string]bool{primary: true})
+			if backup == "" {
+				backup = primary
 			}
+			rot = pNext
 		}
 		db.Exec(`INSERT INTO shifts (date, primary_user, backup_user) VALUES (?,?,?)
 			ON CONFLICT(date) DO UPDATE SET primary_user=excluded.primary_user, backup_user=excluded.backup_user`,
 			dateStr, primary, backup)
 		n++
 	}
-	_ = prevBackup // reserved for future weighted continuity
+	_ = prevBackup
 	return n, nil
 }
 
