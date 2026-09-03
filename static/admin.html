@@ -1584,6 +1584,8 @@ function isAdminUser() {
                 if (l) l.value = s.login_lockout_minutes || '15';
                 const sc = document.getElementById('sec-secure-cookie');
                 if (sc) sc.checked = s.session_secure === '1' || s.session_secure === 'true';
+                const d = document.getElementById('sec-dispatchers');
+                if (d) d.value = s.dispatchers || '';
             } catch (e) { console.error(e); }
         }
         async function saveSecuritySettings() {
@@ -1591,7 +1593,8 @@ function isAdminUser() {
                 session_ttl_hours: String((document.getElementById('sec-ttl')||{}).value || '14'),
                 login_max_attempts: String((document.getElementById('sec-login-max')||{}).value || '10'),
                 login_lockout_minutes: String((document.getElementById('sec-login-lock')||{}).value || '15'),
-                session_secure: (document.getElementById('sec-secure-cookie')||{}).checked ? '1' : '0'
+                session_secure: (document.getElementById('sec-secure-cookie')||{}).checked ? '1' : '0',
+                dispatchers: String((document.getElementById('sec-dispatchers')||{}).value || '')
             };
             const r = await fetch('/api/admin/settings', {
                 method: 'PUT', credentials: 'same-origin',
