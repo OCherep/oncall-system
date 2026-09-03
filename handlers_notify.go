@@ -163,7 +163,7 @@ func notifyDispatchers(text string) {
 	}
 }
 
-// notifyOncallAboutIncident — team channel (Slack+TG) + DM черговим у Slack.
+// notifyOncallAboutIncident — team channel (Slack+TG) + DM черговим / диспетчерам.
 func notifyOncallAboutIncident(inc IncidentReport) {
 	if !notifyEnabled() {
 		return
@@ -188,18 +188,11 @@ func notifyOncallAboutIncident(inc IncidentReport) {
 	seen := map[string]bool{}
 	personal := fmt.Sprintf("🔔 Звернення #%d (%s)\n%s\nПріоритет: %s · Source: %s",
 		inc.ID, date, truncateRunes(inc.Description, 200), nz(inc.Priority, "Звичайний"), nz(inc.Source, "webhook"))
-	// fix escapes - use real newlines in source
-	personal = fmt.Sprintf("🔔 Звернення #%d (%s)
-%s
-Пріоритет: %s · Source: %s",
-		inc.ID, date, truncateRunes(inc.Description, 200), nz(inc.Priority, "Звичайний"), nz(inc.Source, "webhook"))
 	if inc.ExternalID != "" {
-		personal += "
-Jira: " + inc.ExternalID
+		personal += "\nJira: " + inc.ExternalID
 	}
 	if base := publicBaseURL(); base != "" && inc.ID > 0 {
-		personal += fmt.Sprintf("
-%s/admin.html#inc=%d", strings.TrimRight(base, "/"), inc.ID)
+		personal += fmt.Sprintf("\n%s/admin.html#inc=%d", strings.TrimRight(base, "/"), inc.ID)
 	}
 
 	var targets []string
