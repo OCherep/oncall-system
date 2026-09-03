@@ -500,6 +500,7 @@ func initDB() {
 	// backfill converted_to_task_id from existing tasks (cursor closed before UPDATE)
 	backfillConvertedTaskIDs()
 	ensureUserExtraColumns()
+	ensureProductivityTables()
 	ensureSessionsTable()
 	ensureAppSettingsTable()
 	ensureOnGridExceptions()
@@ -547,6 +548,7 @@ func main() {
 	http.HandleFunc("/api/brb", withIPAllow(securityHeaders(handleBRB)))
 	http.HandleFunc("/api/admin/shift-relief", withIPAllow(securityHeaders(handleShiftRelief)))
 	http.HandleFunc("/api/admin/shifts", withIPAllow(securityHeaders(handleAdminShifts)))
+	http.HandleFunc("/api/admin/productivity", withIPAllow(securityHeaders(handleAdminProductivity)))
 	http.HandleFunc("/api/webhooks/slack", handleSlackEvents) // no IP allow — Slack egress IPs vary
 	http.HandleFunc("/api/on-grid", withIPAllow(securityHeaders(handleOnGridPublic)))
 	http.HandleFunc("/api/admin/on-grid-exceptions", withIPAllow(securityHeaders(handleOnGridExceptions)))
