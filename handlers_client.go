@@ -266,6 +266,7 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	u.IsOncall = isOncallInt == 1
 	logAudit(u.Username, "LOGIN_SUCCESS", ip, "Успішна авторизація")
+	recordWorkAnchor(u.Name, "login")
 	tok, exp, err := createSession(u, ip, r.UserAgent())
 	if err != nil {
 		log.Printf("createSession: %v", err)
