@@ -848,9 +848,10 @@ func convertIncidentToTask(inc IncidentReport, actor string) (int64, int, error)
 	if responsible == "" {
 		responsible = actor
 	}
-	res, err := db.Exec(`INSERT INTO daily_tasks (user_name, date, task_description, status, priority, total_minutes, created_at, created_by, responsible)
-		VALUES (?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP, ?, ?)`,
-		assignee, inc.Date, desc, taskStatus, prio, actor, responsible)
+	itype := defaultIssueTypeFromIncident(inc)
+	res, err := db.Exec(`INSERT INTO daily_tasks (user_name, date, task_description, status, priority, total_minutes, created_at, created_by, responsible, issue_type, source)
+		VALUES (?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP, ?, ?, ?, 'incident')`,
+		assignee, inc.Date, desc, taskStatus, prio, actor, responsible, itype)
 	if err != nil {
 		return 0, 0, err
 	}
