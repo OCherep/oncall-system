@@ -108,6 +108,11 @@ type DailyTask struct {
 	CreatedBy       string `json:"created_by,omitempty"`
 	Responsible     string         `json:"responsible,omitempty"` // відповідальна особа
 	Assignees       []TaskAssignee `json:"assignees,omitempty"`
+	IssueType       string         `json:"issue_type,omitempty"` // Epic|Story|Task|Sub-task|Bug
+	ParentID        int            `json:"parent_id,omitempty"`
+	EpicID          int            `json:"epic_id,omitempty"`
+	ExternalID      string         `json:"external_id,omitempty"`
+	Source          string         `json:"source,omitempty"`
 }
 
 // TaskAssignee — виконавець з окремим обліком часу
@@ -501,6 +506,7 @@ func initDB() {
 	backfillConvertedTaskIDs()
 	ensureUserExtraColumns()
 	ensureProductivityTables()
+	ensureTaskHierarchyColumns()
 	ensureSessionsTable()
 	ensureAppSettingsTable()
 	ensureOnGridExceptions()
