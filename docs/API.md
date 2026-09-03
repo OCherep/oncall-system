@@ -508,3 +508,21 @@ Login → `needs_resume: true` якщо зняли зі зміни.
 | POST | `/api/admin/slack/users` | `{ members:[{slack_id,name,username,email,phone,…}], default_password }` |
 
 Scopes бота: `users:read`, `users:read.email`. Env: `SLACK_BOT_TOKEN`, опційно `SLACK_IMPORT_DEFAULT_PASSWORD`.
+
+
+## 16. Продуктивність / BRB intervals (2026-09-03)
+
+| Метод | Шлях | Опис |
+|-------|------|------|
+| GET | `/api/admin/productivity?from=&to=` або `?date=` | Підсумок днів + інтервали |
+| POST | `/api/admin/productivity` | `{action:"close_brb", user_name}` або `anchor` |
+
+Таблиці: `work_day_anchor` (перша подія дня), `presence_intervals` (brb start/end).
+
+**Повернення з BRB:**
+1. Дочекатись `until` — чіп зникне з active map (інтервал лишається до clear).
+2. Або явно: Slack повторний сценарій / admin «Зняти BRB» / `DELETE /api/brb?user=Name`.
+3. Явний clear ставить `ended_at` і може створити work anchor `brb_end` якщо логіну ще не було.
+
+**Формула (v1):** `productive_minutes = span(first_event → eod/now) − brb_minutes − away_minutes`.
+Slack reactions/posts — пізніше. Колонка в «Статистика» на головній — пізніше.
