@@ -526,3 +526,19 @@ Scopes бота: `users:read`, `users:read.email`. Env: `SLACK_BOT_TOKEN`, оп�
 
 **Формула (v1):** `productive_minutes = span(first_event → eod/now) − brb_minutes − away_minutes`.
 Slack reactions/posts — пізніше. Колонка в «Статистика» на головній — пізніше.
+
+
+## 17. Ієрархія задач (Jira-like) + диспетчери (2026-09-03)
+
+### Типи (`daily_tasks.issue_type`)
+`Epic` | `Story` | `Task` | `Sub-task` | `Bug`  
+Поля: `parent_id`, `epic_id`, `external_id`, `source`.
+
+Правила: Sub-task потребує parent; Epic без parent; батько не Sub-task.  
+Convert звернення→задача: за замовчуванням `Task` (критичні пріоритети → `Bug`), `source=incident`.
+
+### Диспетчери
+`app_settings.dispatchers` = імена через кому. Якщо порожньо — усі `role=admin`.  
+Нове звернення **без виконавця**: team channel + DM диспетчерам (+ чергові).  
+З виконавцем: DM виконавцю; чергові — лише при priority ≥ «високий».  
+Дедуп: один notify на `inc-new-{id}` протягом 2 хв.
