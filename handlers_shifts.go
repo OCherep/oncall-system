@@ -51,6 +51,104 @@ func availableOnDate(pool []string, dateStr string, abs []AbsenceRequest) []stri
 	return out
 }
 
+
+// isWeekendDate — субота/неділя (локальна дата YYYY-MM-DD).
+func isWeekendDate(dateStr string) bool {
+	t, err := time.ParseInLocation("2006-01-02", dateStr, time.Local)
+	if err != nil {
+		return false
+	}
+	w := t.Weekday()
+	return w == time.Saturday || w == time.Sunday
+}
+
+// isHolidayDate — свято з app_settings.holidays (comma YYYY-MM-DD) або on_grid_exceptions mode=off на дату.
+func isHolidayDate(dateStr string) bool {
+	raw := strings.TrimSpace(getSetting("holidays", ""))
+	if raw != "" {
+		for _, p := range strings.Split(raw, ",") {
+			if strings.TrimSpace(p) == dateStr {
+				return true
+			}
+		}
+	}
+	var mode string
+	err := db.QueryRow(`SELECT mode FROM on_grid_exceptions WHERE date=? LIMIT 1`, dateStr).Scan(&mode)
+	if err == nil && strings.EqualFold(mode, "off") {
+		// off у будень часто = свято/неробочий
+		if !isWeekendDate(dateStr) {
+			return true
+		}
+	}
+	return false
+}
+
+// isExceptionWorkDate — день виключення понаднормової (on_grid_exceptions mode=on на конкретну дату).
+func isExceptionWorkDate(dateStr string) bool {
+	var mode string
+	err := db.QueryRow(`SELECT mode FROM on_grid_exceptions WHERE date=? LIMIT 1`, dateStr).Scan(&mode)
+	return err == nil && strings.EqualFold(mode, "on")
+}
+
+// dayKindLabel — weekday | weekend | holiday | exception
+func dayKindLabel(dateStr string) string {
+	if isExceptionWorkDate(dateStr) {
+		return "exception"
+	}
+	if isHolidayDate(dateStr) {
+		return "holiday"
+	}
+	if isWeekendDate(dateStr) {
+		return "weekend"
+	}
+	return "weekday"
+}
+
+func isSpecialDutyDay(dateStr string) bool {
+	k := dayKindLabel(dateStr)
+	return k == "weekend" || k == "holiday"
+}
+
+// pickLeastLoaded — серед avail з мінімальним load[name] (стабільний tie-break за порядком avail).
+func pickLeastLoaded(avail []string, load map[string]int, skip map[string]bool) string {
+	best := ""
+	bestN := int(^uint(0) >> 1)
+	for _, n := range avail {
+		if skip != nil && skip[n] {
+			continue
+		}
+		if load[n] < bestN {
+			bestN = load[n]
+			best = n
+		}
+	}
+	return best
+}
+
+// loadWeekendCountsBefore — скільки разів вже був primary/backup на вихідних/святах до date (не включно).
+func loadWeekendCountsBefore(before string) (prim map[string]int, bak map[string]int) {
+	prim, bak = map[string]int{}, map[string]int{}
+	rows, err := db.Query(`SELECT date, primary_user, backup_user FROM shifts WHERE date < ?`, before)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var d, p, b string
+		rows.Scan(&d, &p, &b)
+		if !isSpecialDutyDay(d) {
+			continue
+		}
+		if p != "" {
+			prim[p]++
+		}
+		if b != "" {
+			bak[b]++
+		}
+	}
+	return
+}
+
 // indexInPool — position of name in pool, or -1.
 func indexInPool(pool []string, name string) int {
 	name = strings.TrimSpace(name)
@@ -128,39 +226,56 @@ func recalculateShiftsForward(fromDate, untilDate, currPrimary, currBackup, prev
 
 	n := 0
 	first := true
+	wPrim, wBak := loadWeekendCountsBefore(fromDate)
 	for d := start; !d.After(end); d = d.AddDate(0, 0, 1) {
 		dateStr := d.Format("2006-01-02")
+		avail := availableOnDate(pool, dateStr, abs)
+		if len(avail) == 0 {
+			continue
+		}
 		var primary, backup string
 		if first {
 			primary = strings.TrimSpace(currPrimary)
 			backup = strings.TrimSpace(currBackup)
 			if primary == "" || isAbsentOnDate(primary, dateStr, abs) {
-				primary, pNext := nextOncallFrom(pool, rot, dateStr, abs, nil)
-				if primary == "" {
-					continue
+				if isSpecialDutyDay(dateStr) {
+					primary = pickLeastLoaded(avail, wPrim, nil)
+				} else {
+					primary, rot = nextOncallFrom(pool, rot, dateStr, abs, nil)
 				}
-				backup, _ = nextOncallFrom(pool, pNext, dateStr, abs, map[string]bool{primary: true})
+			}
+			if primary == "" {
+				continue
+			}
+			if backup == "" || backup == primary || isAbsentOnDate(backup, dateStr, abs) {
+				if isSpecialDutyDay(dateStr) {
+					backup = pickLeastLoaded(avail, wBak, map[string]bool{primary: true})
+				} else {
+					pIdx := indexInPool(pool, primary)
+					if pIdx < 0 {
+						pIdx = rot
+					}
+					backup, _ = nextOncallFrom(pool, (pIdx+1)%len(pool), dateStr, abs, map[string]bool{primary: true})
+				}
 				if backup == "" {
 					backup = primary
 				}
-				rot = pNext
-			} else {
-				// Зафіксувати поточну пару; backup — наступний у пулі після primary, якщо не заданий/absent
-				pIdx := indexInPool(pool, primary)
-				if pIdx < 0 {
-					pIdx = rot
-				}
-				if backup == "" || backup == primary || isAbsentOnDate(backup, dateStr, abs) {
-					backup, _ = nextOncallFrom(pool, (pIdx+1)%len(pool), dateStr, abs, map[string]bool{primary: true})
-					if backup == "" {
-						backup = primary
-					}
-				}
-				rot = (pIdx + 1) % len(pool)
+			}
+			if pi := indexInPool(pool, primary); pi >= 0 {
+				rot = (pi + 1) % len(pool)
 			}
 			first = false
+		} else if isSpecialDutyDay(dateStr) {
+			primary = pickLeastLoaded(avail, wPrim, nil)
+			backup = pickLeastLoaded(avail, wBak, map[string]bool{primary: true})
+			if primary == "" {
+				continue
+			}
+			if backup == "" {
+				backup = primary
+			}
+			// rot для буднів не чіпаємо
 		} else {
-			// primary = наступний у ротації; backup = наступний після нього (не «перший алфавітно»)
 			var pNext int
 			primary, pNext = nextOncallFrom(pool, rot, dateStr, abs, nil)
 			if primary == "" {
@@ -172,12 +287,16 @@ func recalculateShiftsForward(fromDate, untilDate, currPrimary, currBackup, prev
 			}
 			rot = pNext
 		}
+		if isSpecialDutyDay(dateStr) {
+			wPrim[primary]++
+			wBak[backup]++
+		}
 		db.Exec(`INSERT INTO shifts (date, primary_user, backup_user) VALUES (?,?,?)
 			ON CONFLICT(date) DO UPDATE SET primary_user=excluded.primary_user, backup_user=excluded.backup_user`,
 			dateStr, primary, backup)
 		n++
 	}
-	_ = prevBackup
+		_ = prevBackup
 	return n, nil
 }
 
