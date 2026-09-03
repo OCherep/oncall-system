@@ -309,21 +309,48 @@ func generateShifts(year, month int, oncallUsers []string, absences []AbsenceReq
 	if len(oncallUsers) == 0 {
 		return shifts
 	}
-	// Фіксований порядок пулу; primary і backup — наступні доступні в ротації (не «перший у списку»).
 	pool := oncallUsers
 	rot := 0
+	// лічильники вихідних/свят для справедливості
+	wPrim := map[string]int{}
+	wBak := map[string]int{}
+	monthStart := fmt.Sprintf("%04d-%02d-01", year, month)
+	wp, wb := loadWeekendCountsBefore(monthStart)
+	for k, v := range wp {
+		wPrim[k] = v
+	}
+	for k, v := range wb {
+		wBak[k] = v
+	}
+
 	for d := 1; d <= daysInMonth; d++ {
 		dateStr := fmt.Sprintf("%04d-%02d-%02d", year, month, d)
-		primary, pNext := nextOncallFrom(pool, rot, dateStr, absences, nil)
-		if primary == "" {
+		avail := availableOnDate(pool, dateStr, absences)
+		if len(avail) == 0 {
 			continue
 		}
-		backup, _ := nextOncallFrom(pool, pNext, dateStr, absences, map[string]bool{primary: true})
-		if backup == "" {
-			backup = primary
+		var primary, backup string
+		if isSpecialDutyDay(dateStr) {
+			// вихідні/свята: найменше primary / backup серед доступних
+			primary = pickLeastLoaded(avail, wPrim, nil)
+			backup = pickLeastLoaded(avail, wBak, map[string]bool{primary: true})
+			if backup == "" {
+				backup = primary
+			}
+			wPrim[primary]++
+			wBak[backup]++
+			// ротація буднів не зсувається «через» вихідний — лишаємо rot
+		} else {
+			primary, pNext := nextOncallFrom(pool, rot, dateStr, absences, nil)
+			if primary == "" {
+				continue
+			}
+			backup, _ = nextOncallFrom(pool, pNext, dateStr, absences, map[string]bool{primary: true})
+			if backup == "" {
+				backup = primary
+			}
+			rot = pNext
 		}
-		// наступний день починається після primary (класична ротація пар: P0/P1 → P1/P2 → …)
-		rot = pNext
 		shifts[dateStr] = Shift{Date: dateStr, PrimaryUser: primary, BackupUser: backup}
 	}
 	return shifts
