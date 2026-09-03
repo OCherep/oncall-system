@@ -1214,8 +1214,8 @@ function isAdminUser() {
                     <h3 style="margin:0 0 8px">Підсумок по днях</h3>
                     <table style="width:100%;font-size:13px"><thead><tr>
                       <th>Дата</th><th>Співробітник</th><th>Перша подія</th><th>Тип</th>
-                      <th>Span (хв)</th><th>BRB (хв)</th><th>Away (хв)</th><th><b>Продуктивність (хв)</b></th>
-                    </tr></thead><tbody id="prod-days-body"><tr><td colspan="8">…</td></tr></tbody></table>
+                      <th>Тип дня</th><th>Span (хв)</th><th>BRB (хв)</th><th>Away (хв)</th><th>Спец. дні (хв)</th><th><b>Продуктивність (хв)</b></th>
+                    </tr></thead><tbody id="prod-days-body"><tr><td colspan="10">…</td></tr></tbody></table>
                   </div>
                   <div class="card" style="padding:12px;overflow-x:auto">
                     <h3 style="margin:0 0 8px">Інтервали присутності (BRB тощо)</h3>
@@ -1340,7 +1340,7 @@ function isAdminUser() {
                       <h3 style="margin:0 0 8px">Графік чергувань</h3>
                       <p style="font-size:12px;opacity:.75;margin:0 0 12px">
                         Ручне вирівнювання днів або <b>перерахунок лише вперед</b> від поточної пари (минуле не змінюється).
-                        Тимчасова заміна на один день — через API relief / «Я знову на місці».
+                        Тимчасова заміна — relief / «Я знову на місці». Вихідні/свята розподіляються справедливо (найменше навантажений). Свята: setting <code>holidays</code> (YYYY-MM-DD через кому) або on-grid exception mode=off.
                       </p>
                       <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin-bottom:12px">
                         <div class="form-group" style="margin:0"><label>Місяць</label>
@@ -2851,9 +2851,11 @@ window.logout = logout;
                         <td>${escHtml(x.user_name)}</td>
                         <td>${escHtml(x.first_event_at)}</td>
                         <td>${escHtml(x.first_event_type)}</td>
+                        <td>${escHtml(x.day_kind||'weekday')}</td>
                         <td>${x.span_minutes||0}</td>
                         <td>${x.brb_minutes||0}</td>
                         <td>${x.away_minutes||0}</td>
+                        <td>${x.special_minutes||0}</td>
                         <td><b>${x.productive_minutes||0}</b></td>
                     </tr>`).join('');
                 }
