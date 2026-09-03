@@ -491,6 +491,7 @@ function themeToggleHTML(){
                     <div class="sidebar-item ${currentSubPage==='queues'?'active':''}" onclick="loadSubPage('queues')"><span class="nav-label">Черги задач</span><span class="nav-dot hidden" id="dot-queues" title="Є зміни"></span></div>
                     <div class="sidebar-item ${currentSubPage==='tasks'?'active':''}" onclick="loadSubPage('tasks')"><span class="nav-label">Усі задачі</span><span class="nav-dot hidden" id="dot-tasks" title="Прострочені"></span></div>
                     <div class="sidebar-item ${currentSubPage==='inc-archive'?'active':''}" onclick="loadSubPage('inc-archive')"><span class="nav-label">Усі звернення</span><span class="nav-dot hidden" id="dot-incidents" title="Відкриті звернення"></span></div>
+                    <div class="sidebar-item ${currentSubPage==='productivity'?'active':''}" onclick="loadSubPage('productivity')"><span class="nav-label">Продуктивність</span></div>
                     <div class="sidebar-item ${currentSubPage==='approval'?'active':''}" onclick="loadSubPage('approval')"><span class="nav-label">Для затвердження</span><span class="nav-dot hidden" id="dot-approval" title="На перевірку"></span></div>
                 `;
             } else if (currentMainMenu === 'settings') {
@@ -1191,7 +1192,40 @@ function isAdminUser() {
                         <div id="inc-cmt-body"></div>
                     </div>`;
                 loadIncArchive();
+                        } else if (sub === 'productivity') {
+                breadcrumbs.innerHTML = `Головна / Адміністрування / Менеджмент / <b>Продуктивність</b>`;
+                const today = new Date().toISOString().slice(0,10);
+                const monthStart = today.slice(0,8) + '01';
+                container.innerHTML = `
+                  <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin-bottom:14px">
+                    <h2 style="margin:0;flex:1">Продуктивність</h2>
+                    <div class="form-group" style="margin:0"><label>З</label><input type="date" id="prod-from" value="${monthStart}"></div>
+                    <div class="form-group" style="margin:0"><label>До</label><input type="date" id="prod-to" value="${today}"></div>
+                    <div class="form-group" style="margin:0"><label>Дата (день)</label><input type="date" id="prod-day" title="Якщо задано — only this day"></div>
+                    <button class="btn btn-primary" onclick="loadProductivity()">Оновити</button>
+                  </div>
+                  <p style="font-size:12px;opacity:.8;margin:0 0 12px">
+                    <b>Продуктивний час</b> ≈ від першої події дня (зазвичай перший логін) до кінця дня/зараз
+                    мінус інтервали <b>BRB</b> (і подібні away). Slack-реакції/дописи — згодом.
+                    Повернення з BRB: <code>/brb</code> з новим часом перезаписує; зняти —
+                    <code>DELETE /api/brb?user=…</code> або кнопка «Зняти BRB» нижче; після планового until автоматично не в «активних».
+                  </p>
+                  <div class="card" style="padding:12px;margin-bottom:16px;overflow-x:auto">
+                    <h3 style="margin:0 0 8px">Підсумок по днях</h3>
+                    <table style="width:100%;font-size:13px"><thead><tr>
+                      <th>Дата</th><th>Співробітник</th><th>Перша подія</th><th>Тип</th>
+                      <th>Span (хв)</th><th>BRB (хв)</th><th>Away (хв)</th><th><b>Продуктивність (хв)</b></th>
+                    </tr></thead><tbody id="prod-days-body"><tr><td colspan="8">…</td></tr></tbody></table>
+                  </div>
+                  <div class="card" style="padding:12px;overflow-x:auto">
+                    <h3 style="margin:0 0 8px">Інтервали присутності (BRB тощо)</h3>
+                    <table style="width:100%;font-size:13px"><thead><tr>
+                      <th>ID</th><th>Хто</th><th>Тип</th><th>Початок</th><th>Кінець</th><th>План until</th><th>Джерело</th><th></th>
+                    </tr></thead><tbody id="prod-int-body"><tr><td colspan="8">…</td></tr></tbody></table>
+                  </div>`;
+                loadProductivity();
             } else if (sub === 'approval') {
+
                 breadcrumbs.innerHTML = `Головна / Адміністрування / Менеджмент / <b>Для затвердження</b>`;
                 container.innerHTML = `<h2>Сторінка затвердження відпусток</h2><div id="requests-tables"></div>`;
                 loadRequestsData();
@@ -2790,6 +2824,62 @@ window.logout = logout;
         window.loadShiftsMonth = loadShiftsMonth;
         window.saveShiftsBulk = saveShiftsBulk;
         window.recalcShiftsForward = recalcShiftsForward;
+
+
+        async function loadProductivity() {
+            const day = (document.getElementById('prod-day')||{}).value;
+            let url = '/api/admin/productivity?';
+            if (day) url += 'date=' + encodeURIComponent(day);
+            else {
+                const f = (document.getElementById('prod-from')||{}).value || '';
+                const t = (document.getElementById('prod-to')||{}).value || '';
+                url += 'from=' + encodeURIComponent(f) + '&to=' + encodeURIComponent(t);
+            }
+            try {
+                const r = await fetch(url, { credentials: 'same-origin' });
+                const d = await r.json();
+                const tb = document.getElementById('prod-days-body');
+                const ib = document.getElementById('prod-int-body');
+                if (tb) {
+                    const days = d.days || [];
+                    if (!days.length) tb.innerHTML = '<tr><td colspan="8" style="opacity:.6">Немає якорів дня (потрібен логін або BRB end)</td></tr>';
+                    else tb.innerHTML = days.map(x => `<tr>
+                        <td>${escHtml(x.work_date)}</td>
+                        <td>${escHtml(x.user_name)}</td>
+                        <td>${escHtml(x.first_event_at)}</td>
+                        <td>${escHtml(x.first_event_type)}</td>
+                        <td>${x.span_minutes||0}</td>
+                        <td>${x.brb_minutes||0}</td>
+                        <td>${x.away_minutes||0}</td>
+                        <td><b>${x.productive_minutes||0}</b></td>
+                    </tr>`).join('');
+                }
+                if (ib) {
+                    const ints = d.intervals || [];
+                    if (!ints.length) ib.innerHTML = '<tr><td colspan="8" style="opacity:.6">Немає інтервалів</td></tr>';
+                    else ib.innerHTML = ints.map(x => `<tr>
+                        <td>${x.id}</td><td>${escHtml(x.user_name)}</td><td>${escHtml(x.kind)}</td>
+                        <td>${escHtml(x.started_at)}</td><td>${escHtml(x.ended_at||'—')}</td>
+                        <td>${escHtml(x.until_planned||'')}</td><td>${escHtml(x.source||'')}</td>
+                        <td>${!x.ended_at && x.kind==='brb' ? `<button class="btn" style="padding:2px 8px" onclick="adminCloseBrb('${String(x.user_name).replace(/'/g,"\\'")}')">Зняти BRB</button>` : ''}</td>
+                    </tr>`).join('');
+                }
+            } catch (e) {
+                const tb = document.getElementById('prod-days-body');
+                if (tb) tb.innerHTML = '<tr><td colspan="8">'+String(e).replace(/</g,'&lt;')+'</td></tr>';
+            }
+        }
+        async function adminCloseBrb(name) {
+            if (!confirm('Зняти BRB для '+name+'?')) return;
+            await fetch('/api/admin/productivity', {
+                method: 'POST', credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'close_brb', user_name: name, actor: (currentUser&&currentUser.name)||'admin' })
+            });
+            loadProductivity();
+        }
+        window.loadProductivity = loadProductivity;
+        window.adminCloseBrb = adminCloseBrb;
 
 window.loadSubPage = loadSubPage;
 window.loadSecuritySettings = loadSecuritySettings;
