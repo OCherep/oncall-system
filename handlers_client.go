@@ -309,28 +309,47 @@ func generateShifts(year, month int, oncallUsers []string, absences []AbsenceReq
 	if len(oncallUsers) == 0 {
 		return shifts
 	}
-	rr := 0
+	// Фіксований порядок пулу; primary і backup — наступні доступні в ротації (не «перший у списку»).
+	pool := oncallUsers
+	rot := 0
 	for d := 1; d <= daysInMonth; d++ {
 		dateStr := fmt.Sprintf("%04d-%02d-%02d", year, month, d)
-		var available []string
-		for _, name := range oncallUsers {
-			if !isAbsentOnDate(name, dateStr, absences) {
-				available = append(available, name)
-			}
-		}
-		if len(available) == 0 {
+		primary, pNext := nextOncallFrom(pool, rot, dateStr, absences, nil)
+		if primary == "" {
 			continue
 		}
-		pIdx := rr % len(available)
-		primary := available[pIdx]
-		backup := primary
-		if len(available) > 1 {
-			backup = available[(pIdx+1)%len(available)]
+		backup, _ := nextOncallFrom(pool, pNext, dateStr, absences, map[string]bool{primary: true})
+		if backup == "" {
+			backup = primary
 		}
-		rr++
+		// наступний день починається після primary (класична ротація пар: P0/P1 → P1/P2 → …)
+		rot = pNext
 		shifts[dateStr] = Shift{Date: dateStr, PrimaryUser: primary, BackupUser: backup}
 	}
 	return shifts
+}
+
+// nextOncallFrom — наступний доступний з pool починаючи з startIdx (циклічно), пропускаючи absent і skip.
+func nextOncallFrom(pool []string, startIdx int, dateStr string, absences []AbsenceRequest, skip map[string]bool) (name string, nextIdx int) {
+	n := len(pool)
+	if n == 0 {
+		return "", startIdx
+	}
+	if startIdx < 0 {
+		startIdx = 0
+	}
+	for try := 0; try < n; try++ {
+		i := (startIdx + try) % n
+		cand := pool[i]
+		if skip != nil && skip[cand] {
+			continue
+		}
+		if isAbsentOnDate(cand, dateStr, absences) {
+			continue
+		}
+		return cand, (i + 1) % n
+	}
+	return "", startIdx % n
 }
 
 func scanDailyTask(scanner interface{ Scan(...interface{}) error }) (DailyTask, error) {
