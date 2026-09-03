@@ -159,6 +159,8 @@ type prodDayRow struct {
 	AwayMinutes    int    `json:"away_minutes"`
 	SpanMinutes    int    `json:"span_minutes"` // first_event → now/eod
 	ProductiveMin  int    `json:"productive_minutes"`
+	SpecialMin     int    `json:"special_minutes"` // вихідні/свята/exception — входить у productive
+	DayKind        string `json:"day_kind"`        // weekday|weekend|holiday|exception
 	SlackActions   int    `json:"slack_actions"` // placeholder future
 }
 
@@ -214,6 +216,10 @@ func computeProductivity(from, to, userFilter string) []prodDayRow {
 		r.ProductiveMin = r.SpanMinutes - r.BRBMinutes - r.AwayMinutes
 		if r.ProductiveMin < 0 {
 			r.ProductiveMin = 0
+		}
+		r.DayKind = dayKindLabel(r.WorkDate)
+		if r.DayKind != "weekday" {
+			r.SpecialMin = r.ProductiveMin // увесь продуктивний час дня на спецдні
 		}
 		out = append(out, r)
 	}
