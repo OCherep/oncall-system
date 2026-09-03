@@ -76,11 +76,15 @@ func setBRB(userName, untilHHMM, note string) error {
 	// clear previous active
 	db.Exec(`UPDATE user_brb SET cleared_at=CURRENT_TIMESTAMP WHERE user_name=? AND cleared_at IS NULL`, userName)
 	_, err := db.Exec(`INSERT INTO user_brb (user_name, until_at, note) VALUES (?,?,?)`, userName, until, note)
+	if err == nil {
+		openPresenceInterval(userName, "brb", until, note, note)
+	}
 	return err
 }
 
 func clearBRB(userName string) {
 	db.Exec(`UPDATE user_brb SET cleared_at=CURRENT_TIMESTAMP WHERE user_name=? AND cleared_at IS NULL`, userName)
+	closePresenceInterval(userName, "brb")
 }
 
 // handleBRB — GET list / POST set / DELETE clear
