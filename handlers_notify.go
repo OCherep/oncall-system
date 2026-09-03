@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -98,9 +99,78 @@ func notifyUserSlack(userName, text string) {
 	}()
 }
 
+
+// --- B6: диспетчери + дедуп сповіщень ---
+
+var notifyDedupe = struct {
+	sync.Mutex
+	last map[string]time.Time
+}{last: map[string]time.Time{}}
+
+func notifyOnce(key string, ttl time.Duration) bool {
+	notifyDedupe.Lock()
+	defer notifyDedupe.Unlock()
+	now := time.Now()
+	for k, t := range notifyDedupe.last {
+		if now.Sub(t) > 10*time.Minute {
+			delete(notifyDedupe.last, k)
+		}
+	}
+	if t, ok := notifyDedupe.last[key]; ok && now.Sub(t) < ttl {
+		return false
+	}
+	notifyDedupe.last[key] = now
+	return true
+}
+
+// listDispatchers — імена з app_settings.dispatchers (comma) або всі role=admin.
+func listDispatchers() []string {
+	raw := strings.TrimSpace(getSetting("dispatchers", ""))
+	var out []string
+	seen := map[string]bool{}
+	if raw != "" {
+		for _, p := range strings.Split(raw, ",") {
+			p = strings.TrimSpace(p)
+			if p == "" || seen[p] {
+				continue
+			}
+			seen[p] = true
+			out = append(out, p)
+		}
+		if len(out) > 0 {
+			return out
+		}
+	}
+	rows, err := db.Query(`SELECT name FROM users WHERE role='admin' ORDER BY id`)
+	if err != nil {
+		return out
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var n string
+		rows.Scan(&n)
+		if n != "" && !seen[n] {
+			seen[n] = true
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+func notifyDispatchers(text string) {
+	for _, name := range listDispatchers() {
+		notifyUserSlack(name, text)
+	}
+}
+
 // notifyOncallAboutIncident — team channel (Slack+TG) + DM черговим у Slack.
 func notifyOncallAboutIncident(inc IncidentReport) {
 	if !notifyEnabled() {
+		return
+	}
+	key := fmt.Sprintf("inc-new-%d", inc.ID)
+	if inc.ID > 0 && !notifyOnce(key, 2*time.Minute) {
+		log.Printf("notify dedupe skip %s", key)
 		return
 	}
 	today := time.Now().Format("2006-01-02")
@@ -116,16 +186,38 @@ func notifyOncallAboutIncident(inc IncidentReport) {
 	notifyTeam(msg)
 
 	seen := map[string]bool{}
-	for _, name := range []string{primary, backup, inc.UserName} {
+	personal := fmt.Sprintf("🔔 Звернення #%d (%s)\n%s\nПріоритет: %s · Source: %s",
+		inc.ID, date, truncateRunes(inc.Description, 200), nz(inc.Priority, "Звичайний"), nz(inc.Source, "webhook"))
+	// fix escapes - use real newlines in source
+	personal = fmt.Sprintf("🔔 Звернення #%d (%s)
+%s
+Пріоритет: %s · Source: %s",
+		inc.ID, date, truncateRunes(inc.Description, 200), nz(inc.Priority, "Звичайний"), nz(inc.Source, "webhook"))
+	if inc.ExternalID != "" {
+		personal += "
+Jira: " + inc.ExternalID
+	}
+	if base := publicBaseURL(); base != "" && inc.ID > 0 {
+		personal += fmt.Sprintf("
+%s/admin.html#inc=%d", strings.TrimRight(base, "/"), inc.ID)
+	}
+
+	var targets []string
+	if strings.TrimSpace(inc.UserName) != "" {
+		targets = append(targets, inc.UserName)
+		if priorityRank(inc.Priority) >= 3 {
+			targets = append(targets, primary, backup)
+		}
+	} else {
+		targets = append(targets, listDispatchers()...)
+		targets = append(targets, primary, backup)
+	}
+	for _, name := range targets {
+		name = strings.TrimSpace(name)
 		if name == "" || seen[name] {
 			continue
 		}
 		seen[name] = true
-		personal := fmt.Sprintf("🔔 Звернення #%d (%s)\n%s\nПріоритет: %s · Source: %s",
-			inc.ID, date, truncateRunes(inc.Description, 200), nz(inc.Priority, "Звичайний"), nz(inc.Source, "webhook"))
-		if inc.ExternalID != "" {
-			personal += "\nJira: " + inc.ExternalID
-		}
 		notifyUserSlack(name, personal)
 	}
 }
