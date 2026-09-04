@@ -1308,7 +1308,7 @@ function isAdminUser() {
                           <button class="btn btn-primary" onclick="openUserModal()">+ Користувач</button>
                         </div></div>
                         <div id="pager-users"></div>
-                        <table><thead><tr><th>Ім'я</th><th>Логін</th><th>Email</th><th>Slack</th><th>Телефон</th><th>Роль</th><th>Роль у команді</th><th>Команда</th><th>On-call</th><th>У roster</th><th>Дії</th></tr></thead>
+                        <table><thead><tr><th>Ім'я</th><th>Логін</th><th>Email</th><th>Slack</th><th>Телефон</th><th>Роль</th><th>Роль у команді</th><th>Команда</th><th>On-call</th><th>У roster</th><th>BRB Slack</th><th>Дії</th></tr></thead>
                         <tbody id="users-table"></tbody></table>
                     </div>
 
@@ -1512,6 +1512,13 @@ function isAdminUser() {
             }
             if (!Array.isArray(loadedUsers)) loadedUsers = [];
         }
+        async function fetchWithTimeout(url, opts, ms) {
+            const ctrl = new AbortController();
+            const t = setTimeout(() => ctrl.abort(), ms || 15000);
+            try {
+                return await fetch(url, Object.assign({ credentials: 'same-origin', signal: ctrl.signal }, opts || {}));
+            } finally { clearTimeout(t); }
+        }
         async function safeJson(res) {
             if (!res.ok) {
                 console.error('API', res.url, res.status);
@@ -1705,10 +1712,13 @@ function isAdminUser() {
         async function loadDictionariesData() {
             try {
                 const [uRes, rRes, aRes] = await Promise.all([
-                    fetch('/api/admin/users'),
-                    fetch('/api/admin/roles'),
-                    fetch('/api/admin/absence-types')
+                    fetch('/api/admin/users', { credentials: 'same-origin' }),
+                    fetch('/api/admin/roles', { credentials: 'same-origin' }),
+                    fetch('/api/admin/absence-types', { credentials: 'same-origin' })
                 ]);
+                if (!uRes.ok || !rRes.ok || !aRes.ok) {
+                    console.warn('dicts HTTP', uRes.status, rRes.status, aRes.status);
+                }
                 loadedUsers = await safeJson(uRes);
                 loadedRoles = await safeJson(rRes);
                 loadedAbsTypes = await safeJson(aRes);
@@ -1737,11 +1747,12 @@ function isAdminUser() {
                             <td>${escHtml(u.team_name||'—')}</td>
                             <td>${u.is_oncall ? 'Так' : 'Ні'}</td>
                             <td>${(u.show_in_roster!==false && u.show_in_roster!==0) ? 'Так' : 'Ні'}</td>
+                            <td>${(u.brb_slack_status!==false && u.brb_slack_status!==0) ? 'Так' : 'Ні'}</td>
                             <td>
                                 <button class="btn" onclick="editUser(${u.id})">Редагувати</button>
                                 <button class="btn btn-danger" onclick="deleteUser(${u.id})">Видалити</button>
                             </td>
-                        </tr>`).join('') : '<tr><td colspan="11">Немає користувачів</td></tr>';
+                        </tr>`).join('') : '<tr><td colspan="12">Немає користувачів'+(uRes && !uRes.ok ? ' (API '+uRes.status+')' : '')+'</td></tr>';
                 }
 
                 const rt = document.getElementById('roles-table');
@@ -2657,7 +2668,7 @@ async function toggleArchCmt(id) {
                 const q = new URLSearchParams();
                 if (user) q.set('user', user);
                 if (status) q.set('status', status);
-                const r = await fetch('/api/admin/tasks?' + q.toString(), { credentials: 'same-origin' });
+                const r = await fetchWithTimeout('/api/admin/tasks?' + q.toString(), {}, 20000);
                 if (!r.ok) {
                     tb.innerHTML = `<tr><td colspan="9" style="color:#ef4444">Помилка API: ${r.status} ${await r.text()}</td></tr>`;
                     return;
