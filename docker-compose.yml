@@ -38,8 +38,7 @@ services:
     container_name: oncall_nginx_5
     restart: always
     ports:
-      - "85:443"   # HTTPS — UI, API, Slack webhooks
-      - "80:80"    # HTTP — Let's Encrypt ACME + fallback
+      - "85:443"   # HTTPS only — port 80 reserved for devops-hub
     environment:
       - TLS_CN=${TLS_CN:-s.ks.tv}
     volumes:
