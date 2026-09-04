@@ -1092,12 +1092,35 @@ func handleIncidents(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		shouldNotify := applyIncidentRouting(&inc)
+		// Адресат: team | конкретний виконавець (не скасовує on-grid auto-assign якщо вже є)
+		scope := strings.ToLower(strings.TrimSpace(inc.DirectedScope))
+		if scope == "" {
+			if strings.TrimSpace(inc.DirectedTo) != "" && strings.TrimSpace(inc.DirectedTo) != "__team__" {
+				scope = "user"
+			} else {
+				scope = "team"
+			}
+		}
+		inc.DirectedScope = scope
+		if scope == "user" && strings.TrimSpace(inc.DirectedTo) != "" {
+			inc.UserName = strings.TrimSpace(inc.DirectedTo)
+			inc.DirectedTo = inc.UserName
+		} else {
+			inc.DirectedScope = "team"
+			inc.DirectedTo = ""
+			// лишаємо UserName з routing (може бути порожнім або auto)
+		}
+		if inc.TeamID <= 0 {
+			inc.TeamID = defaultTeamID()
+		}
 		res, err := db.Exec(`INSERT INTO incidents (user_name, date, type, duration_minutes, description, created_at,
-			status, priority, source, total_minutes, created_by, reported_for, reporter_name, reporter_email, reporter_slack)
-			VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			status, priority, source, total_minutes, created_by, reported_for, reporter_name, reporter_email, reporter_slack,
+			team_id, directed_to, directed_scope)
+			VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			inc.UserName, inc.Date, inc.Type, inc.DurationMinutes, inc.Description,
 			inc.Status, inc.Priority, inc.Source, inc.TotalMinutes, inc.CreatedBy, inc.ReportedFor,
-			inc.ReporterName, inc.ReporterEmail, inc.ReporterSlack)
+			inc.ReporterName, inc.ReporterEmail, inc.ReporterSlack,
+			inc.TeamID, inc.DirectedTo, inc.DirectedScope)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
