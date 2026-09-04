@@ -178,12 +178,17 @@ func computeProductivity(from, to, userFilter string) []prodDayRow {
 	if err != nil {
 		return nil
 	}
-	defer rows.Close()
-	var out []prodDayRow
+	var anchors []prodDayRow
 	for rows.Next() {
 		var r prodDayRow
-		rows.Scan(&r.UserName, &r.WorkDate, &r.FirstEventAt, &r.FirstEventType)
-		// span
+		if err := rows.Scan(&r.UserName, &r.WorkDate, &r.FirstEventAt, &r.FirstEventType); err != nil {
+			continue
+		}
+		anchors = append(anchors, r)
+	}
+	rows.Close()
+	var out []prodDayRow
+	for _, r := range anchors {
 		st, e1 := parseKyivTime(r.FirstEventAt)
 		dayEnd, _ := parseKyivTime(r.WorkDate + " 23:59:59")
 		end := now
@@ -195,11 +200,10 @@ func computeProductivity(from, to, userFilter string) []prodDayRow {
 		if e1 == nil && end.After(st) {
 			r.SpanMinutes = int(end.Sub(st).Minutes())
 		}
-		// intervals
-		irows, _ := db.Query(`SELECT kind, started_at, COALESCE(ended_at,''), COALESCE(until_planned,'')
+		irows, ierr := db.Query(`SELECT kind, started_at, COALESCE(ended_at,''), COALESCE(until_planned,'')
 			FROM presence_intervals WHERE user_name=? AND started_at>=? AND started_at<?`,
 			r.UserName, r.WorkDate+" 00:00:00", r.WorkDate+" 23:59:59")
-		if irows != nil {
+		if ierr == nil && irows != nil {
 			for irows.Next() {
 				var kind, started, ended, until string
 				irows.Scan(&kind, &started, &ended, &until)
