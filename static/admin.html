@@ -1716,7 +1716,10 @@ function isAdminUser() {
 
                 const ut = document.getElementById('users-table');
                 if (ut) {
-                    ut.innerHTML = loadedUsers.length ? loadedUsers.map(u => `
+                    const upage = paginateList('users', loadedUsers);
+                    const uph = ensurePagerHost(ut, 'pager-users');
+                    if (uph) uph.innerHTML = pagerBarHtml('users', 'goUsersPage');
+                    ut.innerHTML = upage.items.length ? upage.items.map(u => `
                         <tr>
                             <td>${escHtml(u.name)}</td>
                             <td>${escHtml(u.username)}</td>
@@ -2335,7 +2338,48 @@ function hashIncDeepLink(){
 window.addEventListener('hashchange', hashIncDeepLink);
 
 
-        async function loadIncArchive() {
+        
+        /* ——— client pagination for long tables ——— */
+        window._pageState = window._pageState || {};
+        function defaultPageSize() { return 25; }
+        function paginateList(key, arr, pageSize) {
+            pageSize = pageSize || (_pageState[key] && _pageState[key].pageSize) || defaultPageSize();
+            const total = Array.isArray(arr) ? arr.length : 0;
+            const pages = Math.max(1, Math.ceil(total / pageSize) || 1);
+            let page = (_pageState[key] && _pageState[key].page) || 1;
+            if (page > pages) page = pages;
+            if (page < 1) page = 1;
+            _pageState[key] = { page, pageSize, total, pages };
+            const start = (page - 1) * pageSize;
+            return { items: (arr || []).slice(start, start + pageSize), page, pages, total, pageSize };
+        }
+        function pagerBarHtml(key, goFnName) {
+            const st = _pageState[key] || { page: 1, pages: 1, total: 0, pageSize: defaultPageSize() };
+            const sizes = [15, 25, 50, 100];
+            return `<div class="pager-bar" data-key="${key}" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:10px 0;font-size:13px">
+              <button type="button" class="btn" ${st.page<=1?'disabled':''} onclick="${goFnName}(${st.page-1})">←</button>
+              <span>Стор. <b>${st.page}</b> / ${st.pages} · усього ${st.total}</span>
+              <button type="button" class="btn" ${st.page>=st.pages?'disabled':''} onclick="${goFnName}(${st.page+1})">→</button>
+              <label style="opacity:.8">На стор.</label>
+              <select onchange="${goFnName}(1, +this.value)" style="padding:4px 8px">
+                ${sizes.map(n => `<option value="${n}" ${(st.pageSize||25)===n?'selected':''}>${n}</option>`).join('')}
+              </select>
+            </div>`;
+        }
+        function ensurePagerHost(tableEl, hostId) {
+            if (!tableEl) return null;
+            let host = document.getElementById(hostId);
+            if (!host) {
+                host = document.createElement('div');
+                host.id = hostId;
+                const card = tableEl.closest('.card') || tableEl.parentElement;
+                if (card) card.insertBefore(host, tableEl);
+                else tableEl.parentElement.insertBefore(host, tableEl);
+            }
+            return host;
+        }
+
+async function loadIncArchive() {
             const tb = document.getElementById('admin-incs-table');
             if (!tb) { console.warn('admin-incs-table missing'); return; }
             tb.innerHTML = '<tr><td colspan="10">Завантаження…</td></tr>';
@@ -2352,15 +2396,20 @@ window.addEventListener('hashchange', hashIncDeepLink);
                     return;
                 }
                 let list = await safeJson(r);
+                if (!Array.isArray(list)) list = [];
                 window._adminIncsCache = list;
-                if (!Array.isArray(list) || !list.length) {
+                if (!list.length) {
                     tb.innerHTML = '<tr><td colspan="10" style="color:#64748b">Немає звернень</td></tr>';
+                    const ph = ensurePagerHost(tb, 'pager-incs'); if (ph) ph.innerHTML = '';
                     return;
                 }
                 const statuses = ['Нове','В роботі','На паузі','Вирішено','Архів'];
                 const prios = ['Звичайний','Підвищений','Високий','Критичний','Терміновий'];
                 list.forEach(i => { if (i.priority && !prios.includes(i.priority)) prios.push(i.priority); });
-                tb.innerHTML = list.map(inc => {
+                const page = paginateList('incs', list);
+                const ph = ensurePagerHost(tb, 'pager-incs');
+                if (ph) ph.innerHTML = pagerBarHtml('incs', 'goIncsPage');
+                tb.innerHTML = page.items.map(inc => {
                     const stOpts = statuses.map(s => '<option '+(s===(inc.status||'Нове')?'selected':'')+'>'+s+'</option>').join('');
                     const prOpts = prios.map(s => '<option '+(s===(inc.priority||'Звичайний')?'selected':'')+'>'+s+'</option>').join('');
                     const desc = String(inc.description||'').replace(/</g,'&lt;').replace(/>/g,'&gt;');
@@ -2397,7 +2446,56 @@ window.addEventListener('hashchange', hashIncDeepLink);
             }
         }
 
+        function goIncsPage(p, size) {
+            if (size) { if (!_pageState.incs) _pageState.incs = {}; _pageState.incs.pageSize = size; }
+            if (!_pageState.incs) _pageState.incs = {};
+            _pageState.incs.page = p || 1;
+            const list = window._adminIncsCache || [];
+            const tb = document.getElementById('admin-incs-table');
+            if (!tb || !list.length) { loadIncArchive(); return; }
+            // re-run render by temporarily calling load path — simplest: loadIncArchive keeps cache if we extract render
+            loadIncArchive._fromPage = true;
+            const statuses = ['Нове','В роботі','На паузі','Вирішено','Архів'];
+            const prios = ['Звичайний','Підвищений','Високий','Критичний','Терміновий'];
+            list.forEach(i => { if (i.priority && !prios.includes(i.priority)) prios.push(i.priority); });
+            const page = paginateList('incs', list);
+            const ph = ensurePagerHost(tb, 'pager-incs');
+            if (ph) ph.innerHTML = pagerBarHtml('incs', 'goIncsPage');
+            tb.innerHTML = page.items.map(inc => {
+                const stOpts = statuses.map(s => '<option '+(s===(inc.status||'Нове')?'selected':'')+'>'+s+'</option>').join('');
+                const prOpts = prios.map(s => '<option '+(s===(inc.priority||'Звичайний')?'selected':'')+'>'+s+'</option>').join('');
+                const desc = String(inc.description||'').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+                const short = desc.length>80 ? desc.slice(0,80)+'…' : desc;
+                const converted = !!(inc.converted_to_task_id && inc.converted_to_task_id > 0);
+                const convBtn = converted
+                    ? '<button class="btn btn-conv-done" disabled>✓ #'+inc.converted_to_task_id+'</button>'
+                    : '<button class="btn btn-conv-ok" onclick="adminConvertInc('+inc.id+')">→задача</button>';
+                const authorName = String(inc.reporter_name || inc.created_by || '—').replace(/</g,'&lt;');
+                const plan = inc.duration_minutes||0;
+                const fact = inc.fact_minutes||inc.total_minutes||0;
+                const resolved = (inc.status==='Вирішено' || inc.status==='Архів');
+                const timeCell = resolved ? ('<b>'+plan+'</b> / <b>'+(fact||'—')+'</b> хв') : (plan+' хв');
+                return '<tr class="'+(converted?'row-converted':'')+'">' +
+                    '<td>#'+inc.id+'</td>' +
+                    '<td>'+(inc.date||'')+'</td>' +
+                    '<td style="font-size:12px"><b>'+authorName+'</b></td>' +
+                    '<td>'+memberSelectHtml(inc.user_name||'', "adminUpdInc("+inc.id+",'user_name',this.value)", '—')+'</td>' +
+                    '<td><select onchange="adminUpdInc('+inc.id+',\'status\',this.value)">'+stOpts+'</select></td>' +
+                    '<td><select onchange="adminUpdInc('+inc.id+',\'priority\',this.value)">'+prOpts+'</select></td>' +
+                    '<td>'+String(inc.source||'').replace(/</g,'&lt;')+'</td>' +
+                    '<td style="max-width:260px" title="'+desc.replace(/"/g,'&quot;')+'">'+short+'</td>' +
+                    '<td style="font-size:12px">'+timeCell+'</td>' +
+                    '<td style="white-space:nowrap">' +
+                      '<button class="btn" style="padding:2px 8px" onclick="openEditInc('+inc.id+')">✎</button> ' +
+                      '<button class="btn" style="padding:2px 8px" onclick="adminShowIncCmts('+inc.id+')">💬</button> ' +
+                      convBtn + ' ' +
+                      '<button class="btn btn-danger" style="padding:2px 8px" onclick="adminDelInc('+inc.id+')">✕</button>' +
+                    '</td></tr>';
+            }).join('');
+        }
+        window.goIncsPage = goIncsPage;
         window.loadIncArchive = loadIncArchive;
+
         async function adminUpdInc(id, field, val) {
             const body = { id, role: 'admin', actor: (currentUser && currentUser.name) || 'admin' };
             body[field] = val;
@@ -2557,12 +2655,16 @@ async function toggleArchCmt(id) {
                 list = filtered;
                 window._adminTasksCache = list;
                 if (!list.length) {
-                    tb.innerHTML = '<tr><td colspan="9" style="color:#64748b">Немає задач</td></tr>';
+                    tb.innerHTML = '<tr><td colspan="10" style="color:#64748b">Немає задач</td></tr>';
+                    const ph = ensurePagerHost(tb, 'pager-tasks'); if (ph) ph.innerHTML = '';
                     return;
                 }
                 const statuses = ['Нерозподілена','Нова','У роботі','На паузі','До перевірки','Виконана','Перевідкрита','Архів'];
                 const prios = ['Базова','Підвищена','Термінова','Надкритична','Техборг','У шухляду'];
-                tb.innerHTML = list.map(task => {
+                const page = paginateList('tasks', list);
+                const ph = ensurePagerHost(tb, 'pager-tasks');
+                if (ph) ph.innerHTML = pagerBarHtml('tasks', 'goTasksPage');
+                tb.innerHTML = page.items.map(task => {
                     const stOpts = statuses.map(s => `<option ${s===(task.status||'Нова')?'selected':''}>${s}</option>`).join('');
                     const prOpts = prios.map(s => `<option ${s===(task.priority||'Базова')?'selected':''}>${s}</option>`).join('');
                     const desc = String(task.task_description||'').replace(/</g,'&lt;').replace(/>/g,'&gt;');
@@ -2588,7 +2690,15 @@ async function toggleArchCmt(id) {
             }
         }
 
+        function goTasksPage(p, size) {
+            if (size) { if (!_pageState.tasks) _pageState.tasks = {}; _pageState.tasks.pageSize = size; }
+            if (!_pageState.tasks) _pageState.tasks = {};
+            _pageState.tasks.page = p || 1;
+            loadAdminTasks();
+        }
+        window.goTasksPage = goTasksPage;
         window.loadAdminTasks = loadAdminTasks;
+
         async function adminUpdTask(id, field, val) {
             const body = { id, role: 'admin', actor: (currentUser && currentUser.name) || 'admin' };
             body[field] = val;
@@ -3057,7 +3167,15 @@ window.logout = logout;
             if (!r.ok) alert(await r.text());
             loadTeamsList();
         }
+        function goUsersPage(p, size) {
+            if (size) { if (!_pageState.users) _pageState.users = {}; _pageState.users.pageSize = size; }
+            if (!_pageState.users) _pageState.users = {};
+            _pageState.users.page = p || 1;
+            loadDictionariesData();
+        }
+        window.goUsersPage = goUsersPage;
         window.loadTeamsList = loadTeamsList;
+
         window.addTeamPrompt = addTeamPrompt;
         window.setDefaultTeam = setDefaultTeam;
         window.deleteTeam = deleteTeam;
@@ -3066,8 +3184,65 @@ window.loadSubPage = loadSubPage;
 window.loadSecuritySettings = loadSecuritySettings;
 window.saveSecuritySettings = saveSecuritySettings;
 window.loadDailyBoard = loadDailyBoard;
-window.loadAdminTasks = loadAdminTasks;
-window.loadIncArchive = loadIncArchive;
+function goTasksPage(p, size) {
+            if (size) { if (!_pageState.tasks) _pageState.tasks = {}; _pageState.tasks.pageSize = size; }
+            if (!_pageState.tasks) _pageState.tasks = {};
+            _pageState.tasks.page = p || 1;
+            loadAdminTasks();
+        }
+        window.goTasksPage = goTasksPage;
+        window.loadAdminTasks = loadAdminTasks;
+
+function goIncsPage(p, size) {
+            if (size) { if (!_pageState.incs) _pageState.incs = {}; _pageState.incs.pageSize = size; }
+            if (!_pageState.incs) _pageState.incs = {};
+            _pageState.incs.page = p || 1;
+            const list = window._adminIncsCache || [];
+            const tb = document.getElementById('admin-incs-table');
+            if (!tb || !list.length) { loadIncArchive(); return; }
+            // re-run render by temporarily calling load path — simplest: loadIncArchive keeps cache if we extract render
+            loadIncArchive._fromPage = true;
+            const statuses = ['Нове','В роботі','На паузі','Вирішено','Архів'];
+            const prios = ['Звичайний','Підвищений','Високий','Критичний','Терміновий'];
+            list.forEach(i => { if (i.priority && !prios.includes(i.priority)) prios.push(i.priority); });
+            const page = paginateList('incs', list);
+            const ph = ensurePagerHost(tb, 'pager-incs');
+            if (ph) ph.innerHTML = pagerBarHtml('incs', 'goIncsPage');
+            tb.innerHTML = page.items.map(inc => {
+                const stOpts = statuses.map(s => '<option '+(s===(inc.status||'Нове')?'selected':'')+'>'+s+'</option>').join('');
+                const prOpts = prios.map(s => '<option '+(s===(inc.priority||'Звичайний')?'selected':'')+'>'+s+'</option>').join('');
+                const desc = String(inc.description||'').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+                const short = desc.length>80 ? desc.slice(0,80)+'…' : desc;
+                const converted = !!(inc.converted_to_task_id && inc.converted_to_task_id > 0);
+                const convBtn = converted
+                    ? '<button class="btn btn-conv-done" disabled>✓ #'+inc.converted_to_task_id+'</button>'
+                    : '<button class="btn btn-conv-ok" onclick="adminConvertInc('+inc.id+')">→задача</button>';
+                const authorName = String(inc.reporter_name || inc.created_by || '—').replace(/</g,'&lt;');
+                const plan = inc.duration_minutes||0;
+                const fact = inc.fact_minutes||inc.total_minutes||0;
+                const resolved = (inc.status==='Вирішено' || inc.status==='Архів');
+                const timeCell = resolved ? ('<b>'+plan+'</b> / <b>'+(fact||'—')+'</b> хв') : (plan+' хв');
+                return '<tr class="'+(converted?'row-converted':'')+'">' +
+                    '<td>#'+inc.id+'</td>' +
+                    '<td>'+(inc.date||'')+'</td>' +
+                    '<td style="font-size:12px"><b>'+authorName+'</b></td>' +
+                    '<td>'+memberSelectHtml(inc.user_name||'', "adminUpdInc("+inc.id+",'user_name',this.value)", '—')+'</td>' +
+                    '<td><select onchange="adminUpdInc('+inc.id+',\'status\',this.value)">'+stOpts+'</select></td>' +
+                    '<td><select onchange="adminUpdInc('+inc.id+',\'priority\',this.value)">'+prOpts+'</select></td>' +
+                    '<td>'+String(inc.source||'').replace(/</g,'&lt;')+'</td>' +
+                    '<td style="max-width:260px" title="'+desc.replace(/"/g,'&quot;')+'">'+short+'</td>' +
+                    '<td style="font-size:12px">'+timeCell+'</td>' +
+                    '<td style="white-space:nowrap">' +
+                      '<button class="btn" style="padding:2px 8px" onclick="openEditInc('+inc.id+')">✎</button> ' +
+                      '<button class="btn" style="padding:2px 8px" onclick="adminShowIncCmts('+inc.id+')">💬</button> ' +
+                      convBtn + ' ' +
+                      '<button class="btn btn-danger" style="padding:2px 8px" onclick="adminDelInc('+inc.id+')">✕</button>' +
+                    '</td></tr>';
+            }).join('');
+        }
+        window.goIncsPage = goIncsPage;
+        window.loadIncArchive = loadIncArchive;
+
 window.ensureUsersLoaded = ensureUsersLoaded;
 
 window.dailyShift = dailyShift;
