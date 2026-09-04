@@ -58,13 +58,20 @@ func handleAdminUsers(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		ensureTeamsSchema()
-		rows, err := db.Query(`SELECT u.id, u.username, u.name, u.role, u.team_role_id, COALESCE(tr.name,''), COALESCE(u.is_oncall,1),
+		qFull := `SELECT u.id, u.username, u.name, u.role, u.team_role_id, COALESCE(tr.name,''), COALESCE(u.is_oncall,1),
 			COALESCE(u.slack_id,''), COALESCE(u.email,''), COALESCE(u.phone,''), COALESCE(u.show_in_roster, 1),
 			COALESCE(u.team_id,0), COALESCE(t.name,''), COALESCE(u.brb_slack_status, 1)
 			FROM users u
 			LEFT JOIN team_roles tr ON u.team_role_id=tr.id
 			LEFT JOIN teams t ON u.team_id=t.id
-			ORDER BY u.id`)
+			ORDER BY u.id`
+		qSimple := `SELECT id, username, name, role, COALESCE(team_role_id,0), '', COALESCE(is_oncall,1),
+			COALESCE(slack_id,''), COALESCE(email,''), COALESCE(phone,''), COALESCE(show_in_roster,1),
+			0, '', 1 FROM users ORDER BY id`
+		rows, err := db.Query(qFull)
+		if err != nil {
+			rows, err = db.Query(qSimple)
+		}
 		if err != nil {
 			http.Error(w, err.Error(), 500)
 			return
@@ -74,11 +81,16 @@ func handleAdminUsers(w http.ResponseWriter, r *http.Request) {
 		for rows.Next() {
 			var u User
 			var isOn, showR, brbSt int
-			rows.Scan(&u.ID, &u.Username, &u.Name, &u.Role, &u.TeamRoleID, &u.TeamRole, &isOn, &u.SlackID, &u.Email, &u.Phone, &showR, &u.TeamID, &u.TeamName, &brbSt)
+			if err := rows.Scan(&u.ID, &u.Username, &u.Name, &u.Role, &u.TeamRoleID, &u.TeamRole, &isOn, &u.SlackID, &u.Email, &u.Phone, &showR, &u.TeamID, &u.TeamName, &brbSt); err != nil {
+				continue
+			}
 			u.IsOncall = isOn == 1
 			u.ShowInRoster = showR == 1
 			u.BrbSlackStatus = brbSt != 0
 			list = append(list, u)
+		}
+		if list == nil {
+			list = []User{}
 		}
 		json.NewEncoder(w).Encode(list)
 	case http.MethodPost:
