@@ -133,6 +133,8 @@ func handleAppSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		allowed := map[string]bool{
 			"on_grid_start": true, "on_grid_end": true, "on_grid_timezone": true, "on_grid_weekdays": true,
+			"session_ttl_hours": true, "login_max_attempts": true, "login_lockout_minutes": true,
+			"session_secure": true, "dispatchers": true, "holidays": true,
 		}
 		for k, v := range body {
 			if allowed[k] {
