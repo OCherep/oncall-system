@@ -710,12 +710,45 @@ func handleGetData(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// canManageTeamAbsences — admin або роль у команді Team Lead / Project Manager (за назвою).
+func canManageTeamAbsences(actorName, actorRole string) bool {
+	if strings.EqualFold(strings.TrimSpace(actorRole), "admin") {
+		return true
+	}
+	actorName = strings.TrimSpace(actorName)
+	if actorName == "" {
+		return false
+	}
+	var roleName string
+	_ = db.QueryRow(`SELECT COALESCE(tr.name,'') FROM users u
+		LEFT JOIN team_roles tr ON u.team_role_id=tr.id WHERE u.name=? LIMIT 1`, actorName).Scan(&roleName)
+	low := strings.ToLower(roleName)
+	for _, k := range []string{"lead", "лім", "лідер", "manager", "менеджер", "pm", "проджект", "project"} {
+		if strings.Contains(low, k) {
+			return true
+		}
+	}
+	// system role admin by username lookup
+	var r string
+	_ = db.QueryRow(`SELECT COALESCE(role,'') FROM users WHERE name=? LIMIT 1`, actorName).Scan(&r)
+	return strings.EqualFold(r, "admin")
+}
+
 func handleRequestAbsence(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	var req AbsenceRequest
+	var req struct {
+		UserName   string `json:"user_name"`
+		Type       string `json:"type"`
+		StartDate  string `json:"start_date"`
+		EndDate    string `json:"end_date"`
+		Actor      string `json:"actor"`
+		ActorRole  string `json:"role"`
+		AutoApprove bool  `json:"auto_approve"`
+		Status     string `json:"status"`
+	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -724,17 +757,34 @@ func handleRequestAbsence(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "required fields", http.StatusBadRequest)
 		return
 	}
-	req.Status = "Pending"
+	actor := strings.TrimSpace(req.Actor)
+	status := "Pending"
+	// manager may add for others and optionally approve immediately
+	if canManageTeamAbsences(actor, req.ActorRole) {
+		if req.AutoApprove || strings.EqualFold(req.Status, "Approved") {
+			status = "Approved"
+		} else if req.Status != "" {
+			status = req.Status
+		}
+	} else if actor != "" && actor != req.UserName {
+		// звичайний user може подавати лише на себе
+		http.Error(w, "немає права створювати відсутність для іншого", http.StatusForbidden)
+		return
+	}
 	_, err := db.Exec(`INSERT INTO absences (user_name, type, start_date, end_date, status) VALUES (?, ?, ?, ?, ?)`,
-		req.UserName, req.Type, req.StartDate, req.EndDate, req.Status)
+		req.UserName, req.Type, req.StartDate, req.EndDate, status)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	logAudit(req.UserName, "REQUEST_ABSENCE", clientIP(r), req.Type+" "+req.StartDate+"-"+req.EndDate)
+	who := actor
+	if who == "" {
+		who = req.UserName
+	}
+	logAudit(who, "REQUEST_ABSENCE", clientIP(r), req.UserName+": "+req.Type+" "+req.StartDate+"-"+req.EndDate+" → "+status)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok", "absence_status": status})
 }
 
 func allowedIncNextStatuses(cur, role string) []string {
