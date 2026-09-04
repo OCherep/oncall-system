@@ -60,7 +60,7 @@ func handleAdminUsers(w http.ResponseWriter, r *http.Request) {
 		ensureTeamsSchema()
 		rows, err := db.Query(`SELECT u.id, u.username, u.name, u.role, u.team_role_id, COALESCE(tr.name,''), COALESCE(u.is_oncall,1),
 			COALESCE(u.slack_id,''), COALESCE(u.email,''), COALESCE(u.phone,''), COALESCE(u.show_in_roster, 1),
-			COALESCE(u.team_id,0), COALESCE(t.name,'')
+			COALESCE(u.team_id,0), COALESCE(t.name,''), COALESCE(u.brb_slack_status, 1)
 			FROM users u
 			LEFT JOIN team_roles tr ON u.team_role_id=tr.id
 			LEFT JOIN teams t ON u.team_id=t.id
@@ -73,10 +73,11 @@ func handleAdminUsers(w http.ResponseWriter, r *http.Request) {
 		var list []User
 		for rows.Next() {
 			var u User
-			var isOn, showR int
-			rows.Scan(&u.ID, &u.Username, &u.Name, &u.Role, &u.TeamRoleID, &u.TeamRole, &isOn, &u.SlackID, &u.Email, &u.Phone, &showR, &u.TeamID, &u.TeamName)
+			var isOn, showR, brbSt int
+			rows.Scan(&u.ID, &u.Username, &u.Name, &u.Role, &u.TeamRoleID, &u.TeamRole, &isOn, &u.SlackID, &u.Email, &u.Phone, &showR, &u.TeamID, &u.TeamName, &brbSt)
 			u.IsOncall = isOn == 1
 			u.ShowInRoster = showR == 1
+			u.BrbSlackStatus = brbSt != 0
 			list = append(list, u)
 		}
 		json.NewEncoder(w).Encode(list)
@@ -100,8 +101,12 @@ func handleAdminUsers(w http.ResponseWriter, r *http.Request) {
 		if u.TeamID <= 0 {
 			u.TeamID = defaultTeamID()
 		}
-		res, err := db.Exec(`INSERT INTO users (username, password, name, role, team_role_id, is_oncall, slack_id, email, phone, show_in_roster, team_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-			u.Username, u.Password, u.Name, u.Role, u.TeamRoleID, on, u.SlackID, u.Email, u.Phone, show, u.TeamID)
+		brbSt := 0
+		if u.BrbSlackStatus {
+			brbSt = 1
+		}
+		res, err := db.Exec(`INSERT INTO users (username, password, name, role, team_role_id, is_oncall, slack_id, email, phone, show_in_roster, team_id, brb_slack_status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+			u.Username, u.Password, u.Name, u.Role, u.TeamRoleID, on, u.SlackID, u.Email, u.Phone, show, u.TeamID, brbSt)
 		if err != nil {
 			http.Error(w, err.Error(), 500)
 			return
@@ -128,12 +133,16 @@ func handleAdminUsers(w http.ResponseWriter, r *http.Request) {
 		if u.TeamID <= 0 {
 			u.TeamID = defaultTeamID()
 		}
+		brbSt := 0
+		if u.BrbSlackStatus {
+			brbSt = 1
+		}
 		if u.Password != "" {
-			db.Exec(`UPDATE users SET username=?, password=?, name=?, role=?, team_role_id=?, is_oncall=?, slack_id=?, email=?, phone=?, show_in_roster=?, team_id=? WHERE id=?`,
-				u.Username, u.Password, u.Name, u.Role, u.TeamRoleID, on, u.SlackID, u.Email, u.Phone, show, u.TeamID, u.ID)
+			db.Exec(`UPDATE users SET username=?, password=?, name=?, role=?, team_role_id=?, is_oncall=?, slack_id=?, email=?, phone=?, show_in_roster=?, team_id=?, brb_slack_status=? WHERE id=?`,
+				u.Username, u.Password, u.Name, u.Role, u.TeamRoleID, on, u.SlackID, u.Email, u.Phone, show, u.TeamID, brbSt, u.ID)
 		} else {
-			db.Exec(`UPDATE users SET username=?, name=?, role=?, team_role_id=?, is_oncall=?, slack_id=?, email=?, phone=?, show_in_roster=?, team_id=? WHERE id=?`,
-				u.Username, u.Name, u.Role, u.TeamRoleID, on, u.SlackID, u.Email, u.Phone, show, u.TeamID, u.ID)
+			db.Exec(`UPDATE users SET username=?, name=?, role=?, team_role_id=?, is_oncall=?, slack_id=?, email=?, phone=?, show_in_roster=?, team_id=?, brb_slack_status=? WHERE id=?`,
+				u.Username, u.Name, u.Role, u.TeamRoleID, on, u.SlackID, u.Email, u.Phone, show, u.TeamID, brbSt, u.ID)
 		}
 		logAudit("admin", "UPDATE_USER", clientIP(r), fmt.Sprintf("id=%d slack_id=%s", u.ID, u.SlackID))
 		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
