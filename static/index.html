@@ -306,6 +306,10 @@ tr.task-row-due-soon td select{
 </div>
 <div class="fg" id="inc-who-wrap" style="display:none"><label>Чиє звернення / виконавець</label><select id="iuser"></select></div>
 <div class="fg"><label>Дата</label><input type="date" id="id"></div>
+<div class="fg"><label>Кому направлено</label>
+<select id="inc-directed"></select>
+<div style="font-size:11px;opacity:.75;margin-top:4px">«До команди» — у чергу команди (розподілить диспетчер / чергові за правилами on-grid). Не означає авто-призначення на першого вільного.</div>
+</div>
 <div class="fg"><label>Тип</label><select id="it"><option>Звернення</option><option>Інцидент</option><option>Консультація</option></select></div>
 <div class="fg"><label>Пріоритет</label><select id="iprio"></select></div>
 <div class="fg" id="inc-src-wrap" style="display:none"><label>Джерело</label>
@@ -1205,7 +1209,8 @@ function openInc(){
     }
     hint.innerText="Обов'язковий Slack (ID або @username). Ім'я та email підтягнуться з профілю. Пріоритет — будь-який.";
   }
-  document.getElementById('m-inc').style.display='flex';
+  try{fillIncDirected()}catch(e){}
+document.getElementById('m-inc').style.display='flex';
 }
 async function lookupGuestSlack(silent){
   const sl=(document.getElementById('iguest-slack')&&document.getElementById('iguest-slack').value||'').trim();
@@ -1263,6 +1268,16 @@ async function subInc(){
     createdBy=(document.getElementById('iguest').value||'').trim() || (window._guestSlackProfile&&window._guestSlackProfile.name) || 'гість';
     role='guest'; source='guest'; who='';
   }
+  const dirEl=document.getElementById('inc-directed');
+  const dirVal=dirEl?dirEl.value:'__team__';
+  let directed_scope='team', directed_to='';
+  if(dirVal && dirVal!=='__team__'){
+    directed_scope='user'; directed_to=dirVal;
+    // якщо не admin — адресат = обраний; admin може і через iuser
+    if(!isAdmin()) who=dirVal;
+  } else if(!isAdmin()){
+    who=''; // черга команди; routing/on-grid може призначити
+  }
   const body={
     user_name:who, date:document.getElementById('id').value, type:document.getElementById('it').value,
     duration_minutes:+document.getElementById('im').value||15, description:desc,
@@ -1270,7 +1285,8 @@ async function subInc(){
     source, reported_for:who,
     reporter_name: createdBy,
     reporter_email: (!U && document.getElementById('iguest-email')) ? (document.getElementById('iguest-email').value||'').trim() : (U&&U.email)||'',
-    reporter_slack: (!U && document.getElementById('iguest-slack')) ? (document.getElementById('iguest-slack').value||'').trim() : ''
+    reporter_slack: (!U && document.getElementById('iguest-slack')) ? (document.getElementById('iguest-slack').value||'').trim() : '',
+    directed_to, directed_scope
   };
   if(U){ body.reporter_name=U.name; body.reporter_email=U.email||''; }
   const r=await fetch('/api/incidents',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
