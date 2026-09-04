@@ -2,6 +2,8 @@
 
 Система обліку чергувань (on-call), відсутностей, **звернень (інцидентів)** і **дейлі-задач** для DevOps / SRE команди.
 
+> **Part of [DevOps Hub](https://github.com/OCherep/devops-hub)** — єдина точка входу разом із [KSTV Tech Radar](https://github.com/OCherep/kstv-tech_radar).
+
 Перший етап розробки (календар, черги, адмінка, коментарі, webhook-stub, Slack/Telegram/Jira hooks) — **завершено**.
 
 | | |
@@ -10,10 +12,9 @@
 | **UI** | Static HTML/JS (`static/index.html`, `static/admin.html`) |
 | **БД** | SQLite (`oncall.db`, WAL) |
 | **Доставка** | Docker Compose + Nginx (порт **84**) |
-| **Гілка** | `grok` |
+| **Гілка** | `grok-1.0.0` / `grok` |
 
 ---
-
 
 ## Паспорт API
 
@@ -63,6 +64,15 @@
 
 ---
 
+## Пов’язані проєкти (DevOps Hub)
+
+| Проєкт | Роль |
+|--------|------|
+| [DevOps Hub](https://github.com/OCherep/devops-hub) | Центральний портал інструментів |
+| [KSTV Tech Radar](https://github.com/OCherep/kstv-tech_radar) | Tech portfolio платформи |
+
+---
+
 ## Структура проєкту
 
 ```
@@ -77,7 +87,7 @@ oncall-system/
 ├── Dockerfile              # multi-stage: golang:1.22-alpine → alpine
 ├── docker-compose.yml      # app (8084) + nginx (:84)
 ├── nginx.conf              # static + /api/ proxy
-├── .dockerignore           # виключає stub-файли (handlers.go, main_*.go, …)
+├── .dockerignore
 ├── .env                    # локальні секрети (не в git)
 ├── data/                   # volume SQLite (oncall.db)
 ├── static/
@@ -118,7 +128,7 @@ oncall-system/
 ```bash
 git clone https://github.com/OCherep/oncall-system.git
 cd oncall-system
-git checkout grok
+git checkout grok-1.0.0
 
 # за потреби відредагуйте .env
 docker compose up -d --build
@@ -136,18 +146,9 @@ tail -f /var/log/oncall-app/app.log
 tail -f /var/log/oncall-app/nginx_access.log
 ```
 
-Оновлення з гілки `grok`:
-
-```bash
-git pull origin grok
-docker compose up -d --build
-# static монтується з ./static — після pull достатньо hard-refresh у браузері
-```
-
 ### Локально (без Docker)
 
 ```bash
-# потрібні gcc + sqlite-dev
 export CGO_ENABLED=1
 export PORT=8084
 export DB_PATH=./data/oncall.db
@@ -182,117 +183,13 @@ go run .
 
 ---
 
-## API (коротко)
-
-### Клієнт
-| Метод | Шлях | Опис |
-|-------|------|------|
-| `POST` | `/api/login` | Авторизація |
-| `GET` | `/api/data?year=&month=` | Календарні дані місяця |
-| `POST` | `/api/request-absence` | Заявка на відсутність |
-| `GET/POST/PUT/DELETE` | `/api/incidents` | Звернення (гість може POST) |
-| `GET/POST/PUT/DELETE` | `/api/daily-tasks` | Дейлі-задачі |
-| `GET/POST` | `/api/comments` | Коментарі (`entity_type` + `entity_id`) |
-
-### Адмін
-| Шлях | Опис |
-|------|------|
-| `/api/admin/users` | CRUD користувачів |
-| `/api/admin/roles`, `/team-roles` | Ролі команди |
-| `/api/admin/absence-types` | Типи відсутностей |
-| `/api/admin/requests` | Модерація заявок |
-| `/api/admin/tasks` | Адмін задач (PUT з assignees) |
-| `/api/admin/queues` | Лічильники черг |
-| `/api/admin/logs`, `/project/audit-logs` | Audit |
-| `/api/admin/project/app-logs?app=` | Логи з фільтром категорії |
-| `/api/admin/project/db-stats` | Список таблиць |
-| `/api/admin/project/table?name=` | Схема + рядки |
-| `/api/admin/project/query` | Read-only SQL |
-| `/api/admin/project/unlock` | Розблокування DB tools |
-| `/api/admin/regenerate-shifts` | Перегенерація чергувань |
-
-### Webhooks
-| Метод | Шлях | Опис |
-|-------|------|------|
-| `POST` | `/api/webhooks/incidents` | Створення звернення (+ опційно задача) |
-| `GET` | `/api/webhooks/health` | Healthcheck webhook |
-
-Приклад webhook:
-
-```bash
-curl -X POST http://host:84/api/webhooks/incidents \
-  -H "Content-Type: application/json" \
-  -H "X-Webhook-Secret: $WEBHOOK_SECRET" \
-  -d '{
-    "description": "Алерт з моніторингу",
-    "priority": "Високий",
-    "source": "bot",
-    "external_id": "OPS-123",
-    "create_task": true
-  }'
-```
-
----
-
-## Модель даних (основні таблиці)
-
-| Таблиця | Призначення |
-|---------|-------------|
-| `users` | Користувачі, ролі, on-call flag |
-| `team_roles` | Довідник ролей (DevOps, TL, PM, …) |
-| `absence_types` | Типи відсутностей + пріоритет |
-| `shifts` | Чергування по датах |
-| `absences` | Заявки / затверджені відсутності |
-| `incidents` | Звернення; `converted_to_task_id`, `external_id` |
-| `daily_tasks` | Дейлі-задачі; статус, пріоритет, due, responsible |
-| `task_assignees` | Кілька виконавців + час на кожного |
-| `comments` / `incident_comments` | Коментарі (у т.ч. системні) |
-| `audit_logs` | Дії користувачів |
-| `app_logs` | Додаткові сервісні логи (опційно) |
-
-Статуси **задач**: Нова → У роботі → На паузі → До перевірки → Виконана / Перевідкрита / Архів  
-
-Статуси **звернень**: Нове → В роботі → На паузі → Вирішено → Архів  
-
----
-
 ## Облікові записи за замовчуванням
-
-Після першого старту (seed):
 
 | Логін | Пароль | Роль |
 |-------|--------|------|
 | `admin` | `admin` | адміністратор |
 
-Інші користувачі створюються в адмінці (**Налаштування → Користувачі**).  
 **Змініть пароль admin** після першого входу.
-
----
-
-## Типові операції на EC2
-
-```bash
-cd /opt/oncall-app-4/oncall-system   # або ваш шлях
-git pull origin grok
-docker compose down
-docker compose up -d --build
-
-# перевірка API
-curl -sS -m 5 "http://127.0.0.1:8084/api/data?year=2026&month=8" | head -c 200
-```
-
-Volume:
-- `./data` → SQLite
-- `/var/log/oncall-app` → `app.log`, nginx access/error
-
----
-
-## Відомі обмеження (етап 1)
-
-- Авторизація — session-less (роль/актор у тілі запиту; немає JWT)
-- Двосторонній Jira sync — outbound готовий, inbound через webhook
-- Gorilla Mux / окремий auth-шар — не впроваджено (net/http)
-- Повний UI обліку часу по кожному з кількох виконавців — базовий (хвилини в `task_assignees`)
 
 ---
 
