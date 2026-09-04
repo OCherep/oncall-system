@@ -56,6 +56,7 @@ func ensureUserExtraColumns() {
 		"is_oncall INTEGER DEFAULT 1",
 		"show_in_roster INTEGER DEFAULT 1",
 		"needs_resume INTEGER DEFAULT 0",
+		"brb_slack_status INTEGER DEFAULT 1",
 	} {
 		db.Exec("ALTER TABLE users ADD COLUMN " + c)
 	}
