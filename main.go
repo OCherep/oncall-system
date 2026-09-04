@@ -25,6 +25,7 @@ type User struct {
 	TeamRole     string `json:"team_role"`
 	IsOncall     bool   `json:"is_oncall"`
 	ShowInRoster bool   `json:"show_in_roster"`
+	BrbSlackStatus bool `json:"brb_slack_status"`
 	TeamID       int    `json:"team_id,omitempty"`
 	TeamName     string `json:"team_name,omitempty"`
 	SlackID      string `json:"slack_id,omitempty"`
