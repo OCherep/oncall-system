@@ -495,3 +495,38 @@ func notifyNewIncident(inc IncidentReport) {
 		}
 	}
 }
+
+
+// notifyAbsenceDecision — DM співробітнику + командний канал при Approved/Rejected.
+func notifyAbsenceDecision(a AbsenceRequest, newStatus, actor string) {
+	if !notifyEnabled() {
+		return
+	}
+	key := fmt.Sprintf("abs-%d-%s", a.ID, newStatus)
+	if a.ID > 0 && !notifyOnce(key, 30*time.Second) {
+		return
+	}
+	statusUA := newStatus
+	switch newStatus {
+	case "Approved":
+		statusUA = "затверджено ✅"
+	case "Rejected":
+		statusUA = "відхилено ❌"
+	case "Pending":
+		statusUA = "на розгляді ⏳"
+	}
+	who := strings.TrimSpace(actor)
+	if who == "" {
+		who = "система"
+	}
+	msg := fmt.Sprintf("*Відсутність* `%s` · %s\n• *Період:* %s — %s\n• *Тип:* %s\n• *Рішення:* %s\n• *Хто:* %s",
+		a.UserName, statusUA, a.StartDate, a.EndDate, a.Type, statusUA, who)
+	notifyTeam(msg)
+	notifyUserSlack(a.UserName, fmt.Sprintf("Ваша заявка на відсутність (%s, %s — %s): %s",
+		a.Type, a.StartDate, a.EndDate, statusUA))
+	// диспетчерам — лише Pending (нова заявка)
+	if newStatus == "Pending" {
+		notifyDispatchers(fmt.Sprintf("📋 Нова заявка на відсутність від *%s*\n%s — %s · %s\nПотрібне затвердження в адмінці → Для затвердження.",
+			a.UserName, a.StartDate, a.EndDate, a.Type))
+	}
+}
