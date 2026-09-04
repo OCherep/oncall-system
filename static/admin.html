@@ -520,14 +520,17 @@ function themeToggleHTML(){
             try { refreshAdminBadges(); } catch (e) {}
         }
 
-        function logout() {
-            try { fetch('/api/logout', { method: 'POST', credentials: 'same-origin' }); } catch (e) {}
+        async function logout() {
+            try {
+                await fetch('/api/logout', { method: 'POST', credentials: 'same-origin' });
+            } catch (e) {}
             localStorage.removeItem('u');
             localStorage.removeItem('currentUser');
             localStorage.removeItem('oncall_session_token');
             document.cookie = 'oncall_user=; Path=/; Max-Age=0; SameSite=Lax';
             document.cookie = 'oncall_name=; Path=/; Max-Age=0; SameSite=Lax';
             document.cookie = 'oncall_role=; Path=/; Max-Age=0; SameSite=Lax';
+            document.cookie = 'oncall_session=; Path=/; Max-Age=0; SameSite=Lax';
             window.location.href = '/';
         }
 
