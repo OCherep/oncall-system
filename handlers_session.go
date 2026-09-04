@@ -154,9 +154,13 @@ func setSessionCookie(w http.ResponseWriter, token string, expires time.Time) {
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
 		// Secure: true when behind HTTPS — optional via env
-		Secure: strings.EqualFold(os.Getenv("SESSION_SECURE"), "1") || strings.EqualFold(os.Getenv("SESSION_SECURE"), "true") ||
-			getSetting("session_secure", "") == "1" || getSetting("session_secure", "") == "true",
+		Secure: sessionSecureFlag(),
 	})
+}
+
+func sessionSecureFlag() bool {
+	return strings.EqualFold(os.Getenv("SESSION_SECURE"), "1") || strings.EqualFold(os.Getenv("SESSION_SECURE"), "true") ||
+		getSetting("session_secure", "") == "1" || getSetting("session_secure", "") == "true"
 }
 
 func clearSessionCookie(w http.ResponseWriter) {
@@ -167,6 +171,7 @@ func clearSessionCookie(w http.ResponseWriter) {
 		MaxAge:   -1,
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
+		Secure:   sessionSecureFlag(), // must match set, otherwise browser keeps cookie
 	})
 }
 
