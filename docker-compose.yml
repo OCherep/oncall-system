@@ -1,6 +1,6 @@
-# OnCall: only host port 85→443. Port 80 is for devops-hub, not published here.
-# OnCall grok-1.0.0
-# HTTPS UI/API: https://s.ks.tv:85/
+# OnCall (module for /opt/ops/oncall + standalone)
+# Host ports: ONLY 85→443. Never publish 80 (reserved for ops edge / Caddy).
+# Internal :80 stays available on opsnet for reverse_proxy from edge.
 
 services:
   app:
@@ -32,13 +32,16 @@ services:
     volumes:
       - ./data:/app/data
       - /var/log/oncall-app-5:/var/log/oncall-app-5
+    networks:
+      - default
+      - opsnet
 
   nginx:
     image: nginx:alpine
     container_name: oncall_nginx_5
     restart: always
     ports:
-      - "85:443"   # HTTPS only — port 80 reserved for devops-hub
+      - "85:443"
     environment:
       - TLS_CN=${TLS_CN:-s.ks.tv}
     volumes:
@@ -51,3 +54,11 @@ services:
     entrypoint: ["/bin/sh", "/nginx-entrypoint.sh"]
     depends_on:
       - app
+    networks:
+      - default
+      - opsnet
+
+networks:
+  opsnet:
+    external: true
+    name: opsnet
