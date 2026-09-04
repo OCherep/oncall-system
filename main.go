@@ -25,6 +25,8 @@ type User struct {
 	TeamRole     string `json:"team_role"`
 	IsOncall     bool   `json:"is_oncall"`
 	ShowInRoster bool   `json:"show_in_roster"`
+	TeamID       int    `json:"team_id,omitempty"`
+	TeamName     string `json:"team_name,omitempty"`
 	SlackID      string `json:"slack_id,omitempty"`
 	Email        string `json:"email,omitempty"`
 	Phone        string `json:"phone,omitempty"`
@@ -83,6 +85,9 @@ type IncidentReport struct {
 	ReporterName      string `json:"reporter_name,omitempty"`
 	ReporterEmail     string `json:"reporter_email,omitempty"`
 	ReporterSlack     string `json:"reporter_slack,omitempty"`
+	DirectedTo        string `json:"directed_to,omitempty"`
+	DirectedScope     string `json:"directed_scope,omitempty"` // user|team
+	TeamID            int    `json:"team_id,omitempty"`
 	AssignedAt        string `json:"assigned_at,omitempty"`
 	FactMinutes       int    `json:"fact_minutes,omitempty"` // обчислений факт (хв)
 }
@@ -507,6 +512,7 @@ func initDB() {
 	ensureUserExtraColumns()
 	ensureProductivityTables()
 	ensureTaskHierarchyColumns()
+	ensureTeamsSchema()
 	ensureSessionsTable()
 	ensureAppSettingsTable()
 	ensureOnGridExceptions()
@@ -554,6 +560,8 @@ func main() {
 	http.HandleFunc("/api/brb", withIPAllow(securityHeaders(handleBRB)))
 	http.HandleFunc("/api/admin/shift-relief", withIPAllow(securityHeaders(handleShiftRelief)))
 	http.HandleFunc("/api/admin/shifts", withIPAllow(securityHeaders(handleAdminShifts)))
+	http.HandleFunc("/api/admin/teams", withIPAllow(securityHeaders(handleAdminTeams)))
+	http.HandleFunc("/api/teams", withIPAllow(handleTeamsPublic))
 	http.HandleFunc("/api/admin/productivity", withIPAllow(securityHeaders(handleAdminProductivity)))
 	http.HandleFunc("/api/webhooks/slack", handleSlackEvents) // no IP allow — Slack egress IPs vary
 	http.HandleFunc("/api/on-grid", withIPAllow(securityHeaders(handleOnGridPublic)))
