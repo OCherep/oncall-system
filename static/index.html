@@ -502,7 +502,19 @@ function sess(){
     pushBtn.style.display='none';
   }
 }
-function toggleAuth(){if(U){U=null;localStorage.removeItem('u');(async()=>{await restoreSession();sess();load()})()}else document.getElementById('m-login').style.display='flex'}
+async function toggleAuth(){
+  if(U){
+    try{ await fetch('/api/logout',{method:'POST',credentials:'same-origin'}); }catch(e){}
+    U=null;
+    localStorage.removeItem('u');
+    localStorage.removeItem('oncall_session_token');
+    document.cookie='oncall_user=; Path=/; Max-Age=0; SameSite=Lax';
+    document.cookie='oncall_name=; Path=/; Max-Age=0; SameSite=Lax';
+    document.cookie='oncall_role=; Path=/; Max-Age=0; SameSite=Lax';
+    document.cookie='oncall_session=; Path=/; Max-Age=0; SameSite=Lax';
+    sess(); load();
+  } else document.getElementById('m-login').style.display='flex'
+})()}else document.getElementById('m-login').style.display='flex'}
 async function resumeShift(){
   try{
     const r=await fetch('/api/admin/shift-relief',{method:'PUT',credentials:'same-origin',headers:{'Content-Type':'application/json'},
