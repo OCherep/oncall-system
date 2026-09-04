@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -56,6 +57,110 @@ func activeBRBMap() map[string]string {
 	return out
 }
 
+
+// userWantsSlackStatusOnBRB — default true if column missing/1
+func userWantsSlackStatusOnBRB(userName string) bool {
+	var v int
+	err := db.QueryRow(`SELECT COALESCE(brb_slack_status,1) FROM users WHERE name=? LIMIT 1`, userName).Scan(&v)
+	if err != nil {
+		return true
+	}
+	return v != 0
+}
+
+func userSlackID(userName string) string {
+	var id string
+	_ = db.QueryRow(`SELECT COALESCE(slack_id,'') FROM users WHERE name=? LIMIT 1`, userName).Scan(&id)
+	return strings.TrimSpace(id)
+}
+
+// setSlackCustomStatus — users.profile.set (потрібен scope users.profile:write; для чужих профілів часто потрібен user token / admin).
+func setSlackCustomStatus(slackUserID, text, emoji string, expirationUnix int64) error {
+	token := slackBotToken()
+	if token == "" || slackUserID == "" {
+		return fmt.Errorf("no token or slack user id")
+	}
+	profile := map[string]interface{}{
+		"status_text":  text,
+		"status_emoji": emoji,
+	}
+	if expirationUnix > 0 {
+		profile["status_expiration"] = expirationUnix
+	}
+	payload := map[string]interface{}{
+		"user":    slackUserID,
+		"profile": profile,
+	}
+	body, _ := json.Marshal(payload)
+	req, err := http.NewRequest(http.MethodPost, "https://slack.com/api/users.profile.set", bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json; charset=utf-8")
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	var out struct {
+		OK    bool   `json:"ok"`
+		Error string `json:"error"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&out)
+	if !out.OK {
+		return fmt.Errorf("slack profile.set: %s", out.Error)
+	}
+	return nil
+}
+
+func clearSlackCustomStatus(slackUserID string) error {
+	return setSlackCustomStatus(slackUserID, "", "", 0)
+}
+
+func maybeSetSlackStatusOnBRB(userName, untilHHMM string) {
+	if !userWantsSlackStatusOnBRB(userName) {
+		return
+	}
+	sid := userSlackID(userName)
+	if sid == "" {
+		return
+	}
+	exp := int64(0)
+	tzName := getSetting("on_grid_timezone", "Europe/Kyiv")
+	loc, err := time.LoadLocation(tzName)
+	if err != nil {
+		loc = time.FixedZone("EET", 2*3600)
+	}
+	until := untilHHMM
+	if len(untilHHMM) <= 5 {
+		until = time.Now().In(loc).Format("2006-01-02") + " " + untilHHMM + ":00"
+	}
+	if t, err := time.ParseInLocation("2006-01-02 15:04:05", until, loc); err == nil {
+		exp = t.Unix()
+	}
+	text := "BRB до " + untilHHMM
+	if err := setSlackCustomStatus(sid, text, ":brb:", exp); err != nil {
+		// fallback emoji
+		if err2 := setSlackCustomStatus(sid, text, ":no_entry:", exp); err2 != nil {
+			log.Printf("BRB slack status %s: %v / %v", userName, err, err2)
+		}
+	}
+}
+
+func maybeClearSlackStatusOnBRB(userName string) {
+	if !userWantsSlackStatusOnBRB(userName) {
+		return
+	}
+	sid := userSlackID(userName)
+	if sid == "" {
+		return
+	}
+	if err := clearSlackCustomStatus(sid); err != nil {
+		log.Printf("BRB clear slack status %s: %v", userName, err)
+	}
+}
+
 func setBRB(userName, untilHHMM, note string) error {
 	userName = strings.TrimSpace(userName)
 	untilHHMM = strings.TrimSpace(untilHHMM)
@@ -78,6 +183,7 @@ func setBRB(userName, untilHHMM, note string) error {
 	_, err := db.Exec(`INSERT INTO user_brb (user_name, until_at, note) VALUES (?,?,?)`, userName, until, note)
 	if err == nil {
 		openPresenceInterval(userName, "brb", until, note, note)
+		go maybeSetSlackStatusOnBRB(userName, untilHHMM)
 	}
 	return err
 }
@@ -85,6 +191,7 @@ func setBRB(userName, untilHHMM, note string) error {
 func clearBRB(userName string) {
 	db.Exec(`UPDATE user_brb SET cleared_at=CURRENT_TIMESTAMP WHERE user_name=? AND cleared_at IS NULL`, userName)
 	closePresenceInterval(userName, "brb")
+	go maybeClearSlackStatusOnBRB(userName)
 }
 
 // handleBRB — GET list / POST set / DELETE clear
