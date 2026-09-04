@@ -782,6 +782,9 @@ func handleRequestAbsence(w http.ResponseWriter, r *http.Request) {
 		who = req.UserName
 	}
 	logAudit(who, "REQUEST_ABSENCE", clientIP(r), req.UserName+": "+req.Type+" "+req.StartDate+"-"+req.EndDate+" → "+status)
+	go notifyAbsenceDecision(AbsenceRequest{
+		UserName: req.UserName, Type: req.Type, StartDate: req.StartDate, EndDate: req.EndDate, Status: status,
+	}, status, who)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok", "absence_status": status})
