@@ -10,6 +10,13 @@ cd "$ROOT"
 SRC="${1:-.}"
 mkdir -p certs
 
+# якщо передали батьківський certs/ з підкаталогом s.ks.tv
+if [ ! -f "${SRC}/certificate.crt" ] && [ ! -f "${SRC}/fullchain.pem" ]; then
+  if [ -f "${SRC}/s.ks.tv/certificate.crt" ]; then SRC="${SRC}/s.ks.tv"
+  elif [ -f "${SRC}/${TLS_CN:-s.ks.tv}/certificate.crt" ]; then SRC="${SRC}/${TLS_CN:-s.ks.tv}"
+  fi
+fi
+
 if [ -f "${SRC}/fullchain.pem" ] && [ -f "${SRC}/privkey.pem" ]; then
   cp -L "${SRC}/fullchain.pem" certs/fullchain.pem
   cp -L "${SRC}/privkey.pem"   certs/privkey.pem
