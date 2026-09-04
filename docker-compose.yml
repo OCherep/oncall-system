@@ -1,6 +1,6 @@
+# OnCall: only host port 85→443. Port 80 is for devops-hub, not published here.
 # OnCall grok-1.0.0
 # HTTPS UI/API: https://s.ks.tv:85/
-# HTTP + Let's Encrypt ACME: http://s.ks.tv/  (host port 80)
 
 services:
   app:
