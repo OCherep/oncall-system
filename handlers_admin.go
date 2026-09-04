@@ -307,6 +307,7 @@ func handleAdminRequests(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		db.Exec(`UPDATE absences SET status=? WHERE id=?`, req.Status, req.ID)
+		go notifyAbsenceDecision(cur, req.Status, "admin")
 		rejected := 0
 		// При approve вищої пріоритетності — авто-відхилити нижчі перетинаючі заявки того ж користувача
 		if req.Status == "Approved" {
@@ -326,6 +327,7 @@ func handleAdminRequests(w http.ResponseWriter, r *http.Request) {
 						continue
 					}
 					db.Exec(`UPDATE absences SET status='Rejected' WHERE id=?`, oid)
+					go notifyAbsenceDecision(AbsenceRequest{ID: oid, UserName: cur.UserName, Type: otype, StartDate: os, EndDate: oe, Status: "Rejected"}, "Rejected", "auto")
 					logAudit("admin", "AUTO_REJECT_ABSENCE", clientIP(r),
 						fmt.Sprintf("id=%d type=%s rejected due to higher %s id=%d", oid, otype, cur.Type, cur.ID))
 					rejected++
