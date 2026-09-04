@@ -1307,6 +1307,7 @@ function isAdminUser() {
                           <button class="btn" type="button" onclick="openSlackImportModal()">Імпорт зі Slack</button>
                           <button class="btn btn-primary" onclick="openUserModal()">+ Користувач</button>
                         </div></div>
+                        <div id="pager-users"></div>
                         <table><thead><tr><th>Ім'я</th><th>Логін</th><th>Email</th><th>Slack</th><th>Телефон</th><th>Роль</th><th>Роль у команді</th><th>Команда</th><th>On-call</th><th>У roster</th><th>Дії</th></tr></thead>
                         <tbody id="users-table"></tbody></table>
                     </div>
@@ -1717,10 +1718,14 @@ function isAdminUser() {
 
                 const ut = document.getElementById('users-table');
                 if (ut) {
-                    const upage = paginateList('users', loadedUsers);
-                    const uph = ensurePagerHost(ut, 'pager-users');
-                    if (uph) uph.innerHTML = pagerBarHtml('users', 'goUsersPage');
-                    ut.innerHTML = upage.items.length ? upage.items.map(u => `
+                    let pageItems = loadedUsers;
+                    try {
+                        const upage = (typeof paginateList === 'function') ? paginateList('users', loadedUsers) : { items: loadedUsers };
+                        pageItems = upage.items || loadedUsers;
+                        const uph = document.getElementById('pager-users') || (typeof ensurePagerHost === 'function' ? ensurePagerHost(ut, 'pager-users') : null);
+                        if (uph && typeof pagerBarHtml === 'function') uph.innerHTML = pagerBarHtml('users', 'goUsersPage');
+                    } catch (pe) { console.warn('users pager', pe); pageItems = loadedUsers; }
+                    ut.innerHTML = pageItems.length ? pageItems.map(u => `
                         <tr>
                             <td>${escHtml(u.name)}</td>
                             <td>${escHtml(u.username)}</td>
@@ -1770,7 +1775,10 @@ function isAdminUser() {
                 }
             } catch (e) {
                 console.error('loadDictionariesData', e);
-                alert('Помилка довідників: ' + e.message);
+                const ut = document.getElementById('users-table');
+                if (ut && !ut.innerHTML) {
+                    ut.innerHTML = '<tr><td colspan="11" style="color:#ef4444">Помилка завантаження: '+String(e.message||e).replace(/</g,'&lt;')+'</td></tr>';
+                }
             }
         }
 
@@ -2372,15 +2380,25 @@ window.addEventListener('hashchange', hashIncDeepLink);
             </div>`;
         }
         function ensurePagerHost(tableEl, hostId) {
-            if (!tableEl) return null;
+            if (!hostId) return null;
             let host = document.getElementById(hostId);
             if (host) return host;
             host = document.createElement('div');
             host.id = hostId;
-            // tbody/table may not be direct child of .card — insert before <table>
-            const anchor = tableEl.closest('table') || tableEl;
-            const parent = anchor.parentElement;
-            if (parent) parent.insertBefore(host, anchor);
+            try {
+                const anchor = (tableEl && tableEl.closest) ? (tableEl.closest('table') || tableEl) : tableEl;
+                const parent = anchor && anchor.parentNode;
+                if (parent && anchor && anchor.parentNode === parent) {
+                    parent.insertBefore(host, anchor);
+                } else if (tableEl && tableEl.parentNode) {
+                    tableEl.parentNode.appendChild(host);
+                } else {
+                    return null;
+                }
+            } catch (e) {
+                console.warn('ensurePagerHost', hostId, e);
+                return null;
+            }
             return host;
         }
 
