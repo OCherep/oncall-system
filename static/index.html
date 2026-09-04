@@ -518,7 +518,7 @@ async function toggleAuth(){
     document.cookie='oncall_session=; Path=/; Max-Age=0; SameSite=Lax';
     sess(); load();
   } else document.getElementById('m-login').style.display='flex'
-})()}else document.getElementById('m-login').style.display='flex'}
+}
 async function resumeShift(){
   try{
     const r=await fetch('/api/admin/shift-relief',{method:'PUT',credentials:'same-origin',headers:{'Content-Type':'application/json'},
@@ -1181,6 +1181,25 @@ function formatAgeSince(iso){
   if(!t) return '—';
   const m=Math.max(0, Math.floor((Date.now()-t)/60000));
   return formatMinsShort(m);
+}
+
+
+async function fillIncDirected(){
+  const sel=document.getElementById('inc-directed'); if(!sel) return;
+  let members=[];
+  try{
+    const y=new Date().getFullYear(), m=new Date().getMonth()+1;
+    const r=await fetch('/api/data?year='+y+'&month='+m,{credentials:'same-origin'});
+    const d=await r.json();
+    members=(d.team_members||[]).filter(m=>m.show_in_roster!==false && m.show_in_roster!==0);
+  }catch(e){}
+  let opts='<option value="__team__">До команди (черга команди)</option>';
+  members.forEach(m=>{
+    const n=String(m.name||'');
+    opts+='<option value="'+n.replace(/"/g,'&quot;')+'">'+n.replace(/</g,'&lt;')+'</option>';
+  });
+  sel.innerHTML=opts;
+  sel.value='__team__';
 }
 
 function openInc(){
