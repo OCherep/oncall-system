@@ -1229,11 +1229,29 @@ function isAdminUser() {
                   </div>`;
                 loadProductivity();
             } else if (sub === 'approval') {
-
                 breadcrumbs.innerHTML = `Головна / Адміністрування / Менеджмент / <b>Для затвердження</b>`;
-                container.innerHTML = `<h2>Сторінка затвердження відпусток</h2><div id="requests-tables"></div>`;
+                const today = new Date().toISOString().slice(0,10);
+                container.innerHTML = `
+                  <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin-bottom:14px">
+                    <h2 style="margin:0;flex:1">Затвердження відсутностей</h2>
+                    <button class="btn" type="button" onclick="loadRequestsData()">Оновити</button>
+                  </div>
+                  <div class="card" style="padding:14px;margin-bottom:16px;max-width:720px">
+                    <h3 style="margin:0 0 10px">Додати відсутність (admin / тім-лід / PM)</h3>
+                    <p style="font-size:12px;opacity:.75;margin:0 0 10px">Можна одразу затвердити. Звичайні користувачі подають заявку зі статусом Pending через форму на головній.</p>
+                    <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end">
+                      <div class="form-group" style="margin:0"><label>Хто</label><select id="abs-add-user" style="min-width:160px"></select></div>
+                      <div class="form-group" style="margin:0"><label>Тип</label><select id="abs-add-type" style="min-width:120px"></select></div>
+                      <div class="form-group" style="margin:0"><label>З</label><input type="date" id="abs-add-from" value="${today}"></div>
+                      <div class="form-group" style="margin:0"><label>До</label><input type="date" id="abs-add-to" value="${today}"></div>
+                      <label style="font-size:13px;display:flex;align-items:center;gap:6px"><input type="checkbox" id="abs-add-approve" checked> одразу Approved</label>
+                      <button class="btn btn-primary" type="button" onclick="submitAdminAbsence()">Додати</button>
+                    </div>
+                    <p id="abs-add-status" style="font-size:12px;margin:8px 0 0;opacity:.85"></p>
+                  </div>
+                  <div id="requests-tables"><p style="opacity:.7">Завантаження…</p></div>`;
                 loadRequestsData();
-                        } else if (sub === 'security') {
+            } else if (sub === 'security') {
                 breadcrumbs.innerHTML = `Головна / Адміністрування / Налаштування / Система / <b>Безпека</b>`;
                 container.innerHTML = `
                   <h2 style="margin:0 0 16px">Безпека</h2>
@@ -1932,27 +1950,105 @@ function isAdminUser() {
 
 
         async function loadRequestsData() {
-            const [reqRes, typesRes] = await Promise.all([fetch('/api/admin/requests'), fetch('/api/admin/absence-types')]);
-            const requests = await reqRes.json();
-            const types = await typesRes.json();
             const container = document.getElementById('requests-tables');
-            container.innerHTML = '';
+            try {
+                const [reqRes, typesRes, usersRes] = await Promise.all([
+                    fetch('/api/admin/requests', { credentials: 'same-origin' }),
+                    fetch('/api/admin/absence-types', { credentials: 'same-origin' }),
+                    fetch('/api/admin/users', { credentials: 'same-origin' })
+                ]);
+                let requests = await reqRes.json().catch(() => []);
+                let types = await typesRes.json().catch(() => []);
+                let users = await usersRes.json().catch(() => []);
+                if (!Array.isArray(requests)) requests = [];
+                if (!Array.isArray(types)) types = [];
+                if (!Array.isArray(users)) users = [];
 
-            types.forEach(t => {
-                const filtered = requests.filter(r => r.type === t.code || r.type === t.name);
-                let rows = '';
-                filtered.forEach(req => {
-                    let actionsHtml = req.status === 'Pending' ? `<button class="btn btn-primary" onclick="updateReq(${req.id}, 'Approved')">Затвердити</button> <button class="btn btn-danger" onclick="updateReq(${req.id}, 'Rejected')">Відхилити</button>` : '—';
-                    rows += `<tr><td>${req.user_name}</td><td>${req.start_date}</td><td>${req.end_date}</td><td><span class="badge badge-secondary">${req.status}</span></td><td>${actionsHtml}</td></tr>`;
+                const us = document.getElementById('abs-add-user');
+                if (us) {
+                    us.innerHTML = users.map(u => `<option value="${escHtml(u.name)}">${escHtml(u.name)}</option>`).join('') || '<option value="">—</option>';
+                }
+                const ts = document.getElementById('abs-add-type');
+                if (ts) {
+                    ts.innerHTML = types.length
+                        ? types.map(t => `<option value="${escHtml(t.code||t.name)}">${escHtml(t.name||t.code)}</option>`).join('')
+                        : '<option value="vacation">Відпустка</option><option value="sick">Лікарняний</option><option value="dayoff">Вихідний</option>';
+                }
+
+                if (!container) return;
+                if (!reqRes.ok) {
+                    container.innerHTML = `<p style="color:#f87171">Помилка завантаження заявок: ${reqRes.status}</p>`;
+                    return;
+                }
+                let html = '';
+                // Pending first overview
+                const pending = requests.filter(r => r.status === 'Pending');
+                html += `<div class="card" style="margin-bottom:12px"><div class="card-header"><h2>Очікують (${pending.length})</h2></div>
+                  <table><thead><tr><th>Користувач</th><th>Тип</th><th>Початок</th><th>Кінець</th><th>Дії</th></tr></thead><tbody>`;
+                if (!pending.length) html += '<tr><td colspan="5">Немає заявок на перевірку</td></tr>';
+                else pending.forEach(req => {
+                    html += `<tr><td>${escHtml(req.user_name)}</td><td>${escHtml(req.type)}</td><td>${escHtml(req.start_date)}</td><td>${escHtml(req.end_date)}</td>
+                      <td><button class="btn btn-primary" onclick="updateReq(${req.id}, 'Approved')">Затвердити</button>
+                      <button class="btn btn-danger" onclick="updateReq(${req.id}, 'Rejected')">Відхилити</button></td></tr>`;
                 });
-                container.innerHTML += `<div class="card"><div class="card-header"><h2>Заявки: ${t.name}</h2></div><table><thead><tr><th>Користувач</th><th>Початок</th><th>Кінець</th><th>Статус</th><th>Дії</th></tr></thead><tbody>${rows || '<tr><td colspan="5">Немає заявок</td></tr>'}</tbody></table></div>`;
-            });
+                html += '</tbody></table></div>';
+
+                const typeList = types.length ? types : [{ name: 'Усі', code: '' }];
+                typeList.forEach(t => {
+                    const filtered = t.code || t.name
+                        ? requests.filter(r => r.type === t.code || r.type === t.name)
+                        : requests;
+                    let rows = '';
+                    filtered.forEach(req => {
+                        let actionsHtml = req.status === 'Pending'
+                            ? `<button class="btn btn-primary" onclick="updateReq(${req.id}, 'Approved')">Затвердити</button> <button class="btn btn-danger" onclick="updateReq(${req.id}, 'Rejected')">Відхилити</button>`
+                            : '—';
+                        rows += `<tr><td>${escHtml(req.user_name)}</td><td>${escHtml(req.start_date)}</td><td>${escHtml(req.end_date)}</td><td><span class="badge badge-secondary">${escHtml(req.status)}</span></td><td>${actionsHtml}</td></tr>`;
+                    });
+                    html += `<div class="card"><div class="card-header"><h2>Заявки: ${escHtml(t.name||t.code||'Усі')}</h2></div><table><thead><tr><th>Користувач</th><th>Початок</th><th>Кінець</th><th>Статус</th><th>Дії</th></tr></thead><tbody>${rows || '<tr><td colspan="5">Немає заявок</td></tr>'}</tbody></table></div>`;
+                });
+                container.innerHTML = html;
+            } catch (e) {
+                console.error(e);
+                if (container) container.innerHTML = `<p style="color:#f87171">Помилка: ${escHtml(String(e.message||e))}</p>`;
+            }
         }
 
         async function updateReq(id, status) {
-            await fetch('/api/admin/requests', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, status }) });
+            await fetch('/api/admin/requests', {
+                method: 'PUT', credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id, status })
+            });
             loadRequestsData();
         }
+
+        async function submitAdminAbsence() {
+            const st = document.getElementById('abs-add-status');
+            const user = (document.getElementById('abs-add-user')||{}).value||'';
+            const type = (document.getElementById('abs-add-type')||{}).value||'';
+            const from = (document.getElementById('abs-add-from')||{}).value||'';
+            const to = (document.getElementById('abs-add-to')||{}).value||'';
+            const auto = !!(document.getElementById('abs-add-approve')||{}).checked;
+            if (!user || !type || !from || !to) {
+                if (st) st.textContent = 'Заповніть усі поля';
+                return;
+            }
+            const actor = (window.currentUser && (currentUser.name||currentUser.username)) || (JSON.parse(localStorage.getItem('u')||'{}').name)||'Admin';
+            const role = (window.currentUser && currentUser.role) || (JSON.parse(localStorage.getItem('u')||'{}').role)||'admin';
+            const r = await fetch('/api/request-absence', {
+                method: 'POST', credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    user_name: user, type, start_date: from, end_date: to,
+                    actor, role, auto_approve: auto, status: auto ? 'Approved' : 'Pending'
+                })
+            });
+            const txt = await r.text();
+            if (st) st.textContent = r.ok ? ('Збережено (' + (auto?'Approved':'Pending') + ')') : ('Помилка: ' + txt);
+            if (r.ok) loadRequestsData();
+        }
+        window.submitAdminAbsence = submitAdminAbsence;
 
         
         function queuesSetDate(v) {
