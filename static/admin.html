@@ -385,6 +385,7 @@ tr.q-row:hover{background:#eff6ff}
             <div class="form-group"><label>Телефон</label><input type="text" id="user-phone" placeholder="+380…"></div>
             <div style="display:flex; gap:10px;"><input type="checkbox" id="user-is-oncall" checked><label>Чергує</label></div>
             <div style="display:flex; gap:10px;margin-top:6px"><input type="checkbox" id="user-show-roster" checked><label>Показувати у чіпсах зверху</label></div>
+            <div style="display:flex; gap:10px;margin-top:6px"><input type="checkbox" id="user-brb-slack" checked><label>BRB → статус у Slack</label></div>
             <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 10px;">
                 <button class="btn" onclick="closeModal('user-modal')">Скасувати</button>
                 <button class="btn btn-primary" onclick="saveUser()">Зберегти</button>
@@ -1799,6 +1800,7 @@ function isAdminUser() {
             document.getElementById('user-role').value = 'user';
             document.getElementById('user-is-oncall').checked = true;
             const _sr=document.getElementById('user-show-roster'); if(_sr) _sr.checked = true;
+            const _brb=document.getElementById('user-brb-slack'); if(_brb) _brb.checked = true;
             fillTeamRoleSelect('');
             const ue = document.getElementById('user-email'); if (ue) ue.value = '';
             const us = document.getElementById('user-slack'); if (us) us.value = '';
@@ -1817,6 +1819,7 @@ function isAdminUser() {
             document.getElementById('user-role').value = u.role || 'user';
             document.getElementById('user-is-oncall').checked = !!u.is_oncall;
             const sr=document.getElementById('user-show-roster'); if(sr) sr.checked = u.show_in_roster!==false && u.show_in_roster!==0;
+            const brb=document.getElementById('user-brb-slack'); if(brb) brb.checked = u.brb_slack_status!==false && u.brb_slack_status!==0;
             const ue = document.getElementById('user-email'); if (ue) ue.value = u.email || '';
             const us = document.getElementById('user-slack'); if (us) us.value = u.slack_id || '';
             const up = document.getElementById('user-phone'); if (up) up.value = u.phone || '';
@@ -1838,6 +1841,7 @@ function isAdminUser() {
                 team_id: parseInt((document.getElementById('user-team-id')||{}).value) || 0,
                 is_oncall: document.getElementById('user-is-oncall').checked,
                 show_in_roster: !!(document.getElementById('user-show-roster')||{}).checked,
+                brb_slack_status: !!(document.getElementById('user-brb-slack')||{}).checked,
                 email: (document.getElementById('user-email')||{}).value||'',
                 slack_id: (document.getElementById('user-slack')||{}).value||'',
                 phone: (document.getElementById('user-phone')||{}).value||''
