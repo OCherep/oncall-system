@@ -3100,7 +3100,8 @@ window.logout = logout;
                 url += 'from=' + encodeURIComponent(f) + '&to=' + encodeURIComponent(t);
             }
             try {
-                const r = await fetch(url, { credentials: 'same-origin' });
+                const r = await (typeof fetchWithTimeout==='function' ? fetchWithTimeout(url, {}, 15000) : fetch(url, { credentials: 'same-origin' }));
+                if (!r.ok) throw new Error('API '+r.status);
                 const d = await r.json();
                 const tb = document.getElementById('prod-days-body');
                 const ib = document.getElementById('prod-int-body');
