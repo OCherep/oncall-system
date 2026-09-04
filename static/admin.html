@@ -378,6 +378,7 @@ tr.q-row:hover{background:#eff6ff}
             <div class="form-group"><label>Логін</label><input type="text" id="user-username"></div>
             <div class="form-group"><label>Пароль (залиште порожнім, якщо не змінюється)</label><input type="password" id="user-password"></div>
             <div class="form-group"><label>Системна роль</label><select id="user-role"><option value="user">user</option><option value="admin">admin</option></select></div>
+            <div class="form-group"><label>Команда</label><select id="user-team-id"></select></div>
             <div class="form-group"><label>Роль у команді</label><select id="user-team-role"></select></div>
             <div class="form-group"><label>Email</label><input type="email" id="user-email" placeholder="name@company.com"></div>
             <div class="form-group"><label>Slack ID</label><input type="text" id="user-slack" placeholder="U0123ABC"></div>
@@ -1287,9 +1288,18 @@ function isAdminUser() {
                           <button class="btn" type="button" onclick="openSlackImportModal()">Імпорт зі Slack</button>
                           <button class="btn btn-primary" onclick="openUserModal()">+ Користувач</button>
                         </div></div>
-                        <table><thead><tr><th>Ім'я</th><th>Логін</th><th>Email</th><th>Slack</th><th>Телефон</th><th>Роль</th><th>Команда</th><th>On-call</th><th>Дії</th></tr></thead>
+                        <table><thead><tr><th>Ім'я</th><th>Логін</th><th>Email</th><th>Slack</th><th>Телефон</th><th>Роль</th><th>Роль у команді</th><th>Команда</th><th>On-call</th><th>У roster</th><th>Дії</th></tr></thead>
                         <tbody id="users-table"></tbody></table>
                     </div>
+
+                    <div class="card" style="margin-top:16px">
+                        <div class="card-header"><h2>Команди</h2>
+                        <button class="btn btn-primary" type="button" onclick="addTeamPrompt()">+ Команда</button></div>
+                        <p style="font-size:12px;opacity:.75;margin:0 0 8px">Приналежність користувачів і звернень/задач до команди. Виконавці в формах — з обраної/дефолтної команди.</p>
+                        <table><thead><tr><th>ID</th><th>Назва</th><th>Код</th><th>Default</th><th>Дії</th></tr></thead>
+                        <tbody id="teams-table"></tbody></table>
+                    </div>
+
                     <div class="card" style="margin-top:16px">
                         <div class="card-header"><h2>Довідник ролей</h2>
                         <button class="btn btn-primary" onclick="showAddRole()">+ Роль</button></div>
@@ -1697,13 +1707,14 @@ function isAdminUser() {
                             <td>${escHtml(u.phone||'—')}</td>
                             <td>${escHtml(u.role||'')}</td>
                             <td>${escHtml(u.team_role||'—')}</td>
+                            <td>${escHtml(u.team_name||'—')}</td>
                             <td>${u.is_oncall ? 'Так' : 'Ні'}</td>
                             <td>${(u.show_in_roster!==false && u.show_in_roster!==0) ? 'Так' : 'Ні'}</td>
                             <td>
                                 <button class="btn" onclick="editUser(${u.id})">Редагувати</button>
                                 <button class="btn btn-danger" onclick="deleteUser(${u.id})">Видалити</button>
                             </td>
-                        </tr>`).join('') : '<tr><td colspan="9">Немає користувачів</td></tr>';
+                        </tr>`).join('') : '<tr><td colspan="11">Немає користувачів</td></tr>';
                 }
 
                 const rt = document.getElementById('roles-table');
@@ -1789,6 +1800,7 @@ function isAdminUser() {
             const us = document.getElementById('user-slack'); if (us) us.value = u.slack_id || '';
             const up = document.getElementById('user-phone'); if (up) up.value = u.phone || '';
             fillTeamRoleSelect(u.team_role_id);
+            fillUserTeamSelect(u.team_id);
             document.getElementById('user-modal-title').innerText = 'Редагувати користувача';
             document.getElementById('user-modal').style.display = 'flex';
         }
@@ -1802,6 +1814,7 @@ function isAdminUser() {
                 password: document.getElementById('user-password').value,
                 role: document.getElementById('user-role').value,
                 team_role_id: parseInt(document.getElementById('user-team-role').value) || null,
+                team_id: parseInt((document.getElementById('user-team-id')||{}).value) || 0,
                 is_oncall: document.getElementById('user-is-oncall').checked,
                 show_in_roster: !!(document.getElementById('user-show-roster')||{}).checked,
                 email: (document.getElementById('user-email')||{}).value||'',
@@ -2893,6 +2906,65 @@ window.logout = logout;
         }
         window.loadProductivity = loadProductivity;
         window.adminCloseBrb = adminCloseBrb;
+
+
+        let loadedTeams = [];
+        async function loadTeamsList() {
+            try {
+                const r = await fetch('/api/admin/teams', { credentials: 'same-origin' });
+                loadedTeams = await r.json();
+                if (!Array.isArray(loadedTeams)) loadedTeams = [];
+            } catch (e) { loadedTeams = []; }
+            const tb = document.getElementById('teams-table');
+            if (tb) {
+                tb.innerHTML = loadedTeams.length ? loadedTeams.map(t => `<tr>
+                  <td>${t.id}</td><td>${escHtml(t.name)}</td><td>${escHtml(t.code||'')}</td>
+                  <td>${t.is_default?'Так':'Ні'}</td>
+                  <td>
+                    <button class="btn" onclick="setDefaultTeam(${t.id})">Default</button>
+                    ${t.is_default?'':`<button class="btn btn-danger" onclick="deleteTeam(${t.id})">Видалити</button>`}
+                  </td>
+                </tr>`).join('') : '<tr><td colspan="5">Немає команд</td></tr>';
+            }
+            fillUserTeamSelect();
+        }
+        function fillUserTeamSelect(selectedId) {
+            const el = document.getElementById('user-team-id');
+            if (!el) return;
+            el.innerHTML = loadedTeams.map(t => `<option value="${t.id}">${escHtml(t.name)}</option>`).join('') || '<option value="0">—</option>';
+            if (selectedId) el.value = String(selectedId);
+            else {
+                const def = loadedTeams.find(t => t.is_default);
+                if (def) el.value = String(def.id);
+            }
+        }
+        async function addTeamPrompt() {
+            const name = prompt('Назва команди');
+            if (!name) return;
+            const code = prompt('Код (латиниця, опційно)', '') || '';
+            await fetch('/api/admin/teams', { method:'POST', credentials:'same-origin',
+                headers:{'Content-Type':'application/json'},
+                body: JSON.stringify({ name, code, is_default: loadedTeams.length===0 }) });
+            loadTeamsList();
+        }
+        async function setDefaultTeam(id) {
+            const t = loadedTeams.find(x => x.id===id);
+            if (!t) return;
+            await fetch('/api/admin/teams', { method:'PUT', credentials:'same-origin',
+                headers:{'Content-Type':'application/json'},
+                body: JSON.stringify({ id, name: t.name, code: t.code||'', is_default: true }) });
+            loadTeamsList();
+        }
+        async function deleteTeam(id) {
+            if (!confirm('Видалити команду?')) return;
+            const r = await fetch('/api/admin/teams?id='+id, { method:'DELETE', credentials:'same-origin' });
+            if (!r.ok) alert(await r.text());
+            loadTeamsList();
+        }
+        window.loadTeamsList = loadTeamsList;
+        window.addTeamPrompt = addTeamPrompt;
+        window.setDefaultTeam = setDefaultTeam;
+        window.deleteTeam = deleteTeam;
 
 window.loadSubPage = loadSubPage;
 window.loadSecuritySettings = loadSecuritySettings;
