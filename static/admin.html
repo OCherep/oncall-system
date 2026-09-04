@@ -1753,6 +1753,7 @@ function isAdminUser() {
                 }
 
                 fillTeamRoleSelect();
+                try { if (typeof loadTeamsList === 'function') await loadTeamsList(); } catch (e) { console.warn(e); }
 
                 const at = document.getElementById('absence-types-table');
                 if (at) {
@@ -2373,13 +2374,13 @@ window.addEventListener('hashchange', hashIncDeepLink);
         function ensurePagerHost(tableEl, hostId) {
             if (!tableEl) return null;
             let host = document.getElementById(hostId);
-            if (!host) {
-                host = document.createElement('div');
-                host.id = hostId;
-                const card = tableEl.closest('.card') || tableEl.parentElement;
-                if (card) card.insertBefore(host, tableEl);
-                else tableEl.parentElement.insertBefore(host, tableEl);
-            }
+            if (host) return host;
+            host = document.createElement('div');
+            host.id = hostId;
+            // tbody/table may not be direct child of .card — insert before <table>
+            const anchor = tableEl.closest('table') || tableEl;
+            const parent = anchor.parentElement;
+            if (parent) parent.insertBefore(host, anchor);
             return host;
         }
 
