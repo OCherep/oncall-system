@@ -257,6 +257,18 @@ func ipAllowed(ip string) bool {
 
 func withIPAllow(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		origin := r.Header.Get("Origin")
+		if origin == "https://s.ks.tv" || origin == "http://s.ks.tv" {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Session-Token")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+			w.Header().Set("Vary", "Origin")
+		}
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 		ip := clientIP(r)
 		if !ipAllowed(ip) {
 			logAudit("-", "IP_BLOCKED", ip, r.URL.Path)
