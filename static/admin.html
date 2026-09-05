@@ -628,6 +628,13 @@ function themeToggleHTML(){
             loadDailyBoard();
         }
         async function loadDailyBoard() {
+            try{
+              const rs=await fetch('/api/admin/settings',{credentials:'same-origin'});
+              const s=await rs.json();
+              const ta=document.getElementById('daily-jql');
+              if(ta && !ta.dataset.loaded){ ta.value=s.jira_jql||s.JIRA_JQL||'project in (Vidmind) AND (component = DevOps OR labels = DevOps) AND updated >= -60d ORDER BY updated DESC'; ta.dataset.loaded='1'; }
+            }catch(e){}
+
             const day = window._dailyDate || new Date().toISOString().slice(0,10);
             window._dailyDate = day;
             const inp = document.getElementById('daily-date');
@@ -743,10 +750,16 @@ function themeToggleHTML(){
                     </div>`;
                 }
 
+                const srcF=(document.getElementById('daily-src-filter')||{}).value||'all';
                 const tb = document.getElementById('daily-tasks-body');
                 if (tb) {
-                    if (!tasks.length) tb.innerHTML = '<tr><td colspan="9" style="opacity:.6">Немає задач на цю дату</td></tr>';
-                    else tb.innerHTML = tasks.map(t => {
+                    const shown = tasks.filter(t => {
+                      if (srcF==='jira') return t.source==='jira' || t.external_id;
+                      if (srcF==='oncall') return t.source!=='jira' && !t.external_id;
+                      return true;
+                    });
+                    if (!shown.length) tb.innerHTML = '<tr><td colspan="9" style="opacity:.6">Немає задач на цю дату</td></tr>';
+                    else tb.innerHTML = shown.map(t => {
                         const src = t.source==='jira'?'<span class="badge" style="background:#7c3aed;color:#fff">Jira</span>':(t.source==='incident'?'<span class="badge" style="background:#2563eb;color:#fff">Inc</span>':'<span class="badge" style="background:#475569;color:#fff">OnCall</span>');
                         const jira = t.external_id ? `<span style="color:#93c5fd">${t.external_id}</span>` : '—';
                         const stOpts = taskStatuses.map(s => `<option value="${s}" ${s===(t.status||'')?'selected':''}>${s}</option>`).join('');
@@ -1085,6 +1098,21 @@ function isAdminUser() {
                       <button class="btn" onclick="dailyShift(1)">›</button>
                       <button class="btn" onclick="window._dailyDate=localToday();loadDailyBoard()">Сьогодні</button>
                       <button class="btn btn-primary" onclick="loadDailyBoard()">Оновити</button>
+                      <select id="daily-src-filter" onchange="loadDailyBoard()" title="Фільтр джерела">
+                        <option value="all">Усі джерела</option>
+                        <option value="oncall">OnCall</option>
+                        <option value="jira">Jira</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div class="card" style="padding:12px;margin-bottom:12px">
+                    <h3 style="margin:0 0 8px;font-size:15px">Jira · імпорт у дейлі</h3>
+                    <p style="font-size:12px;opacity:.8;margin:0 0 8px">JQL зберігається в довіднику (<code>jira_jql</code>). Нові задачі — статус «Нерозподілена». Існуючі за <code>external_id</code> не дублюються.</p>
+                    <textarea id="daily-jql" rows="3" style="width:100%;font-family:ui-monospace,monospace;font-size:12px;margin-bottom:8px"></textarea>
+                    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                      <button class="btn" onclick="saveDailyJql()">Зберегти JQL</button>
+                      <button class="btn btn-primary" onclick="runJiraImport()">Імпорт Jira</button>
+                      <span id="daily-jira-st" style="font-size:12px;opacity:.85"></span>
                     </div>
                   </div>
                   <div id="daily-summary" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:12px"></div>
