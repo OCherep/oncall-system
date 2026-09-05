@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -187,6 +188,19 @@ func computeProductivity(from, to, userFilter string) []prodDayRow {
 		anchors = append(anchors, r)
 	}
 	rows.Close()
+	type iv struct{ user, kind, started, ended, until string }
+	var allIv []iv
+	irows, ierr := db.Query(`SELECT user_name, kind, started_at, COALESCE(ended_at,''), COALESCE(until_planned,'')
+		FROM presence_intervals WHERE started_at>=? AND started_at<? LIMIT 2000`,
+		from+" 00:00:00", to+" 23:59:59")
+	if ierr == nil && irows != nil {
+		for irows.Next() {
+			var x iv
+			irows.Scan(&x.user, &x.kind, &x.started, &x.ended, &x.until)
+			allIv = append(allIv, x)
+		}
+		irows.Close()
+	}
 	var out []prodDayRow
 	for _, r := range anchors {
 		st, e1 := parseKyivTime(r.FirstEventAt)
@@ -200,22 +214,20 @@ func computeProductivity(from, to, userFilter string) []prodDayRow {
 		if e1 == nil && end.After(st) {
 			r.SpanMinutes = int(end.Sub(st).Minutes())
 		}
-		irows, ierr := db.Query(`SELECT kind, started_at, COALESCE(ended_at,''), COALESCE(until_planned,'')
-			FROM presence_intervals WHERE user_name=? AND started_at>=? AND started_at<?`,
-			r.UserName, r.WorkDate+" 00:00:00", r.WorkDate+" 23:59:59")
-		if ierr == nil && irows != nil {
-			for irows.Next() {
-				var kind, started, ended, until string
-				irows.Scan(&kind, &started, &ended, &until)
-				mins := intervalMinutesOnDay(started, ended, until, r.WorkDate, end)
-				switch strings.ToLower(kind) {
-				case "brb":
-					r.BRBMinutes += mins
-				default:
-					r.AwayMinutes += mins
-				}
+		for _, x := range allIv {
+			if x.user != r.UserName {
+				continue
 			}
-			irows.Close()
+			if len(x.started) < 10 || x.started[:10] != r.WorkDate {
+				continue
+			}
+			mins := intervalMinutesOnDay(x.started, x.ended, x.until, r.WorkDate, end)
+			switch strings.ToLower(x.kind) {
+			case "brb":
+				r.BRBMinutes += mins
+			default:
+				r.AwayMinutes += mins
+			}
 		}
 		r.ProductiveMin = r.SpanMinutes - r.BRBMinutes - r.AwayMinutes
 		if r.ProductiveMin < 0 {
@@ -235,6 +247,9 @@ func handleAdminProductivity(w http.ResponseWriter, r *http.Request) {
 	ensureProductivityTables()
 	switch r.Method {
 	case http.MethodGet:
+		ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+		defer cancel()
+		_ = ctx
 		from := r.URL.Query().Get("from")
 		to := r.URL.Query().Get("to")
 		user := r.URL.Query().Get("user")
