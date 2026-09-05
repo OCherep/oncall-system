@@ -212,6 +212,9 @@ func handleJiraImport(w http.ResponseWriter, r *http.Request) {
 	}
 	jql := strings.TrimSpace(req.JQL)
 	if jql == "" {
+		jql = strings.TrimSpace(getSetting("jira_jql", ""))
+	}
+	if jql == "" {
 		jql = strings.TrimSpace(os.Getenv("JIRA_JQL_FILTER"))
 	}
 	if jql == "" {
@@ -264,8 +267,8 @@ func handleJiraImport(w http.ResponseWriter, r *http.Request) {
 			if len(due) >= 10 {
 				due = due[:10]
 			}
-			db.Exec(`UPDATE daily_tasks SET task_description=?, status=?, priority=?, user_name=COALESCE(NULLIF(?,''), user_name), due_date=COALESCE(NULLIF(?,''), due_date) WHERE id=?`,
-				desc, taskStatus, prio, assignee, due, existingID)
+			db.Exec(`UPDATE daily_tasks SET task_description=?, priority=?, user_name=COALESCE(NULLIF(?,''), user_name), due_date=COALESCE(NULLIF(?,''), due_date) WHERE id=?`,
+				desc, prio, assignee, due, existingID)
 			addSystemComment("task", existingID, "Оновлено з Jira import")
 			updated++
 			continue
