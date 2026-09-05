@@ -267,7 +267,6 @@ tr.task-row-due-soon td select{
 <button class="btn" id="btn-task" style="display:none" onclick="openTask()">Задача</button>
 <button class="btn btn-s" id="btn-adm" style="display:none" onclick="location.href='/admin.html'">Адмін</button>
 <button class="btn btn-s" id="btn-auth" onclick="toggleAuth()">Увійти</button>
-<a class="btn btn-s" href="https://s.ks.tv/" style="text-decoration:none">До Хабу</a>
 <span id="theme-slot" style="display:inline-flex;align-items:center;margin-left:6px"></span>
 <div class="nav-dd" style="position:relative;margin-left:8px">
   <button type="button" class="btn btn-s" onclick="var m=document.getElementById('hub-tools-menu');m.style.display=m.style.display==='block'?'none':'block'">Інструменти ▾</button>
@@ -427,10 +426,15 @@ function themeToggleHTML(){
 }
 
 document.addEventListener('DOMContentLoaded',function(){const tb=document.getElementById('theme-slot');if(tb){tb.innerHTML=themeToggleHTML();setTheme(localStorage.getItem('oncall_theme')||'system');}
-fetch('https://s.ks.tv/tools.json').then(r=>r.json()).then(d=>{
+(function(){
   const m=document.getElementById('hub-tools-menu'); if(!m) return;
-  m.innerHTML=(d.tools||[]).filter(t=>t.live && t.id!=='oncall-system').map(t=>'<a href="'+t.live+'" style="display:block;padding:6px 8px;color:inherit;text-decoration:none">'+t.title+'</a>').join('');
-}).catch(()=>{});
+  const fallback=[{id:'devops-hub',title:'DevOps Hub',live:'https://s.ks.tv/'},{id:'kstv-tech-radar',title:'KSTV Tech Radar',live:'https://s.ks.tv/radar/'},{id:'certs-tls',title:'Certificates SSL/TLS',live:'https://s.ks.tv/certs/'}];
+  const draw=d=>{
+    const tools=(d&&d.tools)||fallback;
+    m.innerHTML=tools.filter(t=>t.live && t.id!=='oncall-system').map(t=>'<a href="'+t.live+'" style="display:block;padding:6px 8px;color:inherit;text-decoration:none">'+t.title+'</a>').join('')||'<span style="opacity:.7">немає</span>';
+  };
+  fetch('https://s.ks.tv/tools.json',{mode:'cors'}).then(r=>r.ok?r.json():Promise.reject()).then(draw).catch(()=>draw(null));
+})();
 });
 
 
