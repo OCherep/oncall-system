@@ -269,6 +269,10 @@ tr.task-row-due-soon td select{
 <button class="btn btn-s" id="btn-auth" onclick="toggleAuth()">Увійти</button>
 <a class="btn btn-s" href="https://s.ks.tv/" style="text-decoration:none">До Хабу</a>
 <span id="theme-slot" style="display:inline-flex;align-items:center;margin-left:6px"></span>
+<div class="nav-dd" style="position:relative;margin-left:8px">
+  <button type="button" class="btn btn-s" onclick="var m=document.getElementById('hub-tools-menu');m.style.display=m.style.display==='block'?'none':'block'">Інструменти ▾</button>
+  <div id="hub-tools-menu" style="display:none;position:absolute;right:0;top:120%;min-width:220px;background:var(--panel,#1e293b);border:1px solid var(--b,#334155);border-radius:10px;padding:8px;z-index:120"></div>
+</div>
 </div></div>
 
 <div class="main">
@@ -422,7 +426,12 @@ function themeToggleHTML(){
     '<button type="button" data-theme="dark" onclick="setTheme(\'dark\')">🌙</button></span>';
 }
 
-document.addEventListener('DOMContentLoaded',function(){const tb=document.getElementById('theme-slot');if(tb){tb.innerHTML=themeToggleHTML();setTheme(localStorage.getItem('oncall_theme')||'system');}});
+document.addEventListener('DOMContentLoaded',function(){const tb=document.getElementById('theme-slot');if(tb){tb.innerHTML=themeToggleHTML();setTheme(localStorage.getItem('oncall_theme')||'system');}
+fetch('https://s.ks.tv/tools.json').then(r=>r.json()).then(d=>{
+  const m=document.getElementById('hub-tools-menu'); if(!m) return;
+  m.innerHTML=(d.tools||[]).filter(t=>t.live && t.id!=='oncall-system').map(t=>'<a href="'+t.live+'" style="display:block;padding:6px 8px;color:inherit;text-decoration:none">'+t.title+'</a>').join('');
+}).catch(()=>{});
+});
 
 
 const STATUSES=['Нова','У роботі','На паузі','До перевірки','Виконана','Перевідкрита','Архів'];
