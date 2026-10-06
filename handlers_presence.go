@@ -30,11 +30,9 @@ func ensurePresenceTables() {
 		started_by TEXT DEFAULT '',
 		ended_by TEXT DEFAULT ''
 	)`)
-	// users.needs_resume — flag after being replaced on shift
 	db.Exec(`ALTER TABLE users ADD COLUMN needs_resume INTEGER DEFAULT 0`)
 }
 
-// activeBRBMap user_name → until_at (only future/active)
 func activeBRBMap() map[string]string {
 	out := map[string]string{}
 	tzName := getSetting("on_grid_timezone", "Europe/Kyiv")
@@ -57,8 +55,6 @@ func activeBRBMap() map[string]string {
 	return out
 }
 
-
-// userWantsSlackStatusOnBRB — default true if column missing/1
 func userWantsSlackStatusOnBRB(userName string) bool {
 	var v int
 	err := db.QueryRow(`SELECT COALESCE(brb_slack_status,1) FROM users WHERE name=? LIMIT 1`, userName).Scan(&v)
@@ -74,7 +70,6 @@ func userSlackID(userName string) string {
 	return strings.TrimSpace(id)
 }
 
-// setSlackCustomStatus — users.profile.set (потрібен scope users.profile:write; для чужих профілів часто потрібен user token / admin).
 func setSlackCustomStatus(slackUserID, text, emoji string, expirationUnix int64) error {
 	token := slackBotToken()
 	if token == "" || slackUserID == "" {
@@ -141,7 +136,6 @@ func maybeSetSlackStatusOnBRB(userName, untilHHMM string) {
 	}
 	text := "BRB до " + untilHHMM
 	if err := setSlackCustomStatus(sid, text, ":brb:", exp); err != nil {
-		// fallback emoji
 		if err2 := setSlackCustomStatus(sid, text, ":no_entry:", exp); err2 != nil {
 			log.Printf("BRB slack status %s: %v / %v", userName, err, err2)
 		}
@@ -167,7 +161,6 @@ func setBRB(userName, untilHHMM, note string) error {
 	if userName == "" || untilHHMM == "" {
 		return fmt.Errorf("user and until required")
 	}
-	// accept HH:MM or full datetime (Europe/Kyiv)
 	until := untilHHMM
 	if len(untilHHMM) <= 5 {
 		tzName := getSetting("on_grid_timezone", "Europe/Kyiv")
@@ -178,7 +171,6 @@ func setBRB(userName, untilHHMM, note string) error {
 		now := time.Now().In(loc)
 		until = now.Format("2006-01-02") + " " + untilHHMM + ":00"
 	}
-	// clear previous active
 	db.Exec(`UPDATE user_brb SET cleared_at=CURRENT_TIMESTAMP WHERE user_name=? AND cleared_at IS NULL`, userName)
 	_, err := db.Exec(`INSERT INTO user_brb (user_name, until_at, note) VALUES (?,?,?)`, userName, until, note)
 	if err == nil {
@@ -194,7 +186,6 @@ func clearBRB(userName string) {
 	go maybeClearSlackStatusOnBRB(userName)
 }
 
-// handleBRB — GET list / POST set / DELETE clear
 func handleBRB(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	switch r.Method {
@@ -230,7 +221,6 @@ func handleBRB(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleShiftRelief — temporary swap of primary/backup
 func handleShiftRelief(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	switch r.Method {
@@ -265,7 +255,7 @@ func handleShiftRelief(w http.ResponseWriter, r *http.Request) {
 	case http.MethodPost:
 		var body struct {
 			Date         string `json:"date"`
-			Role         string `json:"role"` // primary | backup
+			Role         string `json:"role"`
 			OriginalUser string `json:"original_user"`
 			ReliefUser   string `json:"relief_user"`
 			Actor        string `json:"actor"`
@@ -286,7 +276,6 @@ func handleShiftRelief(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "original_user and relief_user required", 400)
 			return
 		}
-		// close previous active relief for same role/date
 		db.Exec(`UPDATE shift_relief SET ended_at=CURRENT_TIMESTAMP, ended_by=? WHERE date=? AND role=? AND ended_at IS NULL`,
 			body.Actor, body.Date, body.Role)
 		res, err := db.Exec(`INSERT INTO shift_relief (date, role, original_user, relief_user, started_by) VALUES (?,?,?,?,?)`,
@@ -295,24 +284,21 @@ func handleShiftRelief(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), 500)
 			return
 		}
-		// update shifts row for display
 		if body.Role == "primary" {
 			db.Exec(`UPDATE shifts SET primary_user=? WHERE date=?`, body.ReliefUser, body.Date)
 		} else {
 			db.Exec(`UPDATE shifts SET backup_user=? WHERE date=?`, body.ReliefUser, body.Date)
 		}
-		// mark original needs resume + invalidate sessions
 		db.Exec(`UPDATE users SET needs_resume=1 WHERE name=? OR username=?`, body.OriginalUser, body.OriginalUser)
 		db.Exec(`DELETE FROM sessions WHERE user_id IN (SELECT id FROM users WHERE name=? OR username=?)`, body.OriginalUser, body.OriginalUser)
 		id, _ := res.LastInsertId()
 		logAudit(body.Actor, "SHIFT_RELIEF", clientIP(r), fmt.Sprintf("%s %s → %s (was %s)", body.Date, body.Role, body.ReliefUser, body.OriginalUser))
 		json.NewEncoder(w).Encode(map[string]interface{}{"status": "ok", "id": id})
 	case http.MethodPut:
-		// end relief / "Я знову на місці"
 		var body struct {
-			ID     int    `json:"id"`
-			Actor  string `json:"actor"`
-			User   string `json:"user_name"` // who is coming back
+			ID    int    `json:"id"`
+			Actor string `json:"actor"`
+			User  string `json:"user_name"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			http.Error(w, err.Error(), 400)
@@ -322,7 +308,6 @@ func handleShiftRelief(w http.ResponseWriter, r *http.Request) {
 		err := db.QueryRow(`SELECT date, role, original_user, relief_user FROM shift_relief WHERE id=? AND ended_at IS NULL`, body.ID).
 			Scan(&date, &role, &orig, &relief)
 		if err != nil {
-			// by user if id=0
 			if body.User != "" {
 				err = db.QueryRow(`SELECT id, date, role, original_user, relief_user FROM shift_relief
 					WHERE original_user=? AND ended_at IS NULL ORDER BY id DESC LIMIT 1`, body.User).
@@ -347,25 +332,21 @@ func handleShiftRelief(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// parseSlackBRB — "/brb 16:00" from Slack slash or message
 func parseSlackBRB(text string) (until string, ok bool) {
 	t := strings.TrimSpace(strings.ToLower(text))
 	t = strings.TrimPrefix(t, "/brb")
 	t = strings.TrimSpace(t)
-	// also "brb 16:00"
 	if strings.HasPrefix(t, "brb ") {
 		t = strings.TrimSpace(t[4:])
 	}
 	if t == "" {
 		return "", false
 	}
-	// HH:MM
 	parts := strings.Fields(t)
 	if len(parts) == 0 {
 		return "", false
 	}
 	until = parts[0]
-	// normalize H:MM → HH:MM
 	if len(until) == 4 && until[1] == ':' {
 		until = "0" + until
 	}
@@ -384,11 +365,9 @@ func handleSlackEvents(w http.ResponseWriter, r *http.Request) {
 	ct := r.Header.Get("Content-Type")
 	var text, userName, userID string
 
-	// Slack slash commands: application/x-www-form-urlencoded
 	if strings.Contains(ct, "application/x-www-form-urlencoded") {
 		if err := r.ParseForm(); err != nil {
 			log.Printf("slack webhook parse form: %v", err)
-			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(map[string]interface{}{"response_type": "ephemeral", "text": "Parse error"})
 			return
 		}
@@ -398,7 +377,6 @@ func handleSlackEvents(w http.ResponseWriter, r *http.Request) {
 		}
 		userName = r.FormValue("user_name")
 		userID = r.FormValue("user_id")
-		// command may be /brb with text "16:00"
 		if strings.HasPrefix(r.FormValue("command"), "/brb") && !strings.Contains(strings.ToLower(text), "brb") {
 			text = "/brb " + strings.TrimSpace(r.FormValue("text"))
 		}
@@ -408,9 +386,11 @@ func handleSlackEvents(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), 400)
 			return
 		}
-		// URL verification
 		if raw["type"] == "url_verification" {
 			json.NewEncoder(w).Encode(map[string]interface{}{"challenge": raw["challenge"]})
+			return
+		}
+		if tryTeamMentionEvent(raw, w) {
 			return
 		}
 		text, _ = raw["text"].(string)
@@ -437,15 +417,12 @@ func handleSlackEvents(w http.ResponseWriter, r *http.Request) {
 		} else {
 			log.Printf("slack BRB: %s until %s", uname, until)
 		}
-		// Slack slash expects 200 within 3s; plain text also OK
-		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"response_type": "ephemeral",
 			"text":          msg,
 		})
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"response_type": "ephemeral",
 		"text":          "Не розпізнано. Приклад: /brb 16:00",
