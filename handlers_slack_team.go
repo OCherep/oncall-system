@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -10,14 +9,9 @@ import (
 	"time"
 )
 
-// Slack Events API: message that mentions @devops-team (usergroup) becomes an incident.
-// Assignee: today's primary if they have no «В роботі» incident, else backup, else empty (admin queue).
-//
-// Env:
-//   SLACK_TEAM_SUBTEAM=S03QEQF27AN
-//   SLACK_TEAM_HANDLE=devops-team
-// Bot must be in the channel. Event Subscriptions: message.channels, message.groups.
-// Request URL: https://s.ks.tv:85/api/webhooks/slack
+// Slack Events API: @devops-team → звернення.
+// app_settings.slack_auto_assign=1 — вільний черговий (без «В роботі»).
+// =0 — лише адмін, крім винятку: усі адміни у BRB або черга без виконавця ≥ slack_queue_limit.
 
 func teamSubteamID() string {
 	if v := strings.TrimSpace(os.Getenv("SLACK_TEAM_SUBTEAM")); v != "" {
@@ -33,17 +27,18 @@ func teamHandle() string {
 	return "devops-team"
 }
 
+func settingOn(key, def string) bool {
+	v := strings.ToLower(getSetting(key, def))
+	return v == "1" || v == "true" || v == "yes" || v == "on"
+}
+
 func mentionsTeam(text string) bool {
-	t := text
-	low := strings.ToLower(t)
+	low := strings.ToLower(text)
 	handle := strings.ToLower(teamHandle())
 	if strings.Contains(low, "@"+handle) || strings.Contains(low, "<!subteam^"+strings.ToLower(teamSubteamID())) {
 		return true
 	}
-	if strings.Contains(t, "<!subteam^"+teamSubteamID()) {
-		return true
-	}
-	return false
+	return strings.Contains(text, "<!subteam^"+teamSubteamID())
 }
 
 func todayShiftPair() (primary, backup string) {
@@ -62,7 +57,51 @@ func inProgressIncidentCount(userName string) int {
 	return n
 }
 
-// pickOncallAssignee — primary if free, else backup if free, else "" (admin distributes).
+func unassignedOpenCount() int {
+	var n int
+	_ = db.QueryRow(`SELECT COUNT(*) FROM incidents WHERE TRIM(COALESCE(user_name,''))='' AND status NOT IN ('Вирішено','Архів','У задачу')`).Scan(&n)
+	return n
+}
+
+func adminsAllOnBRB() bool {
+	brb := activeBRBMap()
+	if len(brb) == 0 {
+		return false
+	}
+	rows, err := db.Query(`SELECT name FROM users WHERE role='admin' OR lower(COALESCE(team_role,'')) LIKE '%диспет%'`)
+	if err != nil {
+		return false
+	}
+	defer rows.Close()
+	n, away := 0, 0
+	for rows.Next() {
+		var name string
+		rows.Scan(&name)
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		n++
+		if _, ok := brb[name]; ok {
+			away++
+		}
+	}
+	if n == 0 {
+		// dispatchers setting: comma names
+		for _, p := range strings.Split(getSetting("dispatchers", ""), ",") {
+			p = strings.TrimSpace(p)
+			if p == "" {
+				continue
+			}
+			n++
+			if _, ok := brb[p]; ok {
+				away++
+			}
+		}
+	}
+	return n > 0 && away == n
+}
+
 func pickOncallAssignee() (assignee, reason string) {
 	p, b := todayShiftPair()
 	pBusy := inProgressIncidentCount(p) > 0
@@ -79,6 +118,27 @@ func pickOncallAssignee() (assignee, reason string) {
 	}
 }
 
+func resolveTeamAssignee() (assignee, reason string) {
+	if settingOn("slack_auto_assign", "1") {
+		a, why := pickOncallAssignee()
+		return a, "auto: " + why
+	}
+	limit := 5
+	fmt.Sscan(getSetting("slack_queue_limit", "5"), &limit)
+	if limit < 1 {
+		limit = 5
+	}
+	if adminsAllOnBRB() {
+		a, why := pickOncallAssignee()
+		return a, "admin BRB → " + why
+	}
+	if unassignedOpenCount() >= limit {
+		a, why := pickOncallAssignee()
+		return a, fmt.Sprintf("queue>=%d → %s", limit, why)
+	}
+	return "", "admin queue"
+}
+
 func slackPermalink(channel, ts string) string {
 	ts = strings.ReplaceAll(ts, ".", "")
 	return "https://vidmindtalk.slack.com/archives/" + channel + "/p" + ts
@@ -90,7 +150,7 @@ func createIncidentFromTeamMention(channel, ts, authorID, text string) (int64, s
 	if err := db.QueryRow(`SELECT id FROM incidents WHERE external_id=? LIMIT 1`, extID).Scan(&existing); err == nil && existing > 0 {
 		return int64(existing), "", "duplicate", nil
 	}
-	assignee, why := pickOncallAssignee()
+	assignee, why := resolveTeamAssignee()
 	desc := strings.TrimSpace(text)
 	if len(desc) > 1500 {
 		desc = desc[:1500]
@@ -118,7 +178,6 @@ func createIncidentFromTeamMention(channel, ts, authorID, text string) (int64, s
 	return id, assignee, why, nil
 }
 
-// tryTeamMentionEvent handles Slack event_callback. Returns true if the response was written.
 func tryTeamMentionEvent(raw map[string]interface{}, w http.ResponseWriter) bool {
 	if raw["type"] != "event_callback" {
 		return false
