@@ -51,8 +51,6 @@ func availableOnDate(pool []string, dateStr string, abs []AbsenceRequest) []stri
 	return out
 }
 
-
-// isWeekendDate — субота/неділя (локальна дата YYYY-MM-DD).
 func isWeekendDate(dateStr string) bool {
 	t, err := time.ParseInLocation("2006-01-02", dateStr, time.Local)
 	if err != nil {
@@ -62,40 +60,57 @@ func isWeekendDate(dateStr string) bool {
 	return w == time.Saturday || w == time.Sunday
 }
 
-// isHolidayDate — свято з app_settings.holidays (comma YYYY-MM-DD) або on_grid_exceptions mode=off на дату.
-func isHolidayDate(dateStr string) bool {
+// dutyCal — завантажені довідники. Не можна робити Query всередині відкритого rows:
+// db.SetMaxOpenConns(1), вкладений запит блокує єдине з'єднання назавжди.
+type dutyCal struct {
+	holidays map[string]bool
+	off      map[string]bool
+	on       map[string]bool
+}
+
+func loadDutyCal() dutyCal {
+	c := dutyCal{holidays: map[string]bool{}, off: map[string]bool{}, on: map[string]bool{}}
 	raw := strings.TrimSpace(getSetting("holidays", ""))
-	if raw != "" {
-		for _, p := range strings.Split(raw, ",") {
-			if strings.TrimSpace(p) == dateStr {
-				return true
-			}
+	for _, p := range strings.Split(raw, ",") {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			c.holidays[p] = true
 		}
 	}
-	var mode string
-	err := db.QueryRow(`SELECT mode FROM on_grid_exceptions WHERE date=? LIMIT 1`, dateStr).Scan(&mode)
-	if err == nil && strings.EqualFold(mode, "off") {
-		// off у будень часто = свято/неробочий
-		if !isWeekendDate(dateStr) {
-			return true
+	rows, err := db.Query(`SELECT date, mode FROM on_grid_exceptions`)
+	if err != nil {
+		return c
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var d, mode string
+		rows.Scan(&d, &mode)
+		switch strings.ToLower(strings.TrimSpace(mode)) {
+		case "off":
+			c.off[d] = true
+		case "on":
+			c.on[d] = true
 		}
 	}
-	return false
+	return c
 }
 
-// isExceptionWorkDate — день виключення понаднормової (on_grid_exceptions mode=on на конкретну дату).
-func isExceptionWorkDate(dateStr string) bool {
-	var mode string
-	err := db.QueryRow(`SELECT mode FROM on_grid_exceptions WHERE date=? LIMIT 1`, dateStr).Scan(&mode)
-	return err == nil && strings.EqualFold(mode, "on")
+func (c dutyCal) isHoliday(dateStr string) bool {
+	if c.holidays[dateStr] {
+		return true
+	}
+	return c.off[dateStr] && !isWeekendDate(dateStr)
 }
 
-// dayKindLabel — weekday | weekend | holiday | exception
-func dayKindLabel(dateStr string) string {
-	if isExceptionWorkDate(dateStr) {
+func (c dutyCal) isExceptionWork(dateStr string) bool {
+	return c.on[dateStr]
+}
+
+func (c dutyCal) kind(dateStr string) string {
+	if c.isExceptionWork(dateStr) {
 		return "exception"
 	}
-	if isHolidayDate(dateStr) {
+	if c.isHoliday(dateStr) {
 		return "holiday"
 	}
 	if isWeekendDate(dateStr) {
@@ -104,12 +119,20 @@ func dayKindLabel(dateStr string) string {
 	return "weekday"
 }
 
-func isSpecialDutyDay(dateStr string) bool {
-	k := dayKindLabel(dateStr)
+func (c dutyCal) isSpecial(dateStr string) bool {
+	k := c.kind(dateStr)
 	return k == "weekend" || k == "holiday"
 }
 
-// pickLeastLoaded — серед avail з мінімальним load[name] (стабільний tie-break за порядком avail).
+func isHolidayDate(dateStr string) bool { return loadDutyCal().isHoliday(dateStr) }
+func isExceptionWorkDate(dateStr string) bool {
+	return loadDutyCal().isExceptionWork(dateStr)
+}
+func dayKindLabel(dateStr string) string { return loadDutyCal().kind(dateStr) }
+func isSpecialDutyDay(dateStr string) bool {
+	return loadDutyCal().isSpecial(dateStr)
+}
+
 func pickLeastLoaded(avail []string, load map[string]int, skip map[string]bool) string {
 	best := ""
 	bestN := int(^uint(0) >> 1)
@@ -125,8 +148,7 @@ func pickLeastLoaded(avail []string, load map[string]int, skip map[string]bool) 
 	return best
 }
 
-// loadWeekendCountsBefore — скільки разів вже був primary/backup на вихідних/святах до date (не включно).
-func loadWeekendCountsBefore(before string) (prim map[string]int, bak map[string]int) {
+func loadWeekendCountsBefore(before string, cal dutyCal) (prim map[string]int, bak map[string]int) {
 	prim, bak = map[string]int{}, map[string]int{}
 	rows, err := db.Query(`SELECT date, primary_user, backup_user FROM shifts WHERE date < ?`, before)
 	if err != nil {
@@ -136,7 +158,7 @@ func loadWeekendCountsBefore(before string) (prim map[string]int, bak map[string
 	for rows.Next() {
 		var d, p, b string
 		rows.Scan(&d, &p, &b)
-		if !isSpecialDutyDay(d) {
+		if !cal.isSpecial(d) {
 			continue
 		}
 		if p != "" {
@@ -149,7 +171,6 @@ func loadWeekendCountsBefore(before string) (prim map[string]int, bak map[string
 	return
 }
 
-// indexInPool — position of name in pool, or -1.
 func indexInPool(pool []string, name string) int {
 	name = strings.TrimSpace(name)
 	for i, n := range pool {
@@ -160,7 +181,6 @@ func indexInPool(pool []string, name string) int {
 	return -1
 }
 
-// pickPair — primary = pool[startIdx % len], backup = next different if possible.
 func pickPair(pool []string, startIdx int) (primary, backup string) {
 	if len(pool) == 0 {
 		return "", ""
@@ -176,22 +196,16 @@ func pickPair(pool []string, startIdx int) (primary, backup string) {
 	return primary, backup
 }
 
-// recalculateShiftsForward — only dates >= fromDate (inclusive). Past rows untouched.
-// Seed: current primary/backup for fromDate; rotation continues by full on-call pool order.
-// previous_* optional: used only to prefer rotation order continuity (find index after previous primary).
 func recalculateShiftsForward(fromDate, untilDate, currPrimary, currBackup, prevPrimary, prevBackup string) (int, error) {
 	fromDate = strings.TrimSpace(fromDate)
 	if fromDate == "" {
 		fromDate = time.Now().Format("2006-01-02")
 	}
 	if untilDate == "" {
-		// default: end of fromDate's month + next full month
 		t, err := time.ParseInLocation("2006-01-02", fromDate, time.Local)
 		if err != nil {
 			return 0, fmt.Errorf("bad from_date")
 		}
-		untilDate = t.AddDate(0, 2, 0).Format("2006-01-02")
-		// last day of month+1
 		end := time.Date(t.Year(), t.Month()+2, 0, 0, 0, 0, 0, time.Local)
 		untilDate = end.Format("2006-01-02")
 	}
@@ -200,8 +214,8 @@ func recalculateShiftsForward(fromDate, untilDate, currPrimary, currBackup, prev
 		return 0, fmt.Errorf("немає on-call користувачів")
 	}
 	abs := loadApprovedAbsences()
+	cal := loadDutyCal()
 
-	// Стартовий індекс ротації в повному пулі (алфавітний порядок on-call).
 	rot := indexInPool(pool, currPrimary)
 	if rot < 0 {
 		rot = indexInPool(pool, prevPrimary)
@@ -226,7 +240,7 @@ func recalculateShiftsForward(fromDate, untilDate, currPrimary, currBackup, prev
 
 	n := 0
 	first := true
-	wPrim, wBak := loadWeekendCountsBefore(fromDate)
+	wPrim, wBak := loadWeekendCountsBefore(fromDate, cal)
 	for d := start; !d.After(end); d = d.AddDate(0, 0, 1) {
 		dateStr := d.Format("2006-01-02")
 		avail := availableOnDate(pool, dateStr, abs)
@@ -238,7 +252,7 @@ func recalculateShiftsForward(fromDate, untilDate, currPrimary, currBackup, prev
 			primary = strings.TrimSpace(currPrimary)
 			backup = strings.TrimSpace(currBackup)
 			if primary == "" || isAbsentOnDate(primary, dateStr, abs) {
-				if isSpecialDutyDay(dateStr) {
+				if cal.isSpecial(dateStr) {
 					primary = pickLeastLoaded(avail, wPrim, nil)
 				} else {
 					primary, rot = nextOncallFrom(pool, rot, dateStr, abs, nil)
@@ -248,7 +262,7 @@ func recalculateShiftsForward(fromDate, untilDate, currPrimary, currBackup, prev
 				continue
 			}
 			if backup == "" || backup == primary || isAbsentOnDate(backup, dateStr, abs) {
-				if isSpecialDutyDay(dateStr) {
+				if cal.isSpecial(dateStr) {
 					backup = pickLeastLoaded(avail, wBak, map[string]bool{primary: true})
 				} else {
 					pIdx := indexInPool(pool, primary)
@@ -265,7 +279,7 @@ func recalculateShiftsForward(fromDate, untilDate, currPrimary, currBackup, prev
 				rot = (pi + 1) % len(pool)
 			}
 			first = false
-		} else if isSpecialDutyDay(dateStr) {
+		} else if cal.isSpecial(dateStr) {
 			primary = pickLeastLoaded(avail, wPrim, nil)
 			backup = pickLeastLoaded(avail, wBak, map[string]bool{primary: true})
 			if primary == "" {
@@ -274,7 +288,6 @@ func recalculateShiftsForward(fromDate, untilDate, currPrimary, currBackup, prev
 			if backup == "" {
 				backup = primary
 			}
-			// rot для буднів не чіпаємо
 		} else {
 			var pNext int
 			primary, pNext = nextOncallFrom(pool, rot, dateStr, abs, nil)
@@ -287,27 +300,28 @@ func recalculateShiftsForward(fromDate, untilDate, currPrimary, currBackup, prev
 			}
 			rot = pNext
 		}
-		if isSpecialDutyDay(dateStr) {
+		if cal.isSpecial(dateStr) {
 			wPrim[primary]++
 			wBak[backup]++
 		}
-		db.Exec(`INSERT INTO shifts (date, primary_user, backup_user) VALUES (?,?,?)
+		if _, err := db.Exec(`INSERT INTO shifts (date, primary_user, backup_user) VALUES (?,?,?)
 			ON CONFLICT(date) DO UPDATE SET primary_user=excluded.primary_user, backup_user=excluded.backup_user`,
-			dateStr, primary, backup)
+			dateStr, primary, backup); err != nil {
+			return n, err
+		}
 		n++
 	}
-		_ = prevBackup
+	_ = prevBackup
 	return n, nil
 }
 
-// handleAdminShifts — GET month / PUT bulk days / POST recalculate
 func handleAdminShifts(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	switch r.Method {
 	case http.MethodGet:
 		from := r.URL.Query().Get("from")
 		to := r.URL.Query().Get("to")
-		month := r.URL.Query().Get("month") // YYYY-MM
+		month := r.URL.Query().Get("month")
 		if month != "" {
 			from = month + "-01"
 			t, _ := time.Parse("2006-01-02", from)
@@ -340,7 +354,6 @@ func handleAdminShifts(w http.ResponseWriter, r *http.Request) {
 		})
 
 	case http.MethodPut:
-		// bulk correct specific days (past or future — admin explicit edit)
 		var body struct {
 			Actor string `json:"actor"`
 			Days  []struct {
@@ -377,15 +390,14 @@ func handleAdminShifts(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]interface{}{"status": "ok", "updated": n})
 
 	case http.MethodPost:
-		// recalculate forward from seed pairs
 		var body struct {
-			Actor            string `json:"actor"`
-			FromDate         string `json:"from_date"`
-			UntilDate        string `json:"until_date"`
-			CurrentPrimary   string `json:"current_primary"`
-			CurrentBackup    string `json:"current_backup"`
-			PreviousPrimary  string `json:"previous_primary"`
-			PreviousBackup   string `json:"previous_backup"`
+			Actor           string `json:"actor"`
+			FromDate        string `json:"from_date"`
+			UntilDate       string `json:"until_date"`
+			CurrentPrimary  string `json:"current_primary"`
+			CurrentBackup   string `json:"current_backup"`
+			PreviousPrimary string `json:"previous_primary"`
+			PreviousBackup  string `json:"previous_backup"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			http.Error(w, err.Error(), 400)
