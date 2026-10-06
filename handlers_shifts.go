@@ -8,7 +8,6 @@ import (
 	"time"
 )
 
-// listOncallNames — ordered roster for rotation (stable by name).
 func listOncallNames() []string {
 	rows, err := db.Query(`SELECT name FROM users WHERE COALESCE(is_oncall,0)=1 AND role != 'admin' ORDER BY name`)
 	if err != nil {
@@ -60,8 +59,6 @@ func isWeekendDate(dateStr string) bool {
 	return w == time.Saturday || w == time.Sunday
 }
 
-// dutyCal — завантажені довідники. Не можна робити Query всередині відкритого rows:
-// db.SetMaxOpenConns(1), вкладений запит блокує єдине з'єднання назавжди.
 type dutyCal struct {
 	holidays map[string]bool
 	off      map[string]bool
@@ -102,9 +99,7 @@ func (c dutyCal) isHoliday(dateStr string) bool {
 	return c.off[dateStr] && !isWeekendDate(dateStr)
 }
 
-func (c dutyCal) isExceptionWork(dateStr string) bool {
-	return c.on[dateStr]
-}
+func (c dutyCal) isExceptionWork(dateStr string) bool { return c.on[dateStr] }
 
 func (c dutyCal) kind(dateStr string) string {
 	if c.isExceptionWork(dateStr) {
@@ -124,14 +119,10 @@ func (c dutyCal) isSpecial(dateStr string) bool {
 	return k == "weekend" || k == "holiday"
 }
 
-func isHolidayDate(dateStr string) bool { return loadDutyCal().isHoliday(dateStr) }
-func isExceptionWorkDate(dateStr string) bool {
-	return loadDutyCal().isExceptionWork(dateStr)
-}
-func dayKindLabel(dateStr string) string { return loadDutyCal().kind(dateStr) }
-func isSpecialDutyDay(dateStr string) bool {
-	return loadDutyCal().isSpecial(dateStr)
-}
+func isHolidayDate(dateStr string) bool       { return loadDutyCal().isHoliday(dateStr) }
+func isExceptionWorkDate(dateStr string) bool { return loadDutyCal().isExceptionWork(dateStr) }
+func dayKindLabel(dateStr string) string      { return loadDutyCal().kind(dateStr) }
+func isSpecialDutyDay(dateStr string) bool    { return loadDutyCal().isSpecial(dateStr) }
 
 func pickLeastLoaded(avail []string, load map[string]int, skip map[string]bool) string {
 	best := ""
@@ -148,7 +139,9 @@ func pickLeastLoaded(avail []string, load map[string]int, skip map[string]bool) 
 	return best
 }
 
-func loadWeekendCountsBefore(before string, cal dutyCal) (prim map[string]int, bak map[string]int) {
+// Calendar is loaded before the shifts cursor. Nested QueryRow while rows are open deadlocks MaxOpenConns(1).
+func loadWeekendCountsBefore(before string) (prim map[string]int, bak map[string]int) {
+	cal := loadDutyCal()
 	prim, bak = map[string]int{}, map[string]int{}
 	rows, err := db.Query(`SELECT date, primary_user, backup_user FROM shifts WHERE date < ?`, before)
 	if err != nil {
@@ -240,7 +233,7 @@ func recalculateShiftsForward(fromDate, untilDate, currPrimary, currBackup, prev
 
 	n := 0
 	first := true
-	wPrim, wBak := loadWeekendCountsBefore(fromDate, cal)
+	wPrim, wBak := loadWeekendCountsBefore(fromDate)
 	for d := start; !d.After(end); d = d.AddDate(0, 0, 1) {
 		dateStr := d.Format("2006-01-02")
 		avail := availableOnDate(pool, dateStr, abs)
