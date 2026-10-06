@@ -12,11 +12,7 @@ import (
 // Slack Events API: @devops-team → звернення.
 // app_settings.slack_auto_assign=1 — вільний черговий (без «В роботі»).
 // =0 — лише адмін, крім: усі адміни у BRB або черга без виконавця ≥ slack_queue_limit.
-// app_settings.slack_morning_brief=1 — DM черговим о 08:00 Europe/Kyiv.
-
-func init() {
-	go morningBriefLoop()
-}
+// Ранковий DM — handlers_duty_digest.go (morning_duty_notify / morning_duty_time).
 
 func teamSubteamID() string {
 	if v := strings.TrimSpace(os.Getenv("SLACK_TEAM_SUBTEAM")); v != "" {
@@ -62,16 +58,6 @@ func inProgressIncidentCount(userName string) int {
 	return n
 }
 
-func openIncidentCount(userName string) int {
-	userName = strings.TrimSpace(userName)
-	if userName == "" {
-		return 0
-	}
-	var n int
-	_ = db.QueryRow(`SELECT COUNT(*) FROM incidents WHERE user_name=? AND status NOT IN ('Вирішено','Архів','У задачу')`, userName).Scan(&n)
-	return n
-}
-
 func unassignedOpenCount() int {
 	var n int
 	_ = db.QueryRow(`SELECT COUNT(*) FROM incidents WHERE TRIM(COALESCE(user_name,''))='' AND status NOT IN ('Вирішено','Архів','У задачу')`).Scan(&n)
@@ -97,12 +83,10 @@ func adminsAllOnBRB() bool {
 
 func pickOncallAssignee() (assignee, reason string) {
 	p, b := todayShiftPair()
-	pBusy := inProgressIncidentCount(p) > 0
-	bBusy := inProgressIncidentCount(b) > 0
 	switch {
-	case p != "" && !pBusy:
+	case p != "" && inProgressIncidentCount(p) == 0:
 		return p, "primary free"
-	case b != "" && !bBusy:
+	case b != "" && inProgressIncidentCount(b) == 0:
 		return b, "backup free"
 	case p == "" && b == "":
 		return "", "no shift"
@@ -210,58 +194,4 @@ func tryTeamMentionEvent(raw map[string]interface{}, w http.ResponseWriter) bool
 	log.Printf("slack team mention incident=%d assignee=%q why=%s", id, assignee, why)
 	w.WriteHeader(http.StatusOK)
 	return true
-}
-
-func kyivLoc() *time.Location {
-	loc, err := time.LoadLocation("Europe/Kyiv")
-	if err != nil {
-		return time.FixedZone("EET", 2*3600)
-	}
-	return loc
-}
-
-func morningBriefLoop() {
-	time.Sleep(45 * time.Second)
-	for {
-		loc := kyivLoc()
-		now := time.Now().In(loc)
-		next := time.Date(now.Year(), now.Month(), now.Day(), 8, 0, 0, 0, loc)
-		if !now.Before(next) {
-			next = next.Add(24 * time.Hour)
-		}
-		time.Sleep(time.Until(next))
-		sendMorningBrief(next.In(loc).Format("2006-01-02"))
-	}
-}
-
-func sendMorningBrief(day string) {
-	if db == nil {
-		return
-	}
-	if !settingOn("slack_morning_brief", "1") {
-		log.Printf("morning brief off for %s", day)
-		return
-	}
-	var n int
-	_ = db.QueryRow(`SELECT COUNT(*) FROM audit_logs WHERE action='MORNING_BRIEF' AND details=?`, day).Scan(&n)
-	if n > 0 {
-		return
-	}
-	var primary, backup string
-	_ = db.QueryRow(`SELECT COALESCE(primary_user,''), COALESCE(backup_user,'') FROM shifts WHERE date=?`, day).Scan(&primary, &backup)
-	mode := "лише адмін"
-	if settingOn("slack_auto_assign", "1") {
-		mode = "автона вільного чергового"
-	}
-	q := unassignedOpenCount()
-	for _, pair := range []struct{ name, role string }{{primary, "основний"}, {backup, "дублюючий"}} {
-		if pair.name == "" {
-			continue
-		}
-		msg := fmt.Sprintf("Доброго ранку. Сьогодні %s ви %s черговий.\nВідкритих звернень: %d, у роботі: %d.\nЧерга без виконавця: %d.\nРозподіл @%s: %s.",
-			day, pair.role, openIncidentCount(pair.name), inProgressIncidentCount(pair.name), q, teamHandle(), mode)
-		notifyUserSlack(pair.name, msg)
-	}
-	logAudit("system", "MORNING_BRIEF", "scheduler", day)
-	log.Printf("morning brief sent %s primary=%s backup=%s", day, primary, backup)
 }
