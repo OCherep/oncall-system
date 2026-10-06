@@ -20,15 +20,6 @@ func init() {
 	}()
 }
 
-func kyivNow() time.Time {
-	tz := getSetting("on_grid_timezone", "Europe/Kyiv")
-	loc, err := time.LoadLocation(tz)
-	if err != nil {
-		loc = time.FixedZone("EET", 2*3600)
-	}
-	return time.Now().In(loc)
-}
-
 func morningDigestLoop() {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
