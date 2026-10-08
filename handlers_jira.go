@@ -16,15 +16,14 @@ import (
 //
 // Env:
 //   JIRA_BASE_URL=https://your-domain.atlassian.net
-//   JIRA_EMAIL=bot@company.com          // для Cloud Basic auth
-//   JIRA_API_TOKEN=...                  // Atlassian API token
-//   JIRA_ENABLED=1                      // явний увімкнення
+//   JIRA_EMAIL=bot@company.com
+//   JIRA_API_TOKEN=...
+//   JIRA_ENABLED=1
+//   JIRA_BOARD_ID=10          // DevOps Board (VID). Порожній JQL не бачить картки борду.
+//   JIRA_JQL_FILTER=...       // якщо задано — імпорт йде по JQL, не по борду
 //
-// Мапінг статусів On-Call → назва transition у Jira (можна перевизначити через env JSON):
-//   JIRA_STATUS_MAP={"Нове":"Open","В роботі":"In Progress","На паузі":"On Hold","Вирішено":"Done","Архів":"Done"}
-//
-// Search: Jira Cloud зняв /rest/api/2/search і /rest/api/3/search (CHANGE-2046).
-// Імпорт йде в POST /rest/api/3/search/jql з nextPageToken.
+// Search: POST /rest/api/3/search/jql (CHANGE-2046).
+// Борд: GET /rest/agile/1.0/board/{id}/issue — те, що видно на DevOps Board.
 
 func jiraEnabled() bool {
 	v := strings.TrimSpace(os.Getenv("JIRA_ENABLED"))
@@ -34,7 +33,6 @@ func jiraEnabled() bool {
 	if v == "1" || strings.EqualFold(v, "true") {
 		return true
 	}
-	// auto: credentials present
 	return jiraBaseURL() != "" && jiraEmail() != "" && jiraAPIToken() != ""
 }
 
@@ -43,6 +41,14 @@ func jiraBaseURL() string {
 }
 func jiraEmail() string    { return strings.TrimSpace(os.Getenv("JIRA_EMAIL")) }
 func jiraAPIToken() string { return strings.TrimSpace(os.Getenv("JIRA_API_TOKEN")) }
+
+func jiraBoardID() string {
+	v := strings.TrimSpace(os.Getenv("JIRA_BOARD_ID"))
+	if v == "" {
+		return "10"
+	}
+	return v
+}
 
 func defaultJiraStatusMap() map[string]string {
 	return map[string]string{
@@ -71,7 +77,6 @@ func jiraStatusMap() map[string]string {
 	return m
 }
 
-// syncIncidentStatusToJira — викликати після успішної зміни статусу incident з external_id.
 func syncIncidentStatusToJira(externalID, oldStatus, newStatus string) {
 	if !jiraEnabled() || strings.TrimSpace(externalID) == "" || oldStatus == newStatus {
 		return
@@ -105,7 +110,6 @@ func jiraAddComment(issueKey, body string) error {
 	return jiraDo(http.MethodPost, url, payload)
 }
 
-// jiraADF — API v3 приймає коментар як Atlassian Document Format, не рядок.
 func jiraADF(text string) map[string]interface{} {
 	return map[string]interface{}{
 		"type":    "doc",
@@ -205,7 +209,19 @@ func jiraDo(method, url string, body []byte) error {
 	return nil
 }
 
-// handleJiraImport — POST {jql?, max?} → upsert daily_tasks by external_id (issue key).
+// jiraJQLUsable — старий фільтр component=DevOps не збігається з картками борду VID/10.
+func jiraJQLUsable(jql string) bool {
+	jql = strings.TrimSpace(jql)
+	if jql == "" {
+		return false
+	}
+	low := strings.ToLower(jql)
+	if strings.Contains(low, "component = devops") && !strings.Contains(low, "project = vid") && !strings.Contains(low, "project in (vid)") {
+		return false
+	}
+	return true
+}
+
 func handleJiraImport(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if r.Method != http.MethodPost {
@@ -224,18 +240,31 @@ func handleJiraImport(w http.ResponseWriter, r *http.Request) {
 	if req.Max <= 0 || req.Max > 100 {
 		req.Max = 50
 	}
+
+	source := "board"
 	jql := strings.TrimSpace(req.JQL)
-	if jql == "" {
+	if !jiraJQLUsable(jql) {
 		jql = strings.TrimSpace(getSetting("jira_jql", ""))
 	}
-	if jql == "" {
+	if !jiraJQLUsable(jql) {
 		jql = strings.TrimSpace(os.Getenv("JIRA_JQL_FILTER"))
 	}
-	if jql == "" {
-		jql = `project in (Vidmind) AND (component = DevOps OR labels = DevOps) AND issuetype in (Epic, Story, Task, Sub-task, Bug) AND updated >= -60d ORDER BY updated DESC`
-	}
 
-	issues, err := jiraSearchIssues(jql, req.Max)
+	var issues []jiraSearchIssue
+	var err error
+	if jiraJQLUsable(jql) {
+		source = "jql"
+		issues, err = jiraSearchIssues(jql, req.Max)
+	} else {
+		jql = ""
+		issues, err = jiraBoardIssues(jiraBoardID(), req.Max)
+		if err != nil {
+			log.Printf("jira board %s: %v; fallback jql", jiraBoardID(), err)
+			source = "jql-fallback"
+			jql = `project = VID AND statusCategory != Done ORDER BY updated DESC`
+			issues, err = jiraSearchIssues(jql, req.Max)
+		}
+	}
 	if err != nil {
 		log.Printf("jira import search: %v", err)
 		http.Error(w, fmt.Sprintf(`{"error":%q}`, err.Error()), 502)
@@ -303,13 +332,17 @@ func handleJiraImport(w http.ResponseWriter, r *http.Request) {
 		created++
 	}
 
+	msg := fmt.Sprintf("Знайдено %d, створено %d, оновлено %d, пропущено %d (%s)", len(issues), created, updated, skipped, source)
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"status":  "ok",
+		"source":  source,
+		"board":   jiraBoardID(),
 		"jql":     jql,
 		"found":   len(issues),
 		"created": created,
 		"updated": updated,
 		"skipped": skipped,
+		"message": msg,
 	})
 }
 
@@ -388,4 +421,38 @@ func jiraSearchIssues(jql string, max int) ([]jiraSearchIssue, error) {
 		all = all[:max]
 	}
 	return all, nil
+}
+
+func jiraBoardIssues(boardID string, max int) ([]jiraSearchIssue, error) {
+	if max <= 0 {
+		max = 50
+	}
+	if max > 100 {
+		max = 100
+	}
+	url := fmt.Sprintf("%s/rest/agile/1.0/board/%s/issue?maxResults=%d&fields=summary,status,priority,assignee,duedate,updated",
+		jiraBaseURL(), boardID, max)
+	req, err := jiraNewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	if resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("jira board %s %d: %s", boardID, resp.StatusCode, string(raw))
+	}
+	var out struct {
+		Issues []jiraSearchIssue `json:"issues"`
+		Total  int               `json:"total"`
+	}
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, err
+	}
+	log.Printf("jira board %s: got %d of %d", boardID, len(out.Issues), out.Total)
+	return out.Issues, nil
 }
