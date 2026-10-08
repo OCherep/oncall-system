@@ -22,6 +22,9 @@ import (
 //
 // Мапінг статусів On-Call → назва transition у Jira (можна перевизначити через env JSON):
 //   JIRA_STATUS_MAP={"Нове":"Open","В роботі":"In Progress","На паузі":"On Hold","Вирішено":"Done","Архів":"Done"}
+//
+// Search: Jira Cloud зняв /rest/api/2/search і /rest/api/3/search (CHANGE-2046).
+// Імпорт йде в POST /rest/api/3/search/jql з nextPageToken.
 
 func jiraEnabled() bool {
 	v := strings.TrimSpace(os.Getenv("JIRA_ENABLED"))
@@ -83,30 +86,43 @@ func syncIncidentStatusToJira(externalID, oldStatus, newStatus string) {
 }
 
 func jiraTransitionAndComment(issueKey, oldStatus, newStatus string) error {
-	// 1) Comment always
 	comment := fmt.Sprintf("On-Call: статус змінено «%s» → «%s»", oldStatus, newStatus)
 	if err := jiraAddComment(issueKey, comment); err != nil {
 		log.Printf("jira comment %s: %v", issueKey, err)
-		// continue to transition
 	}
-
-	// 2) Try transition by mapped name
 	targetName := jiraStatusMap()[newStatus]
 	if targetName == "" {
-		return nil // no mapping — comment only
+		return nil
 	}
 	return jiraDoTransition(issueKey, targetName)
 }
 
 func jiraAddComment(issueKey, body string) error {
-	url := fmt.Sprintf("%s/rest/api/2/issue/%s/comment", jiraBaseURL(), issueKey)
-	payload, _ := json.Marshal(map[string]string{"body": body})
+	url := fmt.Sprintf("%s/rest/api/3/issue/%s/comment", jiraBaseURL(), issueKey)
+	payload, _ := json.Marshal(map[string]interface{}{
+		"body": jiraADF(body),
+	})
 	return jiraDo(http.MethodPost, url, payload)
 }
 
+// jiraADF — API v3 приймає коментар як Atlassian Document Format, не рядок.
+func jiraADF(text string) map[string]interface{} {
+	return map[string]interface{}{
+		"type":    "doc",
+		"version": 1,
+		"content": []interface{}{
+			map[string]interface{}{
+				"type": "paragraph",
+				"content": []interface{}{
+					map[string]interface{}{"type": "text", "text": text},
+				},
+			},
+		},
+	}
+}
+
 func jiraDoTransition(issueKey, targetStatusName string) error {
-	// GET available transitions
-	url := fmt.Sprintf("%s/rest/api/2/issue/%s/transitions", jiraBaseURL(), issueKey)
+	url := fmt.Sprintf("%s/rest/api/3/issue/%s/transitions", jiraBaseURL(), issueKey)
 	req, err := jiraNewRequest(http.MethodGet, url, nil)
 	if err != nil {
 		return err
@@ -140,7 +156,6 @@ func jiraDoTransition(issueKey, targetStatusName string) error {
 			tid = t.ID
 			break
 		}
-		// partial match
 		if strings.Contains(strings.ToLower(t.Name), target) || strings.Contains(strings.ToLower(t.To.Name), target) {
 			tid = t.ID
 			break
@@ -189,7 +204,6 @@ func jiraDo(method, url string, body []byte) error {
 	}
 	return nil
 }
-
 
 // handleJiraImport — POST {jql?, max?} → upsert daily_tasks by external_id (issue key).
 func handleJiraImport(w http.ResponseWriter, r *http.Request) {
@@ -244,7 +258,6 @@ func handleJiraImport(w http.ResponseWriter, r *http.Request) {
 		if statusLocal == "" {
 			statusLocal = "Нова"
 		}
-		// map incident-like status to task status; нові імпорти — «Нерозподілена» до дейлі
 		taskStatus := mapIncStatusToTask(statusLocal)
 		if taskStatus == "Нова" || taskStatus == "" {
 			taskStatus = "Нерозподілена"
@@ -303,8 +316,8 @@ func handleJiraImport(w http.ResponseWriter, r *http.Request) {
 type jiraSearchIssue struct {
 	Key    string `json:"key"`
 	Fields struct {
-		Summary  string `json:"summary"`
-		Status   struct {
+		Summary string `json:"summary"`
+		Status  struct {
 			Name string `json:"name"`
 		} `json:"status"`
 		Priority *struct {
@@ -320,32 +333,59 @@ type jiraSearchIssue struct {
 }
 
 func jiraSearchIssues(jql string, max int) ([]jiraSearchIssue, error) {
-	// POST /rest/api/2/search
-	url := jiraBaseURL() + "/rest/api/2/search"
-	payload, _ := json.Marshal(map[string]interface{}{
-		"jql":        jql,
-		"maxResults": max,
-		"fields":     []string{"summary", "status", "priority", "assignee", "duedate", "updated"},
-	})
-	req, err := jiraNewRequest(http.MethodPost, url, payload)
-	if err != nil {
-		return nil, err
+	if max <= 0 {
+		max = 50
 	}
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
+	url := jiraBaseURL() + "/rest/api/3/search/jql"
+	var all []jiraSearchIssue
+	token := ""
+	for len(all) < max {
+		page := max - len(all)
+		if page > 100 {
+			page = 100
+		}
+		body := map[string]interface{}{
+			"jql":        jql,
+			"maxResults": page,
+			"fields":     []string{"summary", "status", "priority", "assignee", "duedate", "updated"},
+		}
+		if token != "" {
+			body["nextPageToken"] = token
+		}
+		payload, err := json.Marshal(body)
+		if err != nil {
+			return nil, err
+		}
+		req, err := jiraNewRequest(http.MethodPost, url, payload)
+		if err != nil {
+			return nil, err
+		}
+		client := &http.Client{Timeout: 30 * time.Second}
+		resp, err := client.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+		resp.Body.Close()
+		if resp.StatusCode >= 300 {
+			return nil, fmt.Errorf("jira search %d: %s", resp.StatusCode, string(raw))
+		}
+		var out struct {
+			Issues        []jiraSearchIssue `json:"issues"`
+			NextPageToken string            `json:"nextPageToken"`
+			IsLast        bool              `json:"isLast"`
+		}
+		if err := json.Unmarshal(raw, &out); err != nil {
+			return nil, err
+		}
+		all = append(all, out.Issues...)
+		if out.IsLast || out.NextPageToken == "" || len(out.Issues) == 0 {
+			break
+		}
+		token = out.NextPageToken
 	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
-	if resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("jira search %d: %s", resp.StatusCode, string(body))
+	if len(all) > max {
+		all = all[:max]
 	}
-	var out struct {
-		Issues []jiraSearchIssue `json:"issues"`
-	}
-	if err := json.Unmarshal(body, &out); err != nil {
-		return nil, err
-	}
-	return out.Issues, nil
+	return all, nil
 }
