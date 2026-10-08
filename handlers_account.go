@@ -99,14 +99,7 @@ func handleMeProfile(w http.ResponseWriter, r *http.Request) {
 				out["phone"] = m.Phone()
 			}
 			out["title"] = m.Title()
-			img := m.Profile.Image192
-			if img == "" {
-				img = m.Profile.Image72
-			}
-			if img == "" {
-				img = m.Profile.Image48
-			}
-			out["image"] = img
+			out["image"] = m.Profile.Image48
 			if slackID == "" && m.ID != "" {
 				db.Exec(`UPDATE users SET slack_id=? WHERE id=? AND (slack_id IS NULL OR slack_id='')`, m.ID, s.UserID)
 			}
