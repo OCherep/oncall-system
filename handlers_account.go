@@ -3,12 +3,14 @@ package main
 import (
 	"encoding/json"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 )
 
 func init() {
 	http.HandleFunc("/api/me/password", withIPAllow(securityHeaders(handleChangePassword)))
+	http.HandleFunc("/api/me/profile", withIPAllow(securityHeaders(handleMeProfile)))
 	http.HandleFunc("/api/tasks/pool", withIPAllow(securityHeaders(handleTaskPool)))
 	http.HandleFunc("/api/tasks/claim", withIPAllow(securityHeaders(handleClaimTask)))
 }
@@ -55,6 +57,62 @@ func handleChangePassword(w http.ResponseWriter, r *http.Request) {
 	}
 	logAudit(s.Username, "PASSWORD_CHANGE", clientIP(r), "self")
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+func handleMeProfile(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodGet {
+		http.Error(w, `{"error":"GET only"}`, 405)
+		return
+	}
+	s, ok := lookupSession(sessionTokenFromRequest(r))
+	if !ok {
+		http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+		return
+	}
+	var email, phone, slackID, teamRole string
+	_ = db.QueryRow(`SELECT COALESCE(u.email,''), COALESCE(u.phone,''), COALESCE(u.slack_id,''), COALESCE(tr.name,'')
+		FROM users u LEFT JOIN team_roles tr ON u.team_role_id = tr.id WHERE u.id=?`, s.UserID).
+		Scan(&email, &phone, &slackID, &teamRole)
+	out := map[string]interface{}{
+		"id": s.UserID, "username": s.Username, "name": s.Name, "role": s.Role,
+		"email": email, "phone": phone, "slack_id": slackID, "team_role": teamRole,
+		"title": "", "image": "", "real_name": s.Name,
+	}
+	token := strings.TrimSpace(os.Getenv("SLACK_BOT_TOKEN"))
+	if token != "" {
+		q := slackID
+		if q == "" {
+			q = email
+		}
+		if q == "" {
+			q = s.Name
+		}
+		if m, err := slackResolveUser(token, q); err == nil && m != nil {
+			out["slack_id"] = m.ID
+			out["real_name"] = m.RealName()
+			out["name"] = m.DisplayName()
+			if m.Email() != "" {
+				out["email"] = m.Email()
+			}
+			if m.Phone() != "" {
+				out["phone"] = m.Phone()
+			}
+			out["title"] = m.Title()
+			img := m.Profile.Image192
+			if img == "" {
+				img = m.Profile.Image72
+			}
+			if img == "" {
+				img = m.Profile.Image48
+			}
+			out["image"] = img
+			if slackID == "" && m.ID != "" {
+				db.Exec(`UPDATE users SET slack_id=? WHERE id=? AND (slack_id IS NULL OR slack_id='')`, m.ID, s.UserID)
+			}
+		}
+	}
+	json.NewEncoder(w).Encode(out)
 }
 
 func handleTaskPool(w http.ResponseWriter, r *http.Request) {
