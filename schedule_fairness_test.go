@@ -189,3 +189,26 @@ func TestTwoPeopleInfeasibleWeekend(t *testing.T) {
 	}
 	assertNoConsecutivePrimary(t, res.shifts)
 }
+
+// Explicit admin recalc-forward also obeys rules 1-2 and keeps past/manual days.
+func TestRecalcForwardUsesFairPlanner(t *testing.T) {
+	setupTestDB(t)
+	fakeTeam(t)
+	addOncall(t, "Anna", "Bohdan", "Dmytro", "Olena")
+	putShift(t, "2026-11-02", "Old", "Old")
+	setNow(t, "2026-11-10T10:00:00Z")
+	db.Exec(`INSERT INTO shifts (date, primary_user, backup_user, is_manual) VALUES ('2026-11-20','Olena','Anna',1)`)
+	if _, err := recalculateShiftsForward("2026-11-01", "2026-12-31", "Dmytro", "Anna", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if p, b := shiftOn(t, "2026-11-10"); p != "Dmytro" || b != "Anna" {
+		t.Fatalf("first day %s/%s", p, b)
+	}
+	if p, _ := shiftOn(t, "2026-11-02"); p != "Old" {
+		t.Fatal("past changed")
+	}
+	if p, _ := shiftOn(t, "2026-11-20"); p != "Olena" {
+		t.Fatal("manual changed")
+	}
+	assertNoConsecutivePrimary(t, loadShiftsRange("2026-11-10", "2026-12-31"))
+}
