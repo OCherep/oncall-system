@@ -147,3 +147,45 @@ func TestNoConsecutivePrimaryAroundManualDay(t *testing.T) {
 		t.Fatalf("Anna adjacent to manual day: %+v", res.shifts)
 	}
 }
+
+// Rule 2: adjacent weekend/holiday days never share a person in any role.
+func TestWeekendDaysDifferentPeople(t *testing.T) {
+	cal := emptyCal()
+	cal.holidays["2026-11-02"] = true // Monday holiday next to Sunday 01.11
+	cal.holidays["2026-12-25"] = true
+	for _, pool := range [][]string{
+		{"Anna", "Bohdan", "Dmytro", "Olena"},
+		{"Anna", "Bohdan", "Dmytro", "Olena", "Yarema"},
+	} {
+		res := planRange("2026-10-01", "2026-12-31", planParams{pool: pool, cal: cal})
+		ds := dates(res.shifts)
+		for i := 1; i < len(ds); i++ {
+			a, b := ds[i-1], ds[i]
+			if !cal.isSpecial(a) || !cal.isSpecial(b) {
+				continue
+			}
+			x, y := res.shifts[a], res.shifts[b]
+			for _, n := range []string{x.PrimaryUser, x.BackupUser} {
+				if n == y.PrimaryUser || n == y.BackupUser {
+					t.Errorf("pool=%d %s/%s share %s: %+v %+v", len(pool), a, b, n, x, y)
+				}
+			}
+		}
+		if len(res.warnings) != 0 {
+			t.Errorf("pool=%d warnings %v", len(pool), res.warnings)
+		}
+	}
+}
+
+// 2 people: Sat uses both, so Sunday is infeasible -> best possible + warning;
+// rule 1 still holds.
+func TestTwoPeopleInfeasibleWeekend(t *testing.T) {
+	res := planRange("2026-11-01", "2026-11-30", planParams{pool: []string{"Anna", "Bohdan"}, cal: emptyCal()})
+	if len(res.shifts) != 30 {
+		t.Fatalf("planned %d", len(res.shifts))
+	}
+	if len(res.warnings) == 0 {
+		t.Fatal("expected warnings for 2-person weekends")
+	}
+	assertNoConsecutivePrimary(t, res.shifts)
+}

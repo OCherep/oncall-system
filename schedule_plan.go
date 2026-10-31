@@ -189,7 +189,23 @@ type constraint func(n, role string, ctx dayCtx) string
 
 // hardConstraints are applied in order; when no candidate satisfies all of them,
 // the last ones are relaxed first and a warning is recorded.
-var hardConstraints = []constraint{noConsecutivePrimary}
+var hardConstraints = []constraint{noConsecutivePrimary, noConsecutiveWeekendDuty}
+
+// noConsecutiveWeekendDuty (fairness rule 2): nobody is on duty (any role) on two
+// adjacent weekend/holiday days, e.g. Saturday primary/backup -> free on Sunday.
+func noConsecutiveWeekendDuty(n, role string, ctx dayCtx) string {
+	if !ctx.special {
+		return ""
+	}
+	onDuty := func(s Shift) bool { return s.PrimaryUser == n || s.BackupUser == n }
+	if ctx.prevSpecial && onDuty(ctx.prev) {
+		return n + " on duty the previous weekend/holiday day"
+	}
+	if ctx.hasNext && ctx.nextSpecial && onDuty(ctx.next) {
+		return n + " on duty the next weekend/holiday day"
+	}
+	return ""
+}
 
 // noConsecutivePrimary (fairness rule 1): never primary two days in a row,
 // weekdays and weekends alike. Relaxed only when nobody else is available.
