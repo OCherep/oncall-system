@@ -9,98 +9,224 @@ import (
 	"time"
 )
 
+// fairWindowDays — history window for fairness counters (plus already planned days).
+const fairWindowDays = 90
+
+// dutyCounts are per-person fairness counters (rule 4).
+type dutyCounts struct {
+	prim, bak, wkd map[string]int // primary, backup, weekend/holiday (any role)
+}
+
+func newDutyCounts() dutyCounts {
+	return dutyCounts{prim: map[string]int{}, bak: map[string]int{}, wkd: map[string]int{}}
+}
+
+func (c dutyCounts) add(s Shift, special bool) {
+	if s.PrimaryUser != "" {
+		c.prim[s.PrimaryUser]++
+		if special {
+			c.wkd[s.PrimaryUser]++
+		}
+	}
+	if s.BackupUser != "" && s.BackupUser != s.PrimaryUser {
+		c.bak[s.BackupUser]++
+		if special {
+			c.wkd[s.BackupUser]++
+		}
+	}
+}
+
 // planParams is the pure input of the shift planner (no DB access inside planRange).
 type planParams struct {
 	pool        []string
 	abs         []AbsenceRequest
 	cal         dutyCal
-	rot         int              // index in pool of the next weekday primary
-	prev        Shift            // shift of the day before `from` (for weekend/weekday separation)
+	prev        Shift            // shift of the day before `from`
 	prevSpecial bool             // whether that day was a weekend/holiday
-	wPrim       map[string]int   // weekend/holiday primary counters before `from`
-	wBak        map[string]int   // weekend/holiday backup counters before `from`
-	keep        map[string]Shift // dates that must not be changed (still advance rotation)
+	counts      dutyCounts       // fairness counters from the history window
+	keep        map[string]Shift // dates that must not be changed (still counted)
 }
 
-// planRange plans shifts for [from, until] (inclusive, YYYY-MM-DD).
-// It returns the planned shifts for non-kept dates and the dates nobody could cover.
-func planRange(from, until string, p planParams) (map[string]Shift, []string) {
-	out := map[string]Shift{}
-	var empty []string
+// planResult is the planner output.
+type planResult struct {
+	shifts   map[string]Shift
+	empty    []string // dates nobody could cover
+	warnings []string // constraints relaxed because they were infeasible
+}
+
+// normalizeNewcomers: a pool member with no duties in the window starts at the
+// minimum of the others, so a newcomer is not scheduled every day to "catch up".
+func normalizeNewcomers(pool []string, c dutyCounts) {
+	minOf := func(m map[string]int, skip map[string]bool) int {
+		best := -1
+		for _, n := range pool {
+			if skip[n] {
+				continue
+			}
+			if best < 0 || m[n] < best {
+				best = m[n]
+			}
+		}
+		if best < 0 {
+			return 0
+		}
+		return best
+	}
+	fresh := map[string]bool{}
+	for _, n := range pool {
+		if c.prim[n]+c.bak[n]+c.wkd[n] == 0 {
+			fresh[n] = true
+		}
+	}
+	if len(fresh) == 0 || len(fresh) == len(pool) {
+		return
+	}
+	mp, mb, mw := minOf(c.prim, fresh), minOf(c.bak, fresh), minOf(c.wkd, fresh)
+	for n := range fresh {
+		c.prim[n], c.bak[n], c.wkd[n] = mp, mb, mw
+	}
+}
+
+// pickFair is the greedy choice: the candidate with the smallest key wins,
+// ties broken by name (deterministic).
+func pickFair(cands []string, key func(string) [2]int) string {
+	best := ""
+	var bk [2]int
+	for _, n := range cands {
+		k := key(n)
+		if best == "" || k[0] < bk[0] || (k[0] == bk[0] && (k[1] < bk[1] || (k[1] == bk[1] && n < best))) {
+			best, bk = n, k
+		}
+	}
+	return best
+}
+
+// planRange plans shifts for [from, until] (inclusive, YYYY-MM-DD) with a greedy
+// fairness planner (rule 4): every day each role goes to the available person
+// with the smallest counter for that role in the window.
+func planRange(from, until string, p planParams) planResult {
+	res := planResult{shifts: map[string]Shift{}}
 	start, err1 := time.Parse("2006-01-02", from)
 	end, err2 := time.Parse("2006-01-02", until)
 	if err1 != nil || err2 != nil || end.Before(start) {
-		return out, nil
+		return res
 	}
-	if p.wPrim == nil {
-		p.wPrim = map[string]int{}
+	c := p.counts
+	if c.prim == nil {
+		c = newDutyCounts()
 	}
-	if p.wBak == nil {
-		p.wBak = map[string]int{}
-	}
-	pool := p.pool
-	rot := p.rot
-	prevPrimary, prevSpecial := p.prev.PrimaryUser, p.prevSpecial
-	if len(pool) > 0 {
-		rot = ((rot % len(pool)) + len(pool)) % len(pool)
-	}
+	normalizeNewcomers(p.pool, c)
+	prev, prevSpecial := p.prev, p.prevSpecial
 	for d := start; !d.After(end); d = d.AddDate(0, 0, 1) {
 		dateStr := d.Format("2006-01-02")
 		special := p.cal.isSpecial(dateStr)
 		if k, ok := p.keep[dateStr]; ok {
-			if special {
-				p.wPrim[k.PrimaryUser]++
-				p.wBak[k.BackupUser]++
-			} else if i := indexInPool(pool, k.PrimaryUser); i >= 0 {
-				rot = (i + 1) % len(pool)
-			}
-			prevPrimary, prevSpecial = k.PrimaryUser, special
+			c.add(k, special)
+			prev, prevSpecial = k, special
 			continue
 		}
-		avail := availableOnDate(pool, dateStr, p.abs)
+		avail := availableOnDate(p.pool, dateStr, p.abs)
 		if len(avail) == 0 {
-			empty = append(empty, dateStr)
-			prevPrimary, prevSpecial = "", special
+			res.empty = append(res.empty, dateStr)
+			prev, prevSpecial = Shift{}, special
 			continue
 		}
-		// Item 3: the same person should not be primary on a weekend/holiday and the
-		// adjacent weekday, when the roster has an alternative.
-		var avoid map[string]bool
-		if prevPrimary != "" && prevSpecial != special {
-			avoid = map[string]bool{prevPrimary: true}
+		next, hasNext := p.keep[d.AddDate(0, 0, 1).Format("2006-01-02")]
+		nextSpecial := p.cal.isSpecial(d.AddDate(0, 0, 1).Format("2006-01-02"))
+		ctx := dayCtx{date: dateStr, special: special, prev: prev, prevSpecial: prevSpecial,
+			next: next, hasNext: hasNext, nextSpecial: nextSpecial, poolSize: len(p.pool)}
+
+		primKey := func(n string) [2]int {
+			if special {
+				return [2]int{c.wkd[n], c.prim[n]}
+			}
+			return [2]int{c.prim[n], c.prim[n] + c.bak[n]}
 		}
-		var primary, backup string
-		if special {
-			primary = pickLeastLoaded(avail, p.wPrim, avoid)
-			if primary == "" {
-				primary = pickLeastLoaded(avail, p.wPrim, nil)
+		bakKey := func(n string) [2]int {
+			if special {
+				return [2]int{c.wkd[n], c.bak[n]}
 			}
-			backup = pickLeastLoaded(avail, p.wBak, map[string]bool{primary: true})
-			if backup == "" {
-				backup = primary
-			}
-			p.wPrim[primary]++
-			p.wBak[backup]++
-		} else {
-			var pNext int
-			primary, pNext = nextOncallFrom(pool, rot, dateStr, p.abs, avoid)
-			if primary == "" {
-				primary, pNext = nextOncallFrom(pool, rot, dateStr, p.abs, nil)
-			}
-			if primary == "" {
-				empty = append(empty, dateStr)
-				continue
-			}
-			backup, _ = nextOncallFrom(pool, pNext, dateStr, p.abs, map[string]bool{primary: true})
-			if backup == "" {
-				backup = primary
-			}
-			rot = pNext
+			return [2]int{c.bak[n], c.prim[n] + c.bak[n]}
 		}
-		prevPrimary, prevSpecial = primary, special
-		out[dateStr] = Shift{Date: dateStr, PrimaryUser: primary, BackupUser: backup}
+		primary := pickConstrained(avail, primKey, ctx, rolePrimary, &res.warnings)
+		var bcands []string
+		for _, n := range avail {
+			if n != primary {
+				bcands = append(bcands, n)
+			}
+		}
+		backup := ""
+		if len(bcands) > 0 {
+			backup = pickConstrained(bcands, bakKey, ctx, roleBackup, &res.warnings)
+		}
+		if backup == "" {
+			backup = primary
+		}
+		sh := Shift{Date: dateStr, PrimaryUser: primary, BackupUser: backup}
+		c.add(sh, special)
+		res.shifts[dateStr] = sh
+		prev, prevSpecial = sh, special
 	}
-	return out, empty
+	return res
+}
+
+const (
+	rolePrimary = "primary"
+	roleBackup  = "backup"
+)
+
+// dayCtx carries the neighbours of a day for the hard constraints.
+type dayCtx struct {
+	date                 string
+	special, prevSpecial bool
+	prev, next           Shift
+	hasNext, nextSpecial bool
+	poolSize             int
+}
+
+// constraint returns "" if n may take role on the day, otherwise a reason.
+type constraint func(n, role string, ctx dayCtx) string
+
+// hardConstraints are applied in order; when no candidate satisfies all of them,
+// the last ones are relaxed first and a warning is recorded.
+var hardConstraints []constraint
+
+func pickConstrained(cands []string, key func(string) [2]int, ctx dayCtx, role string, warns *[]string) string {
+	for k := len(hardConstraints); k >= 0; k-- {
+		var ok []string
+		for _, n := range cands {
+			fail := ""
+			for _, f := range hardConstraints[:k] {
+				if r := f(n, role, ctx); r != "" {
+					fail = r
+					break
+				}
+			}
+			if fail == "" {
+				ok = append(ok, n)
+			}
+		}
+		if len(ok) > 0 {
+			if k < len(hardConstraints) {
+				*warns = append(*warns, fmt.Sprintf("%s %s: constraint relaxed (%s), roster size %d", ctx.date, role, relaxedReason(cands, role, ctx, k), ctx.poolSize))
+			}
+			return pickFair(ok, key)
+		}
+	}
+	return ""
+}
+
+func relaxedReason(cands []string, role string, ctx dayCtx, k int) string {
+	var rs []string
+	for _, f := range hardConstraints[k:] {
+		for _, n := range cands {
+			if r := f(n, role, ctx); r != "" {
+				rs = append(rs, r)
+				break
+			}
+		}
+	}
+	return strings.Join(rs, "; ")
 }
 
 // defaultPlanUntil — end of next month relative to the Kyiv "today".
@@ -195,7 +321,6 @@ func planShifts(from, until string, fillOnly bool, reason string) (int, error) {
 	pool := listOncallNames()
 	abs := loadApprovedAbsences()
 	cal := loadDutyCal()
-	wPrim, wBak := loadWeekendCountsBefore(from)
 	existing := loadShiftsRange(from, until)
 	keep := map[string]Shift{}
 	if fillOnly {
@@ -209,13 +334,17 @@ func planShifts(from, until string, fillOnly bool, reason string) (int, error) {
 			}
 		}
 	}
-	rot, prev := rotationSeedBefore(from, pool, cal)
+	prev, counts := fairnessSeed(from, cal)
 	prevDay, _ := time.Parse("2006-01-02", from)
-	planned, empty := planRange(from, until, planParams{
-		pool: pool, abs: abs, cal: cal, rot: rot,
+	pr := planRange(from, until, planParams{
+		pool: pool, abs: abs, cal: cal, counts: counts,
 		prev: prev, prevSpecial: cal.isSpecial(prevDay.AddDate(0, 0, -1).Format("2006-01-02")),
-		wPrim: wPrim, wBak: wBak, keep: keep,
+		keep: keep,
 	})
+	planned, empty := pr.shifts, pr.empty
+	for _, w := range pr.warnings {
+		log.Printf("shifts WARNING: %s", w)
+	}
 	n := 0
 	for date := range existing {
 		if _, kept := keep[date]; kept {
@@ -243,40 +372,24 @@ func planShifts(from, until string, fillOnly bool, reason string) (int, error) {
 	return n, nil
 }
 
-// rotationSeedBefore continues the weekday rotation from the last weekday primary
-// stored before `from` (also across month boundaries) instead of restarting at 0.
-// It also returns the shift of the day right before `from`.
-func rotationSeedBefore(from string, pool []string, cal dutyCal) (int, Shift) {
+// fairnessSeed loads the shift of the day before `from` and the fairness counters
+// over [from-fairWindowDays, from). Because counters come from stored history,
+// fairness continues seamlessly across months (no restart at month start).
+func fairnessSeed(from string, cal dutyCal) (Shift, dutyCounts) {
 	var prev Shift
-	if t, err := time.Parse("2006-01-02", from); err == nil {
-		d := t.AddDate(0, 0, -1).Format("2006-01-02")
-		db.QueryRow(`SELECT date, COALESCE(primary_user,''), COALESCE(backup_user,'') FROM shifts WHERE date=?`, d).
-			Scan(&prev.Date, &prev.PrimaryUser, &prev.BackupUser)
-	}
-	if len(pool) == 0 {
-		return 0, prev
-	}
-	rows, err := db.Query(`SELECT date, COALESCE(primary_user,'') FROM shifts WHERE date < ? ORDER BY date DESC LIMIT 400`, from)
+	c := newDutyCounts()
+	t, err := time.Parse("2006-01-02", from)
 	if err != nil {
-		return 0, prev
+		return prev, c
 	}
-	type row struct{ d, p string }
-	var list []row
-	for rows.Next() {
-		var r row
-		rows.Scan(&r.d, &r.p)
-		list = append(list, r)
+	winStart := t.AddDate(0, 0, -fairWindowDays).Format("2006-01-02")
+	yesterday := t.AddDate(0, 0, -1).Format("2006-01-02")
+	hist := loadShiftsRange(winStart, yesterday) // cursor closed inside
+	for d, s := range hist {
+		c.add(s, cal.isSpecial(d))
 	}
-	rows.Close() // close before any other query (MaxOpenConns=1)
-	for _, r := range list {
-		if cal.isSpecial(r.d) {
-			continue
-		}
-		if i := indexInPool(pool, r.p); i >= 0 {
-			return (i + 1) % len(pool), prev
-		}
-	}
-	return 0, prev
+	prev = hist[yesterday]
+	return prev, c
 }
 
 // regenerateFutureShifts re-plans auto shifts from the Kyiv today onward.
