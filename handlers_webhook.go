@@ -191,7 +191,7 @@ func handleWebhookIncidents(w http.ResponseWriter, r *http.Request) {
 		req.Source = "bot"
 	}
 	if req.Date == "" {
-		req.Date = time.Now().Format("2006-01-02")
+		req.Date = kyivToday()
 	}
 	if req.DurationMinutes <= 0 {
 		req.DurationMinutes = 15
@@ -271,7 +271,7 @@ func handleWebhookIncidents(w http.ResponseWriter, r *http.Request) {
 		createTask = *req.CreateDailyTask
 	}
 	// future date → always create daily task for planning
-	if req.Date > time.Now().Format("2006-01-02") {
+	if req.Date > kyivToday() {
 		createTask = true
 	}
 

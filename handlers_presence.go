@@ -227,7 +227,7 @@ func handleShiftRelief(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		day := r.URL.Query().Get("date")
 		if day == "" {
-			day = time.Now().Format("2006-01-02")
+			day = kyivToday()
 		}
 		rows, err := db.Query(`SELECT id, date, role, original_user, relief_user, started_at, COALESCE(ended_at,''), started_by, ended_by
 			FROM shift_relief WHERE date=? ORDER BY id DESC`, day)
@@ -265,7 +265,7 @@ func handleShiftRelief(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if body.Date == "" {
-			body.Date = time.Now().Format("2006-01-02")
+			body.Date = kyivToday()
 		}
 		body.Role = strings.ToLower(strings.TrimSpace(body.Role))
 		if body.Role != "primary" && body.Role != "backup" {

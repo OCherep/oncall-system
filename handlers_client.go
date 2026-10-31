@@ -523,8 +523,9 @@ func isStatusAllowed(cur, next, role string) bool {
 }
 
 func handleGetData(w http.ResponseWriter, r *http.Request) {
-	year := time.Now().Year()
-	month := int(time.Now().Month())
+	nowK := kyivNow()
+	year := nowK.Year()
+	month := int(nowK.Month())
 	if y := r.URL.Query().Get("year"); y != "" {
 		fmt.Sscanf(y, "%d", &year)
 	}
@@ -1064,7 +1065,7 @@ func handleIncidents(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if inc.Date == "" {
-			inc.Date = time.Now().Format("2006-01-02")
+			inc.Date = kyivToday()
 		}
 		if inc.DurationMinutes <= 0 {
 			inc.DurationMinutes = 15
@@ -1131,7 +1132,7 @@ func handleIncidents(w http.ResponseWriter, r *http.Request) {
 		if role == "" && inc.UserName != "" {
 			db.QueryRow("SELECT role FROM users WHERE name = ? LIMIT 1", inc.UserName).Scan(&role)
 		}
-		today := time.Now().Format("2006-01-02")
+		today := kyivToday()
 		isAdmin := role == "admin"
 		isFuture := inc.Date > today
 		isPast := inc.Date < today
@@ -1727,7 +1728,7 @@ func handleAdminBadges(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", 405)
 		return
 	}
-	today := time.Now().Format("2006-01-02")
+	today := kyivToday()
 	var openIncs, unassigned, newToday, approval, overdue, openTasks int
 	db.QueryRow(`SELECT COUNT(*) FROM incidents WHERE COALESCE(status,'Нове') NOT IN ('Вирішено','Архів','У задачу') AND COALESCE(converted_to_task_id,0)=0`).Scan(&openIncs)
 	db.QueryRow(`SELECT COUNT(*) FROM incidents WHERE COALESCE(status,'Нове') NOT IN ('Вирішено','Архів','У задачу') AND COALESCE(converted_to_task_id,0)=0 AND COALESCE(user_name,'')=''`).Scan(&unassigned)
@@ -1756,7 +1757,7 @@ func handleAdminQueues(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", 405)
 		return
 	}
-	today := time.Now().Format("2006-01-02")
+	today := kyivToday()
 	day := strings.TrimSpace(r.URL.Query().Get("date"))
 	if day == "" {
 		day = today

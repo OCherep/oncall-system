@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
-	"time"
 )
 
 // handleDailyBoard — дашборд дейлі: задачі + звернення на дату, з джерелом (jira/oncall).
@@ -16,7 +15,7 @@ func handleDailyBoard(w http.ResponseWriter, r *http.Request) {
 	}
 	day := strings.TrimSpace(r.URL.Query().Get("date"))
 	if day == "" || len(day) != 10 {
-		day = time.Now().Format("2006-01-02")
+		day = kyivToday()
 	}
 
 	type boardTask struct {

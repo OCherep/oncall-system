@@ -254,7 +254,7 @@ func isNotifyOffGridPriority(p string) bool {
 // shiftPairForDate — primary, backup на дату.
 func shiftPairForDate(date string) (primary, backup string) {
 	if date == "" {
-		date = time.Now().Format("2006-01-02")
+		date = kyivToday()
 	}
 	_ = db.QueryRow(`SELECT COALESCE(primary_user,''), COALESCE(backup_user,'') FROM shifts WHERE date=?`, date).
 		Scan(&primary, &backup)
@@ -280,7 +280,7 @@ func applyIncidentRouting(inc *IncidentReport) (shouldNotify bool) {
 
 	date := inc.Date
 	if date == "" {
-		date = time.Now().Format("2006-01-02")
+		date = kyivToday()
 	}
 	primary, backup := shiftPairForDate(date)
 	onGrid := isOnGridNow()

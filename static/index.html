@@ -440,9 +440,11 @@ document.addEventListener('DOMContentLoaded',function(){const tb=document.getEle
 
 const STATUSES=['Нова','У роботі','На паузі','До перевірки','Виконана','Перевідкрита','Архів'];
 const PRIOS=['Надкритична','Термінова','Базова','Техборг','У шухляду'];
-let U=null,Y=new Date().getFullYear(),M=new Date().getMonth()+1,AT=[],IP=[],D={},_day='',_sw=null,_colKind='',_colName='';
+let U=null,Y=+kyivToday().slice(0,4),M=+kyivToday().slice(5,7),AT=[],IP=[],D={},_day='',_sw=null,_colKind='',_colName='';
 
-function today(){return new Date().toISOString().slice(0,10)}
+// Дата «сьогодні» за Europe/Kyiv (не UTC браузера).
+function kyivToday(d){try{return new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Kyiv',year:'numeric',month:'2-digit',day:'2-digit'}).format(d||new Date())}catch(e){const x=d||new Date();return x.getFullYear()+'-'+String(x.getMonth()+1).padStart(2,'0')+'-'+String(x.getDate()).padStart(2,'0')}}
+function today(){return kyivToday()}
 function isAdmin(){return U&&U.role==='admin'}
 function canOpenCol(name){
   if(!U) return false;
@@ -1367,7 +1369,7 @@ async function renderOnGridBadge(snap){
   if(!s){ el.innerHTML=''; return; }
   const on=s.on_grid===true||s._on_grid_now==='1'||s.mode==='on-grid';
   const lab=on?'робочий час':'неробочий час';
-  const dayStr=(typeof window.today==='function'?window.today():new Date().toISOString().slice(0,10));
+  const dayStr=(typeof window.today==='function'?window.today():kyivToday());
   el.innerHTML=`<div class="mode-chip ${on?'on-grid':'off-grid'}" title="${on?'ON-GRID':'OFF-GRID'} ${s.on_grid_start||''}–${s.on_grid_end||''}">
     <span class="mode-date">${dayStr}</span><span class="mode-sub">${lab}</span></div>`;
 }

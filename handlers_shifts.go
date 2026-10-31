@@ -192,7 +192,7 @@ func pickPair(pool []string, startIdx int) (primary, backup string) {
 func recalculateShiftsForward(fromDate, untilDate, currPrimary, currBackup, prevPrimary, prevBackup string) (int, error) {
 	fromDate = strings.TrimSpace(fromDate)
 	if fromDate == "" {
-		fromDate = time.Now().Format("2006-01-02")
+		fromDate = kyivToday()
 	}
 	if untilDate == "" {
 		t, err := time.ParseInLocation("2006-01-02", fromDate, time.Local)
@@ -321,7 +321,7 @@ func handleAdminShifts(w http.ResponseWriter, r *http.Request) {
 			to = time.Date(t.Year(), t.Month()+1, 0, 0, 0, 0, 0, time.UTC).Format("2006-01-02")
 		}
 		if from == "" {
-			from = time.Now().Format("2006-01") + "-01"
+			from = kyivNow().Format("2006-01") + "-01"
 		}
 		if to == "" {
 			t, _ := time.Parse("2006-01-02", from)
