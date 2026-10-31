@@ -8,13 +8,15 @@ import (
 
 // planParams is the pure input of the shift planner (no DB access inside planRange).
 type planParams struct {
-	pool  []string
-	abs   []AbsenceRequest
-	cal   dutyCal
-	rot   int              // index in pool of the next weekday primary
-	wPrim map[string]int   // weekend/holiday primary counters before `from`
-	wBak  map[string]int   // weekend/holiday backup counters before `from`
-	keep  map[string]Shift // dates that must not be changed (still advance rotation)
+	pool        []string
+	abs         []AbsenceRequest
+	cal         dutyCal
+	rot         int              // index in pool of the next weekday primary
+	prev        Shift            // shift of the day before `from` (for weekend/weekday separation)
+	prevSpecial bool             // whether that day was a weekend/holiday
+	wPrim       map[string]int   // weekend/holiday primary counters before `from`
+	wBak        map[string]int   // weekend/holiday backup counters before `from`
+	keep        map[string]Shift // dates that must not be changed (still advance rotation)
 }
 
 // planRange plans shifts for [from, until] (inclusive, YYYY-MM-DD).
@@ -35,6 +37,7 @@ func planRange(from, until string, p planParams) (map[string]Shift, []string) {
 	}
 	pool := p.pool
 	rot := p.rot
+	prevPrimary, prevSpecial := p.prev.PrimaryUser, p.prevSpecial
 	if len(pool) > 0 {
 		rot = ((rot % len(pool)) + len(pool)) % len(pool)
 	}
@@ -48,16 +51,27 @@ func planRange(from, until string, p planParams) (map[string]Shift, []string) {
 			} else if i := indexInPool(pool, k.PrimaryUser); i >= 0 {
 				rot = (i + 1) % len(pool)
 			}
+			prevPrimary, prevSpecial = k.PrimaryUser, special
 			continue
 		}
 		avail := availableOnDate(pool, dateStr, p.abs)
 		if len(avail) == 0 {
 			empty = append(empty, dateStr)
+			prevPrimary, prevSpecial = "", special
 			continue
+		}
+		// Item 3: the same person should not be primary on a weekend/holiday and the
+		// adjacent weekday, when the roster has an alternative.
+		var avoid map[string]bool
+		if prevPrimary != "" && prevSpecial != special {
+			avoid = map[string]bool{prevPrimary: true}
 		}
 		var primary, backup string
 		if special {
-			primary = pickLeastLoaded(avail, p.wPrim, nil)
+			primary = pickLeastLoaded(avail, p.wPrim, avoid)
+			if primary == "" {
+				primary = pickLeastLoaded(avail, p.wPrim, nil)
+			}
 			backup = pickLeastLoaded(avail, p.wBak, map[string]bool{primary: true})
 			if backup == "" {
 				backup = primary
@@ -66,7 +80,10 @@ func planRange(from, until string, p planParams) (map[string]Shift, []string) {
 			p.wBak[backup]++
 		} else {
 			var pNext int
-			primary, pNext = nextOncallFrom(pool, rot, dateStr, p.abs, nil)
+			primary, pNext = nextOncallFrom(pool, rot, dateStr, p.abs, avoid)
+			if primary == "" {
+				primary, pNext = nextOncallFrom(pool, rot, dateStr, p.abs, nil)
+			}
 			if primary == "" {
 				empty = append(empty, dateStr)
 				continue
@@ -77,6 +94,7 @@ func planRange(from, until string, p planParams) (map[string]Shift, []string) {
 			}
 			rot = pNext
 		}
+		prevPrimary, prevSpecial = primary, special
 		out[dateStr] = Shift{Date: dateStr, PrimaryUser: primary, BackupUser: backup}
 	}
 	return out, empty
@@ -127,8 +145,11 @@ func planShifts(from, until string, fillOnly bool, reason string) (int, error) {
 	if fillOnly {
 		keep = existing
 	}
+	rot, prev := rotationSeedBefore(from, pool, cal)
+	prevDay, _ := time.Parse("2006-01-02", from)
 	planned, empty := planRange(from, until, planParams{
-		pool: pool, abs: abs, cal: cal, rot: 0,
+		pool: pool, abs: abs, cal: cal, rot: rot,
+		prev: prev, prevSpecial: cal.isSpecial(prevDay.AddDate(0, 0, -1).Format("2006-01-02")),
 		wPrim: wPrim, wBak: wBak, keep: keep,
 	})
 	n := 0
@@ -151,6 +172,42 @@ func planShifts(from, until string, fillOnly bool, reason string) (int, error) {
 	_ = empty
 	log.Printf("shifts plan (%s): %s..%s fill_only=%v written=%d", reason, from, until, fillOnly, n)
 	return n, nil
+}
+
+// rotationSeedBefore continues the weekday rotation from the last weekday primary
+// stored before `from` (also across month boundaries) instead of restarting at 0.
+// It also returns the shift of the day right before `from`.
+func rotationSeedBefore(from string, pool []string, cal dutyCal) (int, Shift) {
+	var prev Shift
+	if t, err := time.Parse("2006-01-02", from); err == nil {
+		d := t.AddDate(0, 0, -1).Format("2006-01-02")
+		db.QueryRow(`SELECT date, COALESCE(primary_user,''), COALESCE(backup_user,'') FROM shifts WHERE date=?`, d).
+			Scan(&prev.Date, &prev.PrimaryUser, &prev.BackupUser)
+	}
+	if len(pool) == 0 {
+		return 0, prev
+	}
+	rows, err := db.Query(`SELECT date, COALESCE(primary_user,'') FROM shifts WHERE date < ? ORDER BY date DESC LIMIT 400`, from)
+	if err != nil {
+		return 0, prev
+	}
+	type row struct{ d, p string }
+	var list []row
+	for rows.Next() {
+		var r row
+		rows.Scan(&r.d, &r.p)
+		list = append(list, r)
+	}
+	rows.Close() // close before any other query (MaxOpenConns=1)
+	for _, r := range list {
+		if cal.isSpecial(r.d) {
+			continue
+		}
+		if i := indexInPool(pool, r.p); i >= 0 {
+			return (i + 1) % len(pool), prev
+		}
+	}
+	return 0, prev
 }
 
 // regenerateFutureShifts re-plans auto shifts from the Kyiv today onward.
@@ -186,4 +243,3 @@ func regenIfRosterChanged(before []string, reason string) {
 		log.Printf("shifts regen (%s): %v", reason, err)
 	}
 }
-
