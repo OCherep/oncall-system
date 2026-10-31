@@ -88,6 +88,62 @@ func TestNewcomerNormalized(t *testing.T) {
 	if n > 5 {
 		t.Fatalf("newcomer primary %d of 14 days", n)
 	}
-	_ = time.Now
-	_ = dates
+}
+
+func assertNoConsecutivePrimary(t *testing.T, shifts map[string]Shift) {
+	t.Helper()
+	ds := dates(shifts)
+	for i := 1; i < len(ds); i++ {
+		a, _ := time.Parse("2006-01-02", ds[i-1])
+		if a.AddDate(0, 0, 1).Format("2006-01-02") != ds[i] {
+			continue
+		}
+		if shifts[ds[i-1]].PrimaryUser == shifts[ds[i]].PrimaryUser {
+			t.Errorf("%s and %s: primary %s twice in a row", ds[i-1], ds[i], shifts[ds[i]].PrimaryUser)
+		}
+	}
+}
+
+// Rule 1: nobody is primary two days in a row (2..5 people, with absences).
+func TestNoPrimaryTwoDaysInARow(t *testing.T) {
+	abs := []AbsenceRequest{{UserName: "Anna", StartDate: "2026-11-09", EndDate: "2026-11-20", Status: "Approved"}}
+	for _, pool := range [][]string{
+		{"Anna", "Bohdan"},
+		{"Anna", "Bohdan", "Dmytro"},
+		{"Anna", "Bohdan", "Dmytro", "Olena", "Yarema"},
+	} {
+		res := planRange("2026-10-01", "2026-12-31", planParams{pool: pool, abs: abs, cal: emptyCal()})
+		if len(pool) == 2 {
+			// Anna away -> Bohdan alone 9..20.11: best possible + warnings
+			for d := range res.shifts {
+				if d >= "2026-11-10" && d <= "2026-11-20" {
+					delete(res.shifts, d)
+				}
+			}
+			if len(res.warnings) == 0 {
+				t.Error("2 people with one away: expected warnings")
+			}
+		}
+		assertNoConsecutivePrimary(t, res.shifts)
+	}
+}
+
+// One person: rule 1 is infeasible -> still planned, with a warning.
+func TestOnePersonWarns(t *testing.T) {
+	res := planRange("2026-11-01", "2026-11-07", planParams{pool: []string{"Solo"}, cal: emptyCal()})
+	if len(res.shifts) != 7 {
+		t.Fatalf("planned %d", len(res.shifts))
+	}
+	if len(res.warnings) == 0 {
+		t.Fatal("no warning for 1-person roster")
+	}
+}
+
+// Rule 1 also respects a kept (manual) next day.
+func TestNoConsecutivePrimaryAroundManualDay(t *testing.T) {
+	keep := map[string]Shift{"2026-11-04": {Date: "2026-11-04", PrimaryUser: "Anna", BackupUser: "Bohdan"}}
+	res := planRange("2026-11-02", "2026-11-06", planParams{pool: []string{"Anna", "Bohdan", "Dmytro"}, cal: emptyCal(), keep: keep})
+	if res.shifts["2026-11-03"].PrimaryUser == "Anna" || res.shifts["2026-11-05"].PrimaryUser == "Anna" {
+		t.Fatalf("Anna adjacent to manual day: %+v", res.shifts)
+	}
 }

@@ -189,7 +189,19 @@ type constraint func(n, role string, ctx dayCtx) string
 
 // hardConstraints are applied in order; when no candidate satisfies all of them,
 // the last ones are relaxed first and a warning is recorded.
-var hardConstraints []constraint
+var hardConstraints = []constraint{noConsecutivePrimary}
+
+// noConsecutivePrimary (fairness rule 1): never primary two days in a row,
+// weekdays and weekends alike. Relaxed only when nobody else is available.
+func noConsecutivePrimary(n, role string, ctx dayCtx) string {
+	if role != rolePrimary {
+		return ""
+	}
+	if ctx.prev.PrimaryUser == n || (ctx.hasNext && ctx.next.PrimaryUser == n) {
+		return n + " primary on an adjacent day"
+	}
+	return ""
+}
 
 func pickConstrained(cands []string, key func(string) [2]int, ctx dayCtx, role string, warns *[]string) string {
 	for k := len(hardConstraints); k >= 0; k-- {
