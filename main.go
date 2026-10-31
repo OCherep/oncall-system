@@ -533,6 +533,7 @@ func initDB() {
 	ensureOnGridExceptions()
 	ensurePresenceTables()
 	ensureTaskExternalID()
+	ensureDutyBalanceTable()
 	go func() {
 		for {
 			time.Sleep(1 * time.Hour)

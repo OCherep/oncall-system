@@ -12,7 +12,11 @@ import (
 // fairWindowDays — history window for fairness counters (plus already planned days).
 const fairWindowDays = 90
 
-// dutyCounts are per-person fairness counters (rule 4).
+// dutyUnit is one duty in counter units. Counters are scaled so that a sick
+// person can be credited a fractional "expected share" per sick day (rule 3).
+const dutyUnit = 1000
+
+// dutyCounts are per-person fairness counters (rule 4), in dutyUnit units.
 type dutyCounts struct {
 	prim, bak, wkd map[string]int // primary, backup, weekend/holiday (any role)
 }
@@ -23,15 +27,37 @@ func newDutyCounts() dutyCounts {
 
 func (c dutyCounts) add(s Shift, special bool) {
 	if s.PrimaryUser != "" {
-		c.prim[s.PrimaryUser]++
+		c.prim[s.PrimaryUser] += dutyUnit
 		if special {
-			c.wkd[s.PrimaryUser]++
+			c.wkd[s.PrimaryUser] += dutyUnit
 		}
 	}
 	if s.BackupUser != "" && s.BackupUser != s.PrimaryUser {
-		c.bak[s.BackupUser]++
+		c.bak[s.BackupUser] += dutyUnit
 		if special {
-			c.wkd[s.BackupUser]++
+			c.wkd[s.BackupUser] += dutyUnit
+		}
+	}
+}
+
+// addSickShare (rule 3): a person on sick leave is credited the average share of
+// the day (1/N primary, 1/N backup, 2/N weekend), so sickness creates no debt.
+// Other absences get nothing: the missed duties become a natural "debt" (their
+// counters stay lower, so they get more duties later) and the replacements'
+// extra duties are their "credit" (counters higher, fewer duties later).
+func (c dutyCounts) addSickShare(pool []string, abs []AbsenceRequest, dateStr string, special bool) {
+	if len(pool) == 0 {
+		return
+	}
+	share := dutyUnit / len(pool)
+	for _, n := range pool {
+		if !isSickOnDate(n, dateStr, abs) {
+			continue
+		}
+		c.prim[n] += share
+		c.bak[n] += share
+		if special {
+			c.wkd[n] += 2 * share
 		}
 	}
 }
@@ -120,6 +146,7 @@ func planRange(from, until string, p planParams) planResult {
 	for d := start; !d.After(end); d = d.AddDate(0, 0, 1) {
 		dateStr := d.Format("2006-01-02")
 		special := p.cal.isSpecial(dateStr)
+		c.addSickShare(p.pool, p.abs, dateStr, special)
 		if k, ok := p.keep[dateStr]; ok {
 			c.add(k, special)
 			prev, prevSpecial = k, special
@@ -346,6 +373,9 @@ func planShifts(from, until string, fillOnly bool, reason string) (int, error) {
 	if until < from {
 		return 0, nil
 	}
+	sickTypeCache.Lock()
+	sickTypeCache.names = nil // absence_types may have been edited
+	sickTypeCache.Unlock()
 	pool := listOncallNames()
 	abs := loadApprovedAbsences()
 	cal := loadDutyCal()
@@ -362,7 +392,7 @@ func planShifts(from, until string, fillOnly bool, reason string) (int, error) {
 			}
 		}
 	}
-	prev, counts := fairnessSeed(from, cal)
+	prev, counts := fairnessSeed(from, cal, pool, abs)
 	prevDay, _ := time.Parse("2006-01-02", from)
 	pr := planRange(from, until, planParams{
 		pool: pool, abs: abs, cal: cal, counts: counts,
@@ -370,6 +400,7 @@ func planShifts(from, until string, fillOnly bool, reason string) (int, error) {
 		keep: keep,
 	})
 	planned, empty := pr.shifts, pr.empty
+	recordReplacements(existing, planned, keep, abs)
 	for _, w := range pr.warnings {
 		log.Printf("shifts WARNING: %s", w)
 	}
@@ -403,7 +434,7 @@ func planShifts(from, until string, fillOnly bool, reason string) (int, error) {
 // fairnessSeed loads the shift of the day before `from` and the fairness counters
 // over [from-fairWindowDays, from). Because counters come from stored history,
 // fairness continues seamlessly across months (no restart at month start).
-func fairnessSeed(from string, cal dutyCal) (Shift, dutyCounts) {
+func fairnessSeed(from string, cal dutyCal, pool []string, abs []AbsenceRequest) (Shift, dutyCounts) {
 	var prev Shift
 	c := newDutyCounts()
 	t, err := time.Parse("2006-01-02", from)
@@ -415,6 +446,10 @@ func fairnessSeed(from string, cal dutyCal) (Shift, dutyCounts) {
 	hist := loadShiftsRange(winStart, yesterday) // cursor closed inside
 	for d, s := range hist {
 		c.add(s, cal.isSpecial(d))
+	}
+	for d := t.AddDate(0, 0, -fairWindowDays); d.Before(t); d = d.AddDate(0, 0, 1) {
+		ds := d.Format("2006-01-02")
+		c.addSickShare(pool, abs, ds, cal.isSpecial(ds))
 	}
 	prev = hist[yesterday]
 	return prev, c

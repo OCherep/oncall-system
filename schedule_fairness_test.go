@@ -9,7 +9,7 @@ import (
 func spread(m map[string]int, pool []string) (int, int) {
 	lo, hi := -1, 0
 	for _, n := range pool {
-		v := m[n]
+		v := m[n] / dutyUnit
 		if lo < 0 || v < lo {
 			lo = v
 		}
@@ -76,7 +76,7 @@ func TestNewcomerNormalized(t *testing.T) {
 	pool := []string{"Anna", "Bohdan", "Dmytro", "Yarema"}
 	c := newDutyCounts()
 	for _, n := range pool[:3] {
-		c.prim[n], c.bak[n], c.wkd[n] = 20, 20, 6
+		c.prim[n], c.bak[n], c.wkd[n] = 20*dutyUnit, 20*dutyUnit, 6*dutyUnit
 	}
 	res := planRange("2026-11-01", "2026-11-14", planParams{pool: pool, cal: emptyCal(), counts: c})
 	n := 0
