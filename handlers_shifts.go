@@ -191,8 +191,9 @@ func pickPair(pool []string, startIdx int) (primary, backup string) {
 
 func recalculateShiftsForward(fromDate, untilDate, currPrimary, currBackup, prevPrimary, prevBackup string) (int, error) {
 	fromDate = strings.TrimSpace(fromDate)
-	if fromDate == "" {
-		fromDate = kyivToday()
+	if today := kyivToday(); fromDate == "" || fromDate < today {
+		// never rewrite days before the Kyiv today
+		fromDate = today
 	}
 	if untilDate == "" {
 		t, err := time.ParseInLocation("2006-01-02", fromDate, time.Local)

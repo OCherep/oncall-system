@@ -565,6 +565,7 @@ db.Exec("CREATE INDEX IF NOT EXISTS idx_comments_entity ON comments(entity_type,
 func main() {
 	initDB()
 	defer db.Close()
+	go shiftHorizonLoop()
 
 	http.HandleFunc("/api/login", withIPAllow(securityHeaders(handleLogin)))
 	http.HandleFunc("/api/logout", withIPAllow(securityHeaders(handleLogout)))

@@ -22,6 +22,10 @@ func handleSlackDirectory(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"SLACK_BOT_TOKEN not set"}`, 400)
 		return
 	}
+	var rosterBefore []string
+	if r.Method != http.MethodGet {
+		rosterBefore = listOncallNames()
+	}
 	switch r.Method {
 	case http.MethodGet:
 		members, err := slackFetchUsers(token)
@@ -185,6 +189,7 @@ func handleSlackDirectory(w http.ResponseWriter, r *http.Request) {
 			created++
 			logAudit("admin", "SLACK_IMPORT_USER", clientIP(r), fmt.Sprintf("%s %s", uname, sid))
 		}
+		regenIfRosterChanged(rosterBefore, "slack import")
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"status":  "ok",
 			"created": created,

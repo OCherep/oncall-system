@@ -303,59 +303,6 @@ func isAbsentOnDate(userName, dateStr string, absences []AbsenceRequest) bool {
 	return false
 }
 
-func generateShifts(year, month int, oncallUsers []string, absences []AbsenceRequest) map[string]Shift {
-	shifts := make(map[string]Shift)
-	daysInMonth := time.Date(year, time.Month(month)+1, 0, 0, 0, 0, 0, time.UTC).Day()
-	if len(oncallUsers) == 0 {
-		return shifts
-	}
-	pool := oncallUsers
-	rot := 0
-	// лічильники вихідних/свят для справедливості
-	wPrim := map[string]int{}
-	wBak := map[string]int{}
-	monthStart := fmt.Sprintf("%04d-%02d-01", year, month)
-	wp, wb := loadWeekendCountsBefore(monthStart)
-	for k, v := range wp {
-		wPrim[k] = v
-	}
-	for k, v := range wb {
-		wBak[k] = v
-	}
-
-	for d := 1; d <= daysInMonth; d++ {
-		dateStr := fmt.Sprintf("%04d-%02d-%02d", year, month, d)
-		avail := availableOnDate(pool, dateStr, absences)
-		if len(avail) == 0 {
-			continue
-		}
-		var primary, backup string
-		if isSpecialDutyDay(dateStr) {
-			// вихідні/свята: найменше primary / backup серед доступних
-			primary = pickLeastLoaded(avail, wPrim, nil)
-			backup = pickLeastLoaded(avail, wBak, map[string]bool{primary: true})
-			if backup == "" {
-				backup = primary
-			}
-			wPrim[primary]++
-			wBak[backup]++
-			// ротація буднів не зсувається «через» вихідний — лишаємо rot
-		} else {
-			primary, pNext := nextOncallFrom(pool, rot, dateStr, absences, nil)
-			if primary == "" {
-				continue
-			}
-			backup, _ = nextOncallFrom(pool, pNext, dateStr, absences, map[string]bool{primary: true})
-			if backup == "" {
-				backup = primary
-			}
-			rot = pNext
-		}
-		shifts[dateStr] = Shift{Date: dateStr, PrimaryUser: primary, BackupUser: backup}
-	}
-	return shifts
-}
-
 // nextOncallFrom — наступний доступний з pool починаючи з startIdx (циклічно), пропускаючи absent і skip.
 func nextOncallFrom(pool []string, startIdx int, dateStr string, absences []AbsenceRequest, skip map[string]bool) (name string, nextIdx int) {
 	n := len(pool)
@@ -583,36 +530,9 @@ func handleGetData(w http.ResponseWriter, r *http.Request) {
 			shifts[s.Date] = s
 		}
 	}
-	needRegen := len(shifts) == 0
-	if !needRegen && len(oncallUsers) > 0 {
-		oncallSet := map[string]bool{}
-		for _, n := range oncallUsers {
-			oncallSet[n] = true
-		}
-		for _, s := range shifts {
-			if !oncallSet[s.PrimaryUser] || !oncallSet[s.BackupUser] {
-				needRegen = true
-				break
-			}
-		}
-		if !needRegen {
-			seen := map[string]bool{}
-			for _, s := range shifts {
-				seen[s.PrimaryUser] = true
-				seen[s.BackupUser] = true
-			}
-			if len(seen) < len(oncallUsers) && len(oncallUsers) > 1 {
-				needRegen = true
-			}
-		}
-	}
-	if needRegen {
-		db.Exec(`DELETE FROM shifts WHERE date LIKE ?`, fmt.Sprintf("%04d-%02d-%%", year, month))
-		shifts = generateShifts(year, month, oncallUsers, absences)
-		for _, s := range shifts {
-			db.Exec(`INSERT OR REPLACE INTO shifts (date, primary_user, backup_user) VALUES (?, ?, ?)`, s.Date, s.PrimaryUser, s.BackupUser)
-		}
-	}
+	// GET is read-only: shifts are planned by planShifts (startup/horizon loop,
+	// roster/absence changes, explicit admin action), never here.
+	_ = absences
 	monthPattern := fmt.Sprintf("%04d-%02d-%%", year, month)
 	incRows, err := db.Query(`SELECT id, user_name, date, type, duration_minutes, description,
 		COALESCE(datetime(created_at,'localtime'), datetime('now','localtime')),
