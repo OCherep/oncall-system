@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -235,6 +236,7 @@ func recalculateShiftsForward(fromDate, untilDate, currPrimary, currBackup, prev
 	n := 0
 	first := true
 	wPrim, wBak := loadWeekendCountsBefore(fromDate)
+	manual := loadManualDates(fromDate, untilDate)
 	for d := start; !d.After(end); d = d.AddDate(0, 0, 1) {
 		dateStr := d.Format("2006-01-02")
 		avail := availableOnDate(pool, dateStr, abs)
@@ -298,6 +300,9 @@ func recalculateShiftsForward(fromDate, untilDate, currPrimary, currBackup, prev
 			wPrim[primary]++
 			wBak[backup]++
 		}
+		if manual[dateStr] {
+			continue // item 6: manual edits are never overwritten
+		}
 		if _, err := db.Exec(`INSERT INTO shifts (date, primary_user, backup_user) VALUES (?,?,?)
 			ON CONFLICT(date) DO UPDATE SET primary_user=excluded.primary_user, backup_user=excluded.backup_user`,
 			dateStr, primary, backup); err != nil {
@@ -354,6 +359,7 @@ func handleAdminShifts(w http.ResponseWriter, r *http.Request) {
 				Date    string `json:"date"`
 				Primary string `json:"primary"`
 				Backup  string `json:"backup"`
+				Manual  *bool  `json:"manual"` // default true; false returns the day to auto planning
 			} `json:"days"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -375,9 +381,16 @@ func handleAdminShifts(w http.ResponseWriter, r *http.Request) {
 			if d.Backup == "" {
 				d.Backup = d.Primary
 			}
-			db.Exec(`INSERT INTO shifts (date, primary_user, backup_user) VALUES (?,?,?)
-				ON CONFLICT(date) DO UPDATE SET primary_user=excluded.primary_user, backup_user=excluded.backup_user`,
-				d.Date, d.Primary, d.Backup)
+			manual := 1
+			if d.Manual != nil && !*d.Manual {
+				manual = 0
+			}
+			if _, err := db.Exec(`INSERT INTO shifts (date, primary_user, backup_user, is_manual) VALUES (?,?,?,?)
+				ON CONFLICT(date) DO UPDATE SET primary_user=excluded.primary_user, backup_user=excluded.backup_user, is_manual=excluded.is_manual`,
+				d.Date, d.Primary, d.Backup, manual); err != nil {
+				log.Printf("shifts bulk edit %s: %v", d.Date, err)
+				continue
+			}
 			n++
 		}
 		logAudit(body.Actor, "SHIFTS_BULK_EDIT", clientIP(r), fmt.Sprintf("%d days", n))

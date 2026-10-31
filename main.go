@@ -482,6 +482,8 @@ func initDB() {
 			log.Printf("schema: %v", err)
 		}
 	}
+	// item 6: manual shift edits survive regeneration (safe additive migration)
+	db.Exec(`ALTER TABLE shifts ADD COLUMN is_manual INTEGER NOT NULL DEFAULT 0`)
 	db.Exec(`ALTER TABLE users ADD COLUMN email TEXT DEFAULT ''`)
 	db.Exec(`ALTER TABLE users ADD COLUMN phone TEXT DEFAULT ''`)
 	db.Exec(`ALTER TABLE users ADD COLUMN slack_id TEXT DEFAULT ''`)

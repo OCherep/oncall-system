@@ -1,8 +1,11 @@
 package main
 
 import (
+	"fmt"
 	"log"
+	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -121,6 +124,59 @@ func loadShiftsRange(from, until string) map[string]Shift {
 	return out
 }
 
+// loadManualDates returns dates in [from, until] edited by an admin (is_manual=1).
+func loadManualDates(from, until string) map[string]bool {
+	out := map[string]bool{}
+	rows, err := db.Query(`SELECT date FROM shifts WHERE date>=? AND date<=? AND COALESCE(is_manual,0)=1`, from, until)
+	if err != nil {
+		return out
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var d string
+		rows.Scan(&d)
+		out[d] = true
+	}
+	return out
+}
+
+var emptyDayWarned = struct {
+	sync.Mutex
+	m map[string]bool
+}{m: map[string]bool{}}
+
+// warnEmptyDays (item 6) logs and notifies the team channel about future days
+// without an on-call person. Each date is announced once per process.
+func warnEmptyDays(days []string) {
+	emptyDayWarned.Lock()
+	var fresh []string
+	for _, d := range days {
+		if !emptyDayWarned.m[d] {
+			emptyDayWarned.m[d] = true
+			fresh = append(fresh, d)
+		}
+	}
+	emptyDayWarned.Unlock()
+	if len(fresh) == 0 {
+		return
+	}
+	sort.Strings(fresh)
+	log.Printf("shifts WARNING: no on-call person for %s", strings.Join(fresh, ", "))
+	list := strings.Join(fresh, ", ")
+	if len(fresh) > 10 {
+		list = strings.Join(fresh[:10], ", ") + fmt.Sprintf(" … і ще %d", len(fresh)-10)
+	}
+	teamNotifier("⚠️ Графік чергувань: немає чергового на " + list + ". Перевірте ростер і відсутності.")
+}
+
+func clearEmptyDayWarnings(days map[string]Shift) {
+	emptyDayWarned.Lock()
+	for d := range days {
+		delete(emptyDayWarned.m, d)
+	}
+	emptyDayWarned.Unlock()
+}
+
 // planShifts is the only writer of auto-generated shifts.
 // Days before the Kyiv "today" are never touched. fillOnly=true only fills
 // missing dates; otherwise future auto days are re-planned.
@@ -144,6 +200,14 @@ func planShifts(from, until string, fillOnly bool, reason string) (int, error) {
 	keep := map[string]Shift{}
 	if fillOnly {
 		keep = existing
+	} else {
+		// item 6: manual edits survive regeneration
+		manual := loadManualDates(from, until)
+		for d, sh := range existing {
+			if manual[d] {
+				keep[d] = sh
+			}
+		}
 	}
 	rot, prev := rotationSeedBefore(from, pool, cal)
 	prevDay, _ := time.Parse("2006-01-02", from)
@@ -162,14 +226,19 @@ func planShifts(from, until string, fillOnly bool, reason string) (int, error) {
 		}
 	}
 	for _, s := range planned {
-		if _, err := db.Exec(`INSERT INTO shifts (date, primary_user, backup_user) VALUES (?,?,?)
-			ON CONFLICT(date) DO UPDATE SET primary_user=excluded.primary_user, backup_user=excluded.backup_user`,
+		if _, err := db.Exec(`INSERT INTO shifts (date, primary_user, backup_user, is_manual) VALUES (?,?,?,0)
+			ON CONFLICT(date) DO UPDATE SET primary_user=excluded.primary_user, backup_user=excluded.backup_user
+			WHERE COALESCE(shifts.is_manual,0)=0`,
 			s.Date, s.PrimaryUser, s.BackupUser); err != nil {
 			return n, err
 		}
 		n++
 	}
-	_ = empty
+	clearEmptyDayWarnings(planned)
+	clearEmptyDayWarnings(keep)
+	if len(empty) > 0 {
+		warnEmptyDays(empty)
+	}
 	log.Printf("shifts plan (%s): %s..%s fill_only=%v written=%d", reason, from, until, fillOnly, n)
 	return n, nil
 }

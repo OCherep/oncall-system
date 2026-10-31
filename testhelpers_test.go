@@ -17,8 +17,8 @@ func setupTestDB(t *testing.T) {
 	os.Setenv("DB_PATH", filepath.Join(t.TempDir(), "test.db"))
 	initDB()
 	t.Cleanup(func() {
+		// keep db non-nil: background goroutines (notify*) may still touch it
 		db.Close()
-		db = nil
 		nowFunc = time.Now
 	})
 }

@@ -698,6 +698,12 @@ func handleRequestAbsence(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	if status == "Approved" {
+		// item 6: approved absence re-plans future auto days
+		if _, err := regenerateFutureShifts("absence approved"); err != nil {
+			log.Printf("shifts regen after absence: %v", err)
+		}
+	}
 	who := actor
 	if who == "" {
 		who = req.UserName

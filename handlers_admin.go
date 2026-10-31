@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -360,6 +361,12 @@ func handleAdminRequests(w http.ResponseWriter, r *http.Request) {
 						fmt.Sprintf("id=%d type=%s rejected due to higher %s id=%d", oid, otype, cur.Type, cur.ID))
 					rejected++
 				}
+			}
+		}
+		if req.Status == "Approved" || cur.Status == "Approved" {
+			// item 6: approved/withdrawn absence re-plans future auto days
+			if _, err := regenerateFutureShifts("absence " + req.Status); err != nil {
+				log.Printf("shifts regen after absence %d: %v", req.ID, err)
 			}
 		}
 		logAudit("admin", "UPDATE_REQUEST", clientIP(r), fmt.Sprintf("id=%d status=%s auto_rejected=%d", req.ID, req.Status, rejected))
