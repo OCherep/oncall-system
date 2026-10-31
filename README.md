@@ -172,6 +172,9 @@ go run .
 | `SLACK_WEBHOOK_URL` | — | Incoming Webhook командного каналу |
 | `SLACK_BOT_TOKEN` | — | Bot token для DM |
 | `SLACK_TEAM_CHANNEL` | — | Канал команди |
+| `DUTY_ANNOUNCE_ENABLED` | `1` | Щоденне оголошення чергових у Slack-каналах |
+| `DUTY_ANNOUNCE_CHANNELS` | `#devops-pm-direct,#devops_team` | Канали (ID C… або #name) через кому |
+| `DUTY_ANNOUNCE_TIME` | `09:00` | Час оголошення за Києвом (Europe/Kyiv) |
 | `NOTIFY_ON_INCIDENT` | `1` | Сповіщати про нові звернення |
 | `TELEGRAM_BOT_TOKEN` | — | Telegram bot |
 | `TELEGRAM_CHAT_ID` | — | Chat / group id |

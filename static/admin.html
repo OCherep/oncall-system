@@ -421,6 +421,9 @@ tr.q-row:hover{background:#eff6ff}
     </div>
 
     <script>
+// Дата «сьогодні» за Europe/Kyiv (не UTC браузера).
+function kyivToday(d){try{return new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Kyiv',year:'numeric',month:'2-digit',day:'2-digit'}).format(d||new Date())}catch(e){const x=d||new Date();return x.getFullYear()+'-'+String(x.getMonth()+1).padStart(2,'0')+'-'+String(x.getDate()).padStart(2,'0')}}
+
 
 (function(){
   const KEY='oncall_theme';
@@ -619,7 +622,7 @@ function themeToggleHTML(){
         setTimeout(function(){ if (typeof bootAdmin==='function') bootAdmin(); }, 0);
 
         function dailyShift(delta) {
-            const cur = window._dailyDate || new Date().toISOString().slice(0,10);
+            const cur = window._dailyDate || kyivToday();
             const d = new Date(cur + 'T12:00:00');
             d.setDate(d.getDate() + delta);
             window._dailyDate = d.toISOString().slice(0,10);
@@ -635,7 +638,7 @@ function themeToggleHTML(){
               if(ta && !ta.dataset.loaded){ ta.value=s.jira_jql||s.JIRA_JQL||'project in (Vidmind) AND (component = DevOps OR labels = DevOps) AND updated >= -60d ORDER BY updated DESC'; ta.dataset.loaded='1'; }
             }catch(e){}
 
-            const day = window._dailyDate || new Date().toISOString().slice(0,10);
+            const day = window._dailyDate || kyivToday();
             window._dailyDate = day;
             const inp = document.getElementById('daily-date');
             if (inp) inp.value = day;
@@ -673,7 +676,7 @@ function themeToggleHTML(){
 
                 const sum = document.getElementById('daily-summary');
                 const boardDay = d.date || day || window._dailyDate || '';
-                const todayStr = (typeof localToday==='function') ? localToday() : new Date().toISOString().slice(0,10);
+                const todayStr = (typeof localToday==='function') ? localToday() : kyivToday();
                 const isTodayBoard = boardDay === todayStr;
                 const tbChip = document.getElementById('daily-date-chip');
                 if (tbChip) {
@@ -959,7 +962,7 @@ function isAdminUser() {
         function modeChipHtml(dateStr, snap, opts) {
             opts = opts || {};
             const d = dateStr || '';
-            const today = (typeof localToday === 'function') ? localToday() : new Date().toISOString().slice(0,10);
+            const today = (typeof localToday === 'function') ? localToday() : kyivToday();
             const isToday = !d || d === today;
             if (!isToday && !opts.forceMode) {
                 return `<div class="mode-chip mode-chip-date" title="${d}">
@@ -1085,7 +1088,7 @@ function isAdminUser() {
 
             if (sub === 'daily') {
                 breadcrumbs.innerHTML = `Головна / Адміністрування / Менеджмент / <b>Дашборд дейлі</b>`;
-                if (!window._dailyDate) window._dailyDate = new Date().toISOString().slice(0,10);
+                if (!window._dailyDate) window._dailyDate = kyivToday();
                 container.innerHTML = `
                   <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:16px">
                     <h2 style="margin:0">Дашборд дейлі</h2>
@@ -1135,7 +1138,7 @@ function isAdminUser() {
             }
             if (sub === 'queues') {
                 breadcrumbs.innerHTML = `Головна / Адміністрування / Менеджмент / <b>Черги задач</b>`;
-                if (!window._queuesDate) window._queuesDate = new Date().toISOString().slice(0,10);
+                if (!window._queuesDate) window._queuesDate = kyivToday();
                 container.innerHTML = `
                     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px">
                         <h2 style="margin:0">Черги задач і звернень</h2>
@@ -1147,7 +1150,7 @@ function isAdminUser() {
                             style="padding:6px 10px;border-radius:8px;border:1px solid #334155;background:#0f172a;color:#e2e8f0"
                             onchange="queuesSetDate(this.value)">
                           <button class="btn" type="button" title="Наступний день" onclick="queuesShiftDay(1)">›</button>
-                          <button class="btn" type="button" onclick="queuesSetDate(new Date().toISOString().slice(0,10))">Сьогодні</button>
+                          <button class="btn" type="button" onclick="queuesSetDate(kyivToday())">Сьогодні</button>
                           <button class="btn btn-primary" onclick="loadQueuesData()">Оновити</button>
                         </div>
                     </div>
@@ -1227,7 +1230,7 @@ function isAdminUser() {
                 loadIncArchive();
                         } else if (sub === 'productivity') {
                 breadcrumbs.innerHTML = `Головна / Адміністрування / Менеджмент / <b>Продуктивність</b>`;
-                const today = new Date().toISOString().slice(0,10);
+                const today = kyivToday();
                 const monthStart = today.slice(0,8) + '01';
                 container.innerHTML = `
                   <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin-bottom:14px">
@@ -1259,7 +1262,7 @@ function isAdminUser() {
                 loadProductivity();
             } else if (sub === 'approval') {
                 breadcrumbs.innerHTML = `Головна / Адміністрування / Менеджмент / <b>Для затвердження</b>`;
-                const today = new Date().toISOString().slice(0,10);
+                const today = kyivToday();
                 container.innerHTML = `
                   <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin-bottom:14px">
                     <h2 style="margin:0;flex:1">Затвердження відсутностей</h2>
@@ -2114,7 +2117,7 @@ function isAdminUser() {
             loadQueuesData();
         }
         function queuesShiftDay(delta) {
-            const cur = window._queuesDate || new Date().toISOString().slice(0,10);
+            const cur = window._queuesDate || kyivToday();
             const d = new Date(cur + 'T12:00:00');
             d.setDate(d.getDate() + delta);
             const v = d.toISOString().slice(0,10);
@@ -2124,7 +2127,7 @@ function isAdminUser() {
         async function loadQueuesData() {
             try { refreshAdminBadges(); } catch(e) {}
             try {
-                const day = window._queuesDate || (document.getElementById('queues-date')||{}).value || new Date().toISOString().slice(0,10);
+                const day = window._queuesDate || (document.getElementById('queues-date')||{}).value || kyivToday();
                 window._queuesDate = day;
                 const inp = document.getElementById('queues-date');
                 if (inp && inp.value !== day) inp.value = day;
@@ -2299,7 +2302,7 @@ function isAdminUser() {
             document.getElementById('queue-detail-body').textContent = 'Завантаження…';
             m.style.display = 'flex';
             try {
-                const day = window._queuesDate || (window._queuesCache && window._queuesCache.today) || new Date().toISOString().slice(0,10);
+                const day = window._queuesDate || (window._queuesCache && window._queuesCache.today) || kyivToday();
                 const r = await fetch('/api/incidents?limit=200&status=' + encodeURIComponent(status));
                 let list = await safeJson(r);
                 if (!Array.isArray(list)) list = [];
@@ -3042,7 +3045,7 @@ window.logout = logout;
                 _shiftsDays = d.days || [];
                 fillShiftSelects(['sh-prev-p','sh-prev-b','sh-cur-p','sh-cur-b']);
                 const fromEl = document.getElementById('sh-from');
-                if (fromEl && !fromEl.value) fromEl.value = new Date().toISOString().slice(0,10);
+                if (fromEl && !fromEl.value) fromEl.value = kyivToday();
                 const tb = document.getElementById('shifts-edit-body');
                 if (!tb) return;
                 if (!_shiftsDays.length) {
@@ -3053,7 +3056,7 @@ window.logout = logout;
                       <td>${escHtml(x.date)}</td>
                       <td><select data-f="primary">${opt.replace(`value="${escHtml(x.primary)}"`,`value="${escHtml(x.primary)}" selected`)}</select></td>
                       <td><select data-f="backup">${opt.replace(`value="${escHtml(x.backup)}"`,`value="${escHtml(x.backup)}" selected`)}</select></td>
-                      <td style="font-size:11px;opacity:.6">${escHtml(x.date) < (new Date().toISOString().slice(0,10)) ? 'минуле' : ''}</td>
+                      <td style="font-size:11px;opacity:.6">${escHtml(x.date) < (kyivToday()) ? 'минуле' : ''}</td>
                     </tr>`).join('');
                     // fix selected - replace above is fragile; set values
                     tb.querySelectorAll('tr[data-i]').forEach(tr => {

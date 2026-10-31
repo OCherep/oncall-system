@@ -173,7 +173,7 @@ func notifyOncallAboutIncident(inc IncidentReport) {
 		log.Printf("notify dedupe skip %s", key)
 		return
 	}
-	today := time.Now().Format("2006-01-02")
+	today := kyivToday()
 	date := inc.Date
 	if date == "" {
 		date = today
@@ -227,7 +227,7 @@ func formatIncidentNotifyMsg(inc IncidentReport, primary, backup string) string 
 	b.WriteString("\n")
 	b.WriteString(fmt.Sprintf("• *Опис:* %s\n", truncateRunes(inc.Description, 300)))
 	b.WriteString(fmt.Sprintf("• *Дата:* %s · *Пріоритет:* %s · *Source:* %s\n",
-		nz(inc.Date, time.Now().Format("2006-01-02")),
+		nz(inc.Date, kyivToday()),
 		nz(inc.Priority, "Звичайний"),
 		nz(inc.Source, "webhook")))
 	if inc.UserName != "" {

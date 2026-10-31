@@ -482,6 +482,8 @@ func initDB() {
 			log.Printf("schema: %v", err)
 		}
 	}
+	// item 6: manual shift edits survive regeneration (safe additive migration)
+	db.Exec(`ALTER TABLE shifts ADD COLUMN is_manual INTEGER NOT NULL DEFAULT 0`)
 	db.Exec(`ALTER TABLE users ADD COLUMN email TEXT DEFAULT ''`)
 	db.Exec(`ALTER TABLE users ADD COLUMN phone TEXT DEFAULT ''`)
 	db.Exec(`ALTER TABLE users ADD COLUMN slack_id TEXT DEFAULT ''`)
@@ -531,6 +533,7 @@ func initDB() {
 	ensureOnGridExceptions()
 	ensurePresenceTables()
 	ensureTaskExternalID()
+	ensureDutyBalanceTable()
 	go func() {
 		for {
 			time.Sleep(1 * time.Hour)
@@ -565,6 +568,7 @@ db.Exec("CREATE INDEX IF NOT EXISTS idx_comments_entity ON comments(entity_type,
 func main() {
 	initDB()
 	defer db.Close()
+	go shiftHorizonLoop()
 
 	http.HandleFunc("/api/login", withIPAllow(securityHeaders(handleLogin)))
 	http.HandleFunc("/api/logout", withIPAllow(securityHeaders(handleLogout)))

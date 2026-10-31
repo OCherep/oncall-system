@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -55,6 +56,10 @@ func handleDBUnlock(w http.ResponseWriter, r *http.Request) {
 func handleAdminUsers(w http.ResponseWriter, r *http.Request) {
 	ensureUserExtraColumns()
 	w.Header().Set("Content-Type", "application/json")
+	var rosterBefore []string
+	if r.Method != http.MethodGet {
+		rosterBefore = listOncallNames()
+	}
 	switch r.Method {
 	case http.MethodGet:
 		ensureTeamsSchema()
@@ -125,6 +130,7 @@ func handleAdminUsers(w http.ResponseWriter, r *http.Request) {
 		}
 		id, _ := res.LastInsertId()
 		u.ID = int(id)
+		regenIfRosterChanged(rosterBefore, "user created")
 		logAudit("admin", "CREATE_USER", clientIP(r), u.Username)
 		w.WriteHeader(201)
 		json.NewEncoder(w).Encode(u)
@@ -156,11 +162,13 @@ func handleAdminUsers(w http.ResponseWriter, r *http.Request) {
 			db.Exec(`UPDATE users SET username=?, name=?, role=?, team_role_id=?, is_oncall=?, slack_id=?, email=?, phone=?, show_in_roster=?, team_id=?, brb_slack_status=? WHERE id=?`,
 				u.Username, u.Name, u.Role, u.TeamRoleID, on, u.SlackID, u.Email, u.Phone, show, u.TeamID, brbSt, u.ID)
 		}
+		regenIfRosterChanged(rosterBefore, "user updated")
 		logAudit("admin", "UPDATE_USER", clientIP(r), fmt.Sprintf("id=%d slack_id=%s", u.ID, u.SlackID))
 		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 	case http.MethodDelete:
 		id := r.URL.Query().Get("id")
 		db.Exec("DELETE FROM users WHERE id=?", id)
+		regenIfRosterChanged(rosterBefore, "user deleted")
 		json.NewEncoder(w).Encode(map[string]string{"status": "deleted"})
 	default:
 		http.Error(w, "Method not allowed", 405)
@@ -353,6 +361,12 @@ func handleAdminRequests(w http.ResponseWriter, r *http.Request) {
 						fmt.Sprintf("id=%d type=%s rejected due to higher %s id=%d", oid, otype, cur.Type, cur.ID))
 					rejected++
 				}
+			}
+		}
+		if req.Status == "Approved" || cur.Status == "Approved" {
+			// item 6: approved/withdrawn absence re-plans future auto days
+			if _, err := regenerateFutureShifts("absence " + req.Status); err != nil {
+				log.Printf("shifts regen after absence %d: %v", req.ID, err)
 			}
 		}
 		logAudit("admin", "UPDATE_REQUEST", clientIP(r), fmt.Sprintf("id=%d status=%s auto_rejected=%d", req.ID, req.Status, rejected))
@@ -871,8 +885,13 @@ func handleRegenerateShifts(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Потрібен пароль доступу до бази", 403)
 		return
 	}
-	db.Exec(`DELETE FROM shifts`)
-	json.NewEncoder(w).Encode(map[string]string{"status": "shifts cleared — reload calendar to regenerate"})
+	// Explicit admin action: re-plan from the Kyiv today; past days stay intact.
+	n, err := regenerateFutureShifts("admin regenerate")
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	json.NewEncoder(w).Encode(map[string]interface{}{"status": "ok", "from": kyivToday(), "updated": n})
 }
 
 

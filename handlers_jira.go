@@ -272,7 +272,7 @@ func handleJiraImport(w http.ResponseWriter, r *http.Request) {
 	}
 
 	created, updated, skipped := 0, 0, 0
-	today := time.Now().Format("2006-01-02")
+	today := kyivToday()
 	for _, is := range issues {
 		key := strings.TrimSpace(is.Key)
 		if key == "" {

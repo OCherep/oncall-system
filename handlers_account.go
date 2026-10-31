@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"os"
 	"strings"
-	"time"
 )
 
 func init() {
@@ -189,7 +188,7 @@ func handleClaimTask(w http.ResponseWriter, r *http.Request) {
 	if status == "Нерозподілена" || status == "" {
 		next = "Нова"
 	}
-	today := time.Now().Format("2006-01-02")
+	today := kyivToday()
 	_, err = db.Exec(`UPDATE daily_tasks SET user_name=?, status=?, date=COALESCE(NULLIF(date,''), ?) WHERE id=?`, s.Name, next, today, req.ID)
 	if err != nil {
 		http.Error(w, `{"error":"db"}`, 500)

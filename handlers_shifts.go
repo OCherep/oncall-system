@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -189,123 +190,57 @@ func pickPair(pool []string, startIdx int) (primary, backup string) {
 	return primary, backup
 }
 
+// recalculateShiftsForward — explicit admin recalc. The first day gets the given
+// current primary/backup (unless it is a manual day or the person is absent),
+// the rest is planned by the fairness planner (rules 1–4). Past days and manual
+// days are never changed. prevPrimary/prevBackup are kept for API compatibility:
+// the planner reads the previous day from history.
 func recalculateShiftsForward(fromDate, untilDate, currPrimary, currBackup, prevPrimary, prevBackup string) (int, error) {
 	fromDate = strings.TrimSpace(fromDate)
-	if fromDate == "" {
-		fromDate = time.Now().Format("2006-01-02")
+	if today := kyivToday(); fromDate == "" || fromDate < today {
+		// never rewrite days before the Kyiv today
+		fromDate = today
+	}
+	start, err := time.Parse("2006-01-02", fromDate)
+	if err != nil {
+		return 0, fmt.Errorf("bad from_date")
 	}
 	if untilDate == "" {
-		t, err := time.ParseInLocation("2006-01-02", fromDate, time.Local)
-		if err != nil {
-			return 0, fmt.Errorf("bad from_date")
-		}
-		end := time.Date(t.Year(), t.Month()+2, 0, 0, 0, 0, 0, time.Local)
-		untilDate = end.Format("2006-01-02")
+		untilDate = time.Date(start.Year(), start.Month()+2, 0, 0, 0, 0, 0, time.UTC).Format("2006-01-02")
 	}
-	pool := listOncallNames()
-	if len(pool) == 0 {
-		return 0, fmt.Errorf("немає on-call користувачів")
-	}
-	abs := loadApprovedAbsences()
-	cal := loadDutyCal()
-
-	rot := indexInPool(pool, currPrimary)
-	if rot < 0 {
-		rot = indexInPool(pool, prevPrimary)
-		if rot >= 0 {
-			rot = (rot + 1) % len(pool)
-		} else {
-			rot = 0
-		}
-	}
-
-	start, err := time.ParseInLocation("2006-01-02", fromDate, time.Local)
-	if err != nil {
-		return 0, err
-	}
-	end, err := time.ParseInLocation("2006-01-02", untilDate, time.Local)
+	end, err := time.Parse("2006-01-02", untilDate)
 	if err != nil {
 		return 0, err
 	}
 	if end.Before(start) {
 		return 0, fmt.Errorf("until_date before from_date")
 	}
-
+	pool := listOncallNames()
+	if len(pool) == 0 {
+		return 0, fmt.Errorf("немає on-call користувачів")
+	}
+	abs := loadApprovedAbsences()
 	n := 0
-	first := true
-	wPrim, wBak := loadWeekendCountsBefore(fromDate)
-	for d := start; !d.After(end); d = d.AddDate(0, 0, 1) {
-		dateStr := d.Format("2006-01-02")
-		avail := availableOnDate(pool, dateStr, abs)
-		if len(avail) == 0 {
-			continue
-		}
-		var primary, backup string
-		if first {
-			primary = strings.TrimSpace(currPrimary)
-			backup = strings.TrimSpace(currBackup)
-			if primary == "" || isAbsentOnDate(primary, dateStr, abs) {
-				if cal.isSpecial(dateStr) {
-					primary = pickLeastLoaded(avail, wPrim, nil)
-				} else {
-					primary, rot = nextOncallFrom(pool, rot, dateStr, abs, nil)
-				}
-			}
-			if primary == "" {
-				continue
-			}
-			if backup == "" || backup == primary || isAbsentOnDate(backup, dateStr, abs) {
-				if cal.isSpecial(dateStr) {
-					backup = pickLeastLoaded(avail, wBak, map[string]bool{primary: true})
-				} else {
-					pIdx := indexInPool(pool, primary)
-					if pIdx < 0 {
-						pIdx = rot
-					}
-					backup, _ = nextOncallFrom(pool, (pIdx+1)%len(pool), dateStr, abs, map[string]bool{primary: true})
-				}
-				if backup == "" {
-					backup = primary
-				}
-			}
-			if pi := indexInPool(pool, primary); pi >= 0 {
-				rot = (pi + 1) % len(pool)
-			}
-			first = false
-		} else if cal.isSpecial(dateStr) {
-			primary = pickLeastLoaded(avail, wPrim, nil)
-			backup = pickLeastLoaded(avail, wBak, map[string]bool{primary: true})
-			if primary == "" {
-				continue
-			}
-			if backup == "" {
-				backup = primary
-			}
-		} else {
-			var pNext int
-			primary, pNext = nextOncallFrom(pool, rot, dateStr, abs, nil)
-			if primary == "" {
-				continue
-			}
-			backup, _ = nextOncallFrom(pool, pNext, dateStr, abs, map[string]bool{primary: true})
-			if backup == "" {
-				backup = primary
-			}
-			rot = pNext
-		}
-		if cal.isSpecial(dateStr) {
-			wPrim[primary]++
-			wBak[backup]++
-		}
-		if _, err := db.Exec(`INSERT INTO shifts (date, primary_user, backup_user) VALUES (?,?,?)
-			ON CONFLICT(date) DO UPDATE SET primary_user=excluded.primary_user, backup_user=excluded.backup_user`,
-			dateStr, primary, backup); err != nil {
-			return n, err
+	primary, backup := strings.TrimSpace(currPrimary), strings.TrimSpace(currBackup)
+	if backup == "" || isAbsentOnDate(backup, fromDate, abs) {
+		backup = primary
+	}
+	if primary != "" && indexInPool(pool, primary) >= 0 && !isAbsentOnDate(primary, fromDate, abs) &&
+		!loadManualDates(fromDate, fromDate)[fromDate] {
+		if _, err := db.Exec(`INSERT INTO shifts (date, primary_user, backup_user, is_manual) VALUES (?,?,?,0)
+			ON CONFLICT(date) DO UPDATE SET primary_user=excluded.primary_user, backup_user=excluded.backup_user
+			WHERE COALESCE(shifts.is_manual,0)=0`, fromDate, primary, backup); err != nil {
+			return 0, err
 		}
 		n++
+		start = start.AddDate(0, 0, 1)
 	}
-	_ = prevBackup
-	return n, nil
+	_, _ = prevPrimary, prevBackup
+	if start.After(end) {
+		return n, nil
+	}
+	m, err := planShifts(start.Format("2006-01-02"), untilDate, false, "admin recalc-forward")
+	return n + m, err
 }
 
 func handleAdminShifts(w http.ResponseWriter, r *http.Request) {
@@ -321,7 +256,7 @@ func handleAdminShifts(w http.ResponseWriter, r *http.Request) {
 			to = time.Date(t.Year(), t.Month()+1, 0, 0, 0, 0, 0, time.UTC).Format("2006-01-02")
 		}
 		if from == "" {
-			from = time.Now().Format("2006-01") + "-01"
+			from = kyivNow().Format("2006-01") + "-01"
 		}
 		if to == "" {
 			t, _ := time.Parse("2006-01-02", from)
@@ -353,6 +288,7 @@ func handleAdminShifts(w http.ResponseWriter, r *http.Request) {
 				Date    string `json:"date"`
 				Primary string `json:"primary"`
 				Backup  string `json:"backup"`
+				Manual  *bool  `json:"manual"` // default true; false returns the day to auto planning
 			} `json:"days"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -374,9 +310,16 @@ func handleAdminShifts(w http.ResponseWriter, r *http.Request) {
 			if d.Backup == "" {
 				d.Backup = d.Primary
 			}
-			db.Exec(`INSERT INTO shifts (date, primary_user, backup_user) VALUES (?,?,?)
-				ON CONFLICT(date) DO UPDATE SET primary_user=excluded.primary_user, backup_user=excluded.backup_user`,
-				d.Date, d.Primary, d.Backup)
+			manual := 1
+			if d.Manual != nil && !*d.Manual {
+				manual = 0
+			}
+			if _, err := db.Exec(`INSERT INTO shifts (date, primary_user, backup_user, is_manual) VALUES (?,?,?,?)
+				ON CONFLICT(date) DO UPDATE SET primary_user=excluded.primary_user, backup_user=excluded.backup_user, is_manual=excluded.is_manual`,
+				d.Date, d.Primary, d.Backup, manual); err != nil {
+				log.Printf("shifts bulk edit %s: %v", d.Date, err)
+				continue
+			}
 			n++
 		}
 		logAudit(body.Actor, "SHIFTS_BULK_EDIT", clientIP(r), fmt.Sprintf("%d days", n))

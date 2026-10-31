@@ -35,3 +35,5 @@ data/
 # Logs
 *.log
 /var/log/
+deploy-*.log
+.deploy-override.yml

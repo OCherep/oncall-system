@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"os"
 	"strings"
-	"time"
 )
 
 // Slack Events API: @devops-team → звернення.
@@ -43,7 +42,7 @@ func mentionsTeam(text string) bool {
 }
 
 func todayShiftPair() (primary, backup string) {
-	day := time.Now().Format("2006-01-02")
+	day := kyivToday()
 	_ = db.QueryRow(`SELECT COALESCE(primary_user,''), COALESCE(backup_user,'') FROM shifts WHERE date=?`, day).Scan(&primary, &backup)
 	return strings.TrimSpace(primary), strings.TrimSpace(backup)
 }
@@ -134,7 +133,7 @@ func createIncidentFromTeamMention(channel, ts, authorID, text string) (int64, s
 	}
 	link := slackPermalink(channel, ts)
 	desc = desc + "\n" + link
-	now := time.Now().Format("2006-01-02")
+	now := kyivToday()
 	res, err := db.Exec(`INSERT INTO incidents (
 		user_name, date, type, duration_minutes, description, created_at,
 		status, priority, source, total_minutes, created_by, reported_for, external_id, reporter_slack
