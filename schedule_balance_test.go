@@ -67,7 +67,7 @@ func TestNonSickAbsenceCreatesDebt(t *testing.T) {
 func TestSickTypeDetection(t *testing.T) {
 	setupTestDB(t)
 	sickTypeCache.names = nil
-	for typ, want := range map[string]bool{"Лікарняний": true, "sick": true, "Відпустка": false, "vacation": false, "Вихідний": false, "Командировка": false} {
+	for typ, want := range map[string]bool{"Лікарняний": true, "sick": true, "Відпустка": false, "vacation": false, "Вихідний": false, "dayoff": false, "Командировка": true, "Відрядження": true, "trip": true} {
 		if got := isSickType(typ); got != want {
 			t.Errorf("%s: %v", typ, got)
 		}
@@ -85,5 +85,22 @@ func TestWithdrawnAbsenceClearsLedger(t *testing.T) {
 	db.QueryRow(`SELECT COUNT(*) FROM duty_balance`).Scan(&n)
 	if n != 0 {
 		t.Fatalf("ledger rows left: %d", n)
+	}
+}
+
+// Rule 3 (owner decision): business trip creates no debt, day off does.
+func TestTripNoDebtDayoffDebt(t *testing.T) {
+	sickTypeCache.names = nil
+	_, tbal, trows := absenceScenario(t, "trip")
+	if trows == 0 {
+		t.Fatal("trip replacement not recorded in ledger")
+	}
+	if tbal["Anna"] != 0 {
+		t.Fatalf("trip created debt: %v", tbal)
+	}
+	sickTypeCache.names = nil
+	_, dbal, _ := absenceScenario(t, "dayoff")
+	if dbal["Anna"] >= 0 {
+		t.Fatalf("dayoff created no debt: %v", dbal)
 	}
 }

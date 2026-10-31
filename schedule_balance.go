@@ -13,15 +13,28 @@ var sickTypeCache struct {
 	names map[string]bool
 }
 
-// isSickType: absence type is sickness (absence_types.code='sick', e.g.
-// «Лікарняний»). absences.type may hold either the name or the code.
+// noDebtCodes: absence_types.code values that create no duty debt (rule 3).
+// Owner decision: business trip (відрядження, code 'trip') is treated like
+// sick leave; day off ('dayoff') and vacation ('vacation') still create debt.
+var noDebtCodes = map[string]bool{"sick": true, "trip": true}
+
+// noDebtNameHints: name fragments recognised even without an absence_types row.
+var noDebtNameHints = []string{"лікарн", "хвор", "відрядж", "командир"}
+
+// isSickType: absence type creates no debt (sick leave or business trip, see
+// noDebtCodes). absences.type may hold either the name or the code.
 func isSickType(t string) bool {
 	t = strings.ToLower(strings.TrimSpace(t))
 	if t == "" {
 		return false
 	}
-	if t == "sick" || strings.Contains(t, "лікарн") || strings.Contains(t, "хвор") {
+	if noDebtCodes[t] {
 		return true
+	}
+	for _, h := range noDebtNameHints {
+		if strings.Contains(t, h) {
+			return true
+		}
 	}
 	sickTypeCache.Lock()
 	defer sickTypeCache.Unlock()
@@ -32,7 +45,7 @@ func isSickType(t string) bool {
 			for rows.Next() {
 				var n, c string
 				rows.Scan(&n, &c)
-				if c == "sick" {
+				if noDebtCodes[strings.TrimSpace(c)] {
 					m[strings.TrimSpace(n)] = true
 				}
 			}
