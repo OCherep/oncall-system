@@ -189,22 +189,8 @@ func requireAuth(needAdmin bool, next http.HandlerFunc) http.HandlerFunc {
 		tok := sessionTokenFromRequest(r)
 		s, ok := lookupSession(tok)
 		if !ok {
-			// fallback: soft mode for gradual rollout — allow if SOFT_AUTH=1 and legacy header
-			if softAuthEnabled() {
-				if u := strings.TrimSpace(r.Header.Get("X-Oncall-User")); u != "" {
-					var role, name string
-					var id int
-					err := db.QueryRow(`SELECT id, role, name FROM users WHERE username=? OR name=? LIMIT 1`, u, u).Scan(&id, &role, &name)
-					if err == nil {
-						if needAdmin && role != "admin" {
-							http.Error(w, `{"error":"admin required"}`, http.StatusForbidden)
-							return
-						}
-						next(w, withAuthContext(r, &sessionInfo{UserID: id, Username: u, Role: role, Name: name}))
-						return
-					}
-				}
-			}
+			// Заголовок X-Oncall-User більше НЕ приймається (ні для admin, ні для user):
+			// ідентичність — лише серверна сесія. SOFT_AUTH ігнорується.
 			w.Header().Set("Content-Type", "application/json")
 			http.Error(w, `{"error":"unauthorized","code":"SESSION_REQUIRED"}`, http.StatusUnauthorized)
 			return
@@ -218,12 +204,11 @@ func requireAuth(needAdmin bool, next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-func softAuthEnabled() bool {
-	v := strings.TrimSpace(os.Getenv("SOFT_AUTH"))
-	if v == "" {
-		return true // default soft during transition
+// warnLegacySoftAuth — SOFT_AUTH видалено; якщо змінна ще задана, гучно попереджаємо.
+func warnLegacySoftAuth() {
+	if v := strings.TrimSpace(os.Getenv("SOFT_AUTH")); v != "" && v != "0" && !strings.EqualFold(v, "false") {
+		log.Printf("SECURITY: SOFT_AUTH=%q ігнорується — заголовок X-Oncall-User більше не автентифікує; потрібна сесія (/api/login)", v)
 	}
-	return v == "1" || strings.EqualFold(v, "true")
 }
 
 func handleLogout(w http.ResponseWriter, r *http.Request) {

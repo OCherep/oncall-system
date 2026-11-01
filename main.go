@@ -570,6 +570,7 @@ func main() {
 	defer db.Close()
 	go shiftHorizonLoop()
 
+	warnLegacySoftAuth()
 	registerRoutes()
 
 	port := os.Getenv("PORT")

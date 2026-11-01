@@ -16,7 +16,7 @@
 | IP allowlist | Усі `/api/*` обгорнуті в `withIPAllow`. Порожній довідник `allowed_ips` → доступ усім; інакше лише CIDR/IP (+ loopback) |
 | Security headers | `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `X-XSS-Protection` на частині маршрутів (login, session, settings, daily-board, jira import) |
 | Сесія | Cookie `oncall_session` (HttpOnly), TTL ~14 год, sliding. Альтернатива: `Authorization: Bearer <token>` або `X-Session-Token` |
-| Soft auth | `SOFT_AUTH=1` (default): admin API без жорсткого `requireAuth` (перехідний режим). Планується `SOFT_AUTH=0` |
+| Auth | Лише серверна сесія (`oncall_session` / `Authorization: Bearer`). `SOFT_AUTH` і заголовок `X-Oncall-User` видалено |
 
 ### Коди відповіді (типові)
 
@@ -445,7 +445,7 @@ Incident.status := «У задачу»
 | `PORT` | Порт app (8085) |
 | `DB_PATH` | SQLite |
 | `DB_ADMIN_PASSWORD` | Unlock DB tools |
-| `SOFT_AUTH` | М’який режим auth |
+| `SOFT_AUTH` | Видалено (ігнорується, лише warning у лозі) |
 | `SESSION_SECURE` | Secure cookie |
 | `ENABLE_INCIDENT_WEBHOOK` | Webhook on/off |
 | `WEBHOOK_SECRET` | Auth webhook |
