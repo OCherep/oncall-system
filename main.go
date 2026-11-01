@@ -570,47 +570,59 @@ func main() {
 	defer db.Close()
 	go shiftHorizonLoop()
 
+	registerRoutes()
+
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+	log.Printf("listening on :%s", port)
+	log.Fatal(http.ListenAndServe(":"+port, nil))
+}
+
+// registerRoutes реєструє всі HTTP-маршрути (винесено з main для тестів захисту маршрутів).
+func registerRoutes() {
 	http.HandleFunc("/api/login", withIPAllow(securityHeaders(handleLogin)))
 	http.HandleFunc("/api/logout", withIPAllow(securityHeaders(handleLogout)))
 	http.HandleFunc("/api/session/me", withIPAllow(securityHeaders(handleSessionMe)))
-	http.HandleFunc("/api/admin/jira/import", withIPAllow(securityHeaders(handleJiraImport)))
-	http.HandleFunc("/api/brb", withIPAllow(securityHeaders(handleBRB)))
-	http.HandleFunc("/api/admin/shift-relief", withIPAllow(securityHeaders(handleShiftRelief)))
-	http.HandleFunc("/api/admin/shifts", withIPAllow(securityHeaders(handleAdminShifts)))
-	http.HandleFunc("/api/admin/teams", withIPAllow(securityHeaders(handleAdminTeams)))
+	http.HandleFunc("/api/admin/jira/import", withIPAllow(requireAuth(true, securityHeaders(handleJiraImport))))
+	http.HandleFunc("/api/brb", withIPAllow(requireAuth(false, securityHeaders(handleBRB))))
+	http.HandleFunc("/api/admin/shift-relief", withIPAllow(requireAuth(true, securityHeaders(handleShiftRelief))))
+	http.HandleFunc("/api/admin/shifts", withIPAllow(requireAuth(true, securityHeaders(handleAdminShifts))))
+	http.HandleFunc("/api/admin/teams", withIPAllow(requireAuth(true, securityHeaders(handleAdminTeams))))
 	http.HandleFunc("/api/teams", withIPAllow(handleTeamsPublic))
-	http.HandleFunc("/api/admin/productivity", withIPAllow(securityHeaders(handleAdminProductivity)))
+	http.HandleFunc("/api/admin/productivity", withIPAllow(requireAuth(true, securityHeaders(handleAdminProductivity))))
 	http.HandleFunc("/api/webhooks/slack", handleSlackEvents) // no IP allow — Slack egress IPs vary
 	http.HandleFunc("/api/on-grid", withIPAllow(securityHeaders(handleOnGridPublic)))
-	http.HandleFunc("/api/admin/on-grid-exceptions", withIPAllow(securityHeaders(handleOnGridExceptions)))
-	http.HandleFunc("/api/admin/settings", withIPAllow(securityHeaders(handleAppSettings)))
-	http.HandleFunc("/api/admin/daily-board", withIPAllow(securityHeaders(handleDailyBoard)))
+	http.HandleFunc("/api/admin/on-grid-exceptions", withIPAllow(requireAuth(true, securityHeaders(handleOnGridExceptions))))
+	http.HandleFunc("/api/admin/settings", withIPAllow(requireAuth(true, securityHeaders(handleAppSettings))))
+	http.HandleFunc("/api/admin/daily-board", withIPAllow(requireAuth(true, securityHeaders(handleDailyBoard))))
 	http.HandleFunc("/api/data", withIPAllow(handleGetData))
-	http.HandleFunc("/api/request-absence", withIPAllow(handleRequestAbsence))
-	http.HandleFunc("/api/incidents", withIPAllow(handleIncidents))
-	http.HandleFunc("/api/daily-tasks", withIPAllow(handleDailyTasks))
+	http.HandleFunc("/api/request-absence", withIPAllow(requireAuth(false, handleRequestAbsence)))
+	http.HandleFunc("/api/incidents", withIPAllow(requireAuthExceptMethods(handleIncidents, http.MethodPost)))
+	http.HandleFunc("/api/daily-tasks", withIPAllow(requireAuth(false, handleDailyTasks)))
 
 	http.HandleFunc("/api/slack/lookup", withIPAllow(securityHeaders(handleSlackLookup)))
-	http.HandleFunc("/api/admin/slack/users", withIPAllow(securityHeaders(handleSlackDirectory)))
-	http.HandleFunc("/api/admin/users", withIPAllow(handleAdminUsers))
-	http.HandleFunc("/api/admin/roles", withIPAllow(handleAdminRoles))
-	http.HandleFunc("/api/admin/team-roles", withIPAllow(handleAdminRoles))
-	http.HandleFunc("/api/admin/absence-types", withIPAllow(handleAdminAbsenceTypes))
-	http.HandleFunc("/api/admin/requests", withIPAllow(handleAdminRequests))
-	http.HandleFunc("/api/admin/logs", withIPAllow(handleAdminLogs))
-	http.HandleFunc("/api/admin/project/audit-logs", withIPAllow(handleAdminLogs))
-	http.HandleFunc("/api/admin/tasks", withIPAllow(handleAdminTasks))
-	http.HandleFunc("/api/admin/project/unlock", withIPAllow(handleDBUnlock))
-	http.HandleFunc("/api/admin/project/db-stats", withIPAllow(handleDBStats))
-	http.HandleFunc("/api/admin/project/app-logs", withIPAllow(handleAppLogs))
-	http.HandleFunc("/api/admin/project/table", withIPAllow(handleTableInspect))
-	http.HandleFunc("/api/admin/project/query", withIPAllow(handleReadOnlyQuery))
-	http.HandleFunc("/api/admin/regenerate-shifts", withIPAllow(handleRegenerateShifts))
-	http.HandleFunc("/api/comments", withIPAllow(handleComments))
-	http.HandleFunc("/api/task-status-log", withIPAllow(handleTaskStatusLog))
-	http.HandleFunc("/api/admin/queues", withIPAllow(handleAdminQueues))
-	http.HandleFunc("/api/admin/badges", withIPAllow(handleAdminBadges))
-	http.HandleFunc("/api/admin/allowed-ips", withIPAllow(handleAdminAllowedIPs))
+	http.HandleFunc("/api/admin/slack/users", withIPAllow(requireAuth(true, securityHeaders(handleSlackDirectory))))
+	http.HandleFunc("/api/admin/users", withIPAllow(requireAuth(true, handleAdminUsers)))
+	http.HandleFunc("/api/admin/roles", withIPAllow(requireAuth(true, handleAdminRoles)))
+	http.HandleFunc("/api/admin/team-roles", withIPAllow(requireAuth(true, handleAdminRoles)))
+	http.HandleFunc("/api/admin/absence-types", withIPAllow(requireAuth(true, handleAdminAbsenceTypes)))
+	http.HandleFunc("/api/admin/requests", withIPAllow(requireAuth(true, handleAdminRequests)))
+	http.HandleFunc("/api/admin/logs", withIPAllow(requireAuth(true, handleAdminLogs)))
+	http.HandleFunc("/api/admin/project/audit-logs", withIPAllow(requireAuth(true, handleAdminLogs)))
+	http.HandleFunc("/api/admin/tasks", withIPAllow(requireAuth(true, handleAdminTasks)))
+	http.HandleFunc("/api/admin/project/unlock", withIPAllow(requireAuth(true, handleDBUnlock)))
+	http.HandleFunc("/api/admin/project/db-stats", withIPAllow(requireAuth(true, handleDBStats)))
+	http.HandleFunc("/api/admin/project/app-logs", withIPAllow(requireAuth(true, handleAppLogs)))
+	http.HandleFunc("/api/admin/project/table", withIPAllow(requireAuth(true, handleTableInspect)))
+	http.HandleFunc("/api/admin/project/query", withIPAllow(requireAuth(true, handleReadOnlyQuery)))
+	http.HandleFunc("/api/admin/regenerate-shifts", withIPAllow(requireAuth(true, handleRegenerateShifts)))
+	http.HandleFunc("/api/comments", withIPAllow(requireAuth(false, handleComments)))
+	http.HandleFunc("/api/task-status-log", withIPAllow(requireAuth(false, handleTaskStatusLog)))
+	http.HandleFunc("/api/admin/queues", withIPAllow(requireAuth(true, handleAdminQueues)))
+	http.HandleFunc("/api/admin/badges", withIPAllow(requireAuth(true, handleAdminBadges)))
+	http.HandleFunc("/api/admin/allowed-ips", withIPAllow(requireAuth(true, handleAdminAllowedIPs)))
 
 	// Зовнішні інтеграції: Jira / боти / Slack
 	http.HandleFunc("/api/webhooks/incidents", handleWebhookIncidents) // secret in header
@@ -620,11 +632,4 @@ func main() {
 	http.HandleFunc("/", withIPAllow(func(w http.ResponseWriter, r *http.Request) {
 		fs.ServeHTTP(w, r)
 	}))
-
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
-	}
-	log.Printf("listening on :%s", port)
-	log.Fatal(http.ListenAndServe(":"+port, nil))
 }

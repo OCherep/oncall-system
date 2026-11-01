@@ -187,7 +187,7 @@ func handleSlackDirectory(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			created++
-			logAudit("admin", "SLACK_IMPORT_USER", clientIP(r), fmt.Sprintf("%s %s", uname, sid))
+			logAudit(sessionActor(r), "SLACK_IMPORT_USER", clientIP(r), fmt.Sprintf("%s %s", uname, sid))
 		}
 		regenIfRosterChanged(rosterBefore, "slack import")
 		json.NewEncoder(w).Encode(map[string]interface{}{

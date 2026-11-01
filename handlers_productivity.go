@@ -292,7 +292,7 @@ func handleAdminProductivity(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			Action   string `json:"action"` // close_brb | anchor
 			UserName string `json:"user_name"`
-			Actor    string `json:"actor"`
+			Actor    string `json:"actor"` // ігнорується: actor береться із сесії
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			http.Error(w, err.Error(), 400)
@@ -302,7 +302,7 @@ func handleAdminProductivity(w http.ResponseWriter, r *http.Request) {
 		case "close_brb":
 			clearBRB(body.UserName)
 			closePresenceInterval(body.UserName, "brb")
-			logAudit(body.Actor, "BRB_CLEAR_ADMIN", clientIP(r), body.UserName)
+			logAudit(sessionActor(r), "BRB_CLEAR_ADMIN", clientIP(r), body.UserName)
 		case "anchor":
 			recordWorkAnchor(body.UserName, "manual")
 		default:

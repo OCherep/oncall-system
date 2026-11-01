@@ -201,20 +201,27 @@ func handleBRB(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), 400)
 			return
 		}
+		// звичайний користувач ставить BRB лише собі; ім'я — із сесії
+		if !sessionIsAdmin(r) {
+			body.UserName = sessionActor(r)
+		}
 		if err := setBRB(body.UserName, body.Until, body.Note); err != nil {
 			http.Error(w, err.Error(), 400)
 			return
 		}
-		logAudit(body.UserName, "BRB_SET", clientIP(r), body.Until)
+		logAudit(sessionActor(r), "BRB_SET", clientIP(r), body.Until)
 		json.NewEncoder(w).Encode(map[string]string{"status": "ok", "until": body.Until})
 	case http.MethodDelete:
 		u := r.URL.Query().Get("user")
+		if !sessionIsAdmin(r) {
+			u = sessionActor(r)
+		}
 		if u == "" {
 			http.Error(w, "user required", 400)
 			return
 		}
 		clearBRB(u)
-		logAudit(u, "BRB_CLEAR", clientIP(r), "")
+		logAudit(sessionActor(r), "BRB_CLEAR", clientIP(r), "")
 		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 	default:
 		http.Error(w, "method not allowed", 405)
@@ -258,7 +265,7 @@ func handleShiftRelief(w http.ResponseWriter, r *http.Request) {
 			Role         string `json:"role"`
 			OriginalUser string `json:"original_user"`
 			ReliefUser   string `json:"relief_user"`
-			Actor        string `json:"actor"`
+			Actor        string `json:"actor"` // ігнорується: actor береться із сесії
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			http.Error(w, err.Error(), 400)
@@ -277,9 +284,9 @@ func handleShiftRelief(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		db.Exec(`UPDATE shift_relief SET ended_at=CURRENT_TIMESTAMP, ended_by=? WHERE date=? AND role=? AND ended_at IS NULL`,
-			body.Actor, body.Date, body.Role)
+			sessionActor(r), body.Date, body.Role)
 		res, err := db.Exec(`INSERT INTO shift_relief (date, role, original_user, relief_user, started_by) VALUES (?,?,?,?,?)`,
-			body.Date, body.Role, body.OriginalUser, body.ReliefUser, body.Actor)
+			body.Date, body.Role, body.OriginalUser, body.ReliefUser, sessionActor(r))
 		if err != nil {
 			http.Error(w, err.Error(), 500)
 			return
@@ -292,12 +299,12 @@ func handleShiftRelief(w http.ResponseWriter, r *http.Request) {
 		db.Exec(`UPDATE users SET needs_resume=1 WHERE name=? OR username=?`, body.OriginalUser, body.OriginalUser)
 		db.Exec(`DELETE FROM sessions WHERE user_id IN (SELECT id FROM users WHERE name=? OR username=?)`, body.OriginalUser, body.OriginalUser)
 		id, _ := res.LastInsertId()
-		logAudit(body.Actor, "SHIFT_RELIEF", clientIP(r), fmt.Sprintf("%s %s → %s (was %s)", body.Date, body.Role, body.ReliefUser, body.OriginalUser))
+		logAudit(sessionActor(r), "SHIFT_RELIEF", clientIP(r), fmt.Sprintf("%s %s → %s (was %s)", body.Date, body.Role, body.ReliefUser, body.OriginalUser))
 		json.NewEncoder(w).Encode(map[string]interface{}{"status": "ok", "id": id})
 	case http.MethodPut:
 		var body struct {
 			ID    int    `json:"id"`
-			Actor string `json:"actor"`
+			Actor string `json:"actor"` // ігнорується: actor береться із сесії
 			User  string `json:"user_name"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -318,14 +325,14 @@ func handleShiftRelief(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		db.Exec(`UPDATE shift_relief SET ended_at=CURRENT_TIMESTAMP, ended_by=? WHERE id=?`, body.Actor, body.ID)
+		db.Exec(`UPDATE shift_relief SET ended_at=CURRENT_TIMESTAMP, ended_by=? WHERE id=?`, sessionActor(r), body.ID)
 		if role == "primary" {
 			db.Exec(`UPDATE shifts SET primary_user=? WHERE date=?`, orig, date)
 		} else {
 			db.Exec(`UPDATE shifts SET backup_user=? WHERE date=?`, orig, date)
 		}
 		db.Exec(`UPDATE users SET needs_resume=0 WHERE name=? OR username=?`, orig, orig)
-		logAudit(body.Actor, "SHIFT_RESUME", clientIP(r), fmt.Sprintf("%s %s back=%s", date, role, orig))
+		logAudit(sessionActor(r), "SHIFT_RESUME", clientIP(r), fmt.Sprintf("%s %s back=%s", date, role, orig))
 		json.NewEncoder(w).Encode(map[string]string{"status": "ok", "restored": orig})
 	default:
 		http.Error(w, "method not allowed", 405)
