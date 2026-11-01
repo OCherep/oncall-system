@@ -1257,6 +1257,12 @@ async function lookupGuestSlack(silent){
   if(st) st.textContent='Перевірка Slack…';
   try{
     const r=await fetch('/api/slack/lookup?q='+encodeURIComponent(sl),{credentials:'same-origin'});
+    if(r.status===401){
+      // lookup лише для авторизованих; для гостя Slack перевіряє сервер під час надсилання
+      window._guestSlackOk=true; window._guestSlackProfile=null;
+      if(st) st.textContent='Slack перевіримо під час надсилання';
+      return true;
+    }
     const d=await r.json().catch(()=>({}));
     if(!r.ok||!d.found){
       window._guestSlackErr=d.error||'Не знайдено у Slack';

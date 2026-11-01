@@ -621,14 +621,18 @@ func handleGetData(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	snap := onGridSnapshot()
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	out := map[string]interface{}{
 		"year": year, "month": month,
 		"team_members": team, "absence_types": absenceTypes,
 		"shifts": shifts, "absences": absences, "incidents": incidents, "stats": stats,
 		"daily_tasks": dailyTasks,
 		"on_grid": snap,
 		"brb": activeBRBMap(),
-	})
+	}
+	if _, ok := sessionFrom(r); !ok && !readTokenOK(r) {
+		redactPublicData(out)
+	}
+	json.NewEncoder(w).Encode(out)
 }
 
 // canManageTeamAbsences — admin або роль у команді Team Lead / Project Manager (за назвою).

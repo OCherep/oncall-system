@@ -593,17 +593,17 @@ func registerRoutes() {
 	http.HandleFunc("/api/admin/teams", withIPAllow(requireAuth(true, securityHeaders(handleAdminTeams))))
 	http.HandleFunc("/api/teams", withIPAllow(handleTeamsPublic))
 	http.HandleFunc("/api/admin/productivity", withIPAllow(requireAuth(true, securityHeaders(handleAdminProductivity))))
-	http.HandleFunc("/api/webhooks/slack", handleSlackEvents) // no IP allow — Slack egress IPs vary
+	http.HandleFunc("/api/webhooks/slack", verifySlackSignature(handleSlackEvents)) // no IP allow — Slack egress IPs vary; підпис Slack обов'язковий
 	http.HandleFunc("/api/on-grid", withIPAllow(securityHeaders(handleOnGridPublic)))
 	http.HandleFunc("/api/admin/on-grid-exceptions", withIPAllow(requireAuth(true, securityHeaders(handleOnGridExceptions))))
 	http.HandleFunc("/api/admin/settings", withIPAllow(requireAuth(true, securityHeaders(handleAppSettings))))
 	http.HandleFunc("/api/admin/daily-board", withIPAllow(requireAuth(true, securityHeaders(handleDailyBoard))))
-	http.HandleFunc("/api/data", withIPAllow(handleGetData))
+	http.HandleFunc("/api/data", withIPAllow(withOptionalSession(handleGetData))) // гість → урізаний вигляд
 	http.HandleFunc("/api/request-absence", withIPAllow(requireAuth(false, handleRequestAbsence)))
 	http.HandleFunc("/api/incidents", withIPAllow(requireAuthExceptMethods(handleIncidents, http.MethodPost)))
 	http.HandleFunc("/api/daily-tasks", withIPAllow(requireAuth(false, handleDailyTasks)))
 
-	http.HandleFunc("/api/slack/lookup", withIPAllow(securityHeaders(handleSlackLookup)))
+	http.HandleFunc("/api/slack/lookup", withIPAllow(requireAuth(false, securityHeaders(handleSlackLookup))))
 	http.HandleFunc("/api/admin/slack/users", withIPAllow(requireAuth(true, securityHeaders(handleSlackDirectory))))
 	http.HandleFunc("/api/admin/users", withIPAllow(requireAuth(true, handleAdminUsers)))
 	http.HandleFunc("/api/admin/roles", withIPAllow(requireAuth(true, handleAdminRoles)))
