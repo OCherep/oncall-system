@@ -8,7 +8,7 @@
 | `/api/login`, `/api/logout`, `/api/session/me` | POST/POST/GET | IP | IP | вхід; me → 401 без сесії |
 | `/api/me/password`, `/api/me/profile` | POST/GET | IP + перевірка сесії в handler | без змін | |
 | `/api/tasks/pool`, `/api/tasks/claim` | GET/POST | IP + сесія в handler | без змін | |
-| **`/api/admin/*` (усі 29)** | усі | **IP (без auth)** | **IP + A** | 401 без сесії, 403 не-admin; тест читає main.go і перевіряє кожен |
+| **`/api/admin/*` (усі 26)** | усі | **IP (без auth)** | **IP + A** | 401 без сесії, 403 не-admin; тест читає main.go і перевіряє кожен |
 | `/api/brb` | GET/POST/DELETE | IP | IP + S | user — лише свій BRB |
 | `/api/request-absence` | POST | IP | IP + S | actor/role з сесії |
 | `/api/incidents` | GET/PUT/DELETE | IP | IP + S (DELETE — A) | |
