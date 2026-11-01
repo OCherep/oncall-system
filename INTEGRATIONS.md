@@ -6,7 +6,7 @@
 
 ```bash
 ENABLE_INCIDENT_WEBHOOK=1
-WEBHOOK_SECRET=your-long-random-secret
+WEBHOOK_SECRET=<openssl rand -hex 24>   # плейсхолдери (change-me, your-long-random-secret) відхиляються
 ```
 
 ### Endpoints

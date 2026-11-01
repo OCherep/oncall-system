@@ -83,9 +83,19 @@ envval() { # значення з .env або з поточного оточен�
   printf '%s' "$v"
 }
 [[ -n "$(envval SLACK_BOT_TOKEN)" ]] || die "SLACK_BOT_TOKEN не задано (.env) — оголошення/DM не працюватимуть"
+# Секрети без дефолтів: деплой ЗУПИНЯЄТЬСЯ, якщо не задано/плейсхолдер (значення не друкуються)
 for k in DB_ADMIN_PASSWORD WEBHOOK_SECRET; do
-  v="$(envval "$k")"; [[ -n "$v" && "$v" != *change-me* ]] || warn "$k не задано або дефолтний"
+  v="$(envval "$k")"
+  if [[ -z "$v" || "${v,,}" == *change-me* || "${v,,}" == *changeme* || "$v" == "your-long-random-secret" ]]; then
+    die "$k не задано або дефолтний/плейсхолдер — задайте у .env (openssl rand -hex 24)"
+  fi
+  (( ${#v} >= 16 )) || die "$k закороткий (<16 символів)"
+  ok "$k: задано (${#v} симв., значення приховано)"
 done
+for k in SLACK_SIGNING_SECRET ONCALL_READ_TOKEN; do
+  [[ -n "$(envval "$k")" ]] || warn "$k не задано — відповідна функція вимкнена (fail closed): SLACK_SIGNING_SECRET → /api/webhooks/slack; ONCALL_READ_TOKEN → повний /api/data для DevOps Hub mentions"
+done
+SA="$(envval SOFT_AUTH)"; [[ -z "$SA" || "$SA" == "0" ]] || warn "SOFT_AUTH=$SA більше не діє (X-Oncall-User не приймається) — приберіть з .env"
 CH="$(envval DUTY_ANNOUNCE_CHANNELS)"
 if [[ -z "$CH" || "$CH" == *"#"* ]]; then
   warn "DUTY_ANNOUNCE_CHANNELS='${CH:-<дефолт #devops-pm-direct,#devops_team>}' — краще ID каналів (C…), бот має бути запрошений"

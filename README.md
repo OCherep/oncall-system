@@ -165,10 +165,13 @@ go run .
 |--------|------------|------|
 | `PORT` | `8084` | Порт HTTP-сервера додатку |
 | `DB_PATH` | `/app/data/oncall.db` | Шлях до SQLite |
-| `DB_ADMIN_PASSWORD` | `db-admin-change-me` | Unlock read-only SQL / DB tools |
+| `DB_ADMIN_PASSWORD` | — (**обов'язково**) | Другий фактор DB-інструментів адмінки. Не задано/«change-me» → інструменти вимкнено; `deploy.sh` FAIL |
+| `SLACK_SIGNING_SECRET` | — | Підпис `/api/webhooks/slack`. Не задано → endpoint вимкнено (403) |
+| `ONCALL_READ_TOKEN` | — | Сервісний read-only доступ до повного `/api/data` (`X-Oncall-Read-Token`) |
+| `ONCALL_BOOTSTRAP_ADMIN_PASSWORD` | — | Перший admin лише для порожньої БД (дефолтного admin/admin немає) |
 | `AUDIT_LOG_PATH` | `/var/log/oncall-app/app.log` | Файл-дзеркало audit |
 | `ENABLE_INCIDENT_WEBHOOK` | `0` | `1` — увімкнути webhook |
-| `WEBHOOK_SECRET` | — | Bearer / `X-Webhook-Secret` |
+| `WEBHOOK_SECRET` | — (**обов'язково**) | Bearer / `X-Webhook-Secret`. Не задано/«change-me» → webhook вимкнено; `deploy.sh` FAIL |
 | `SLACK_WEBHOOK_URL` | — | Incoming Webhook командного каналу |
 | `SLACK_BOT_TOKEN` | — | Bot token для DM |
 | `SLACK_TEAM_CHANNEL` | — | Канал команди |
@@ -199,3 +202,9 @@ go run .
 ## Ліцензія
 
 Див. файл `LICENSE` у корені репозиторію.
+
+## Безпека: авторизація і секрети
+
+- Адмінка та всі `/api/admin/*` — лише admin-сесія; actor/role — із сесії. Див. [docs/security/admin-auth.md](docs/security/admin-auth.md) (вхід і break-glass).
+- Інвентар маршрутів і захисту: [docs/security/routes.md](docs/security/routes.md).
+- Дефолтних паролів/секретів немає: без `DB_ADMIN_PASSWORD` / `WEBHOOK_SECRET` / `SLACK_SIGNING_SECRET` відповідна функція вимикається (fail closed) з гучним логом, решта застосунку працює.

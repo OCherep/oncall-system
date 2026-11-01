@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -61,21 +62,25 @@ func webhookEnabled() bool {
 }
 
 func webhookSecret() string {
-	return strings.TrimSpace(os.Getenv("WEBHOOK_SECRET"))
+	v := strings.TrimSpace(os.Getenv("WEBHOOK_SECRET"))
+	if isPlaceholderSecret(v) {
+		return ""
+	}
+	return v
 }
 
 func checkWebhookAuth(r *http.Request) bool {
 	secret := webhookSecret()
 	if secret == "" {
-		// без секрету — небезпечно; дозволяємо лише якщо явно ENABLE і порожній секрет (dev)
-		log.Printf("webhook: WEBHOOK_SECRET is empty — accepting requests (dev only)")
-		return true
+		// fail closed: без секрету (або з плейсхолдером) webhook не приймає нічого
+		log.Printf("SECURITY: webhook відхилено — WEBHOOK_SECRET не задано/дефолтний")
+		return false
 	}
-	if h := strings.TrimSpace(r.Header.Get("X-Webhook-Secret")); h != "" && h == secret {
+	if h := strings.TrimSpace(r.Header.Get("X-Webhook-Secret")); h != "" && subtle.ConstantTimeCompare([]byte(h), []byte(secret)) == 1 {
 		return true
 	}
 	if auth := r.Header.Get("Authorization"); strings.HasPrefix(strings.ToLower(auth), "bearer ") {
-		if strings.TrimSpace(auth[7:]) == secret {
+		if subtle.ConstantTimeCompare([]byte(strings.TrimSpace(auth[7:])), []byte(secret)) == 1 {
 			return true
 		}
 	}

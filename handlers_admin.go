@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/subtle"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -10,25 +11,44 @@ import (
 	"strings"
 )
 
-// dbAdminPassword returns the secondary password required for DB tools.
-// Set via env DB_ADMIN_PASSWORD (default: "db-admin-change-me").
+// dbAdminPassword — другий фактор для DB-інструментів (поверх admin-сесії).
+// Дефолту немає: якщо DB_ADMIN_PASSWORD не задано або це плейсхолдер (*change-me*),
+// DB-інструменти вимкнені (fail closed), решта застосунку працює.
 func dbAdminPassword() string {
-	p := os.Getenv("DB_ADMIN_PASSWORD")
-	if p == "" {
-		return "db-admin-change-me"
+	p := strings.TrimSpace(os.Getenv("DB_ADMIN_PASSWORD"))
+	if isPlaceholderSecret(p) {
+		return ""
 	}
 	return p
 }
 
+// isPlaceholderSecret — порожнє значення або відомі плейсхолдери з прикладів.
+func isPlaceholderSecret(v string) bool {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return true
+	}
+	l := strings.ToLower(v)
+	return strings.Contains(l, "change-me") || strings.Contains(l, "changeme") || l == "your-long-random-secret"
+}
+
 func checkDBAdminPassword(r *http.Request) bool {
+	want := dbAdminPassword()
+	if want == "" {
+		return false
+	}
 	p := r.Header.Get("X-DB-Admin-Password")
-	if p == "" {
-		p = r.URL.Query().Get("db_password")
+	return p != "" && subtle.ConstantTimeCompare([]byte(p), []byte(want)) == 1
+}
+
+// warnDisabledSecrets — гучний лог на старті про вимкнені через відсутній секрет функції.
+func warnDisabledSecrets() {
+	if dbAdminPassword() == "" {
+		log.Printf("SECURITY: DB_ADMIN_PASSWORD не задано/дефолтний — DB-інструменти адмінки (/api/admin/project/*, regenerate-shifts) ВИМКНЕНО")
 	}
-	if p == "" && r.Method == http.MethodPost {
-		// try form / json body field without consuming body — use header primarily
+	if webhookSecret() == "" {
+		log.Printf("SECURITY: WEBHOOK_SECRET не задано/дефолтний — /api/webhooks/incidents ВИМКНЕНО (403)")
 	}
-	return p != "" && p == dbAdminPassword()
 }
 
 func handleDBUnlock(w http.ResponseWriter, r *http.Request) {
@@ -44,7 +64,12 @@ func handleDBUnlock(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 400)
 		return
 	}
-	if req.Password != dbAdminPassword() {
+	if dbAdminPassword() == "" {
+		logAudit(sessionActor(r), "DB_UNLOCK_DISABLED", clientIP(r), "DB_ADMIN_PASSWORD not set")
+		http.Error(w, "DB-інструменти вимкнено: DB_ADMIN_PASSWORD не задано", http.StatusServiceUnavailable)
+		return
+	}
+	if subtle.ConstantTimeCompare([]byte(req.Password), []byte(dbAdminPassword())) != 1 {
 		logAudit(sessionActor(r), "DB_UNLOCK_FAILED", clientIP(r), "wrong password")
 		http.Error(w, "Невірний пароль доступу до бази", 403)
 		return

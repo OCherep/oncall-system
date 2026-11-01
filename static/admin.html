@@ -2857,6 +2857,12 @@ async function toggleArchCmt(id) {
                 schemaEl.innerHTML = '<span style="color:#ef4444">'+e+'</span>';
             }
         }
+        // пароль DB-інструментів вводиться вручну, тримається лише в sessionStorage вкладки
+        function dbAdminPw() {
+            let p = sessionStorage.getItem('db_admin_pw') || '';
+            if (!p) { p = prompt('Пароль доступу до бази (DB_ADMIN_PASSWORD):') || ''; if (p) sessionStorage.setItem('db_admin_pw', p); }
+            return p;
+        }
         async function runSQL() {
             const sql = (document.getElementById('sql-input') || {}).value || '';
             const out = document.getElementById('sql-result');
@@ -2865,7 +2871,7 @@ async function toggleArchCmt(id) {
             try {
                 const r = await fetch('/api/admin/project/query', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-DB-Admin-Password': (window.DB_ADMIN_PASSWORD || 'db-admin-change-me') },
+                    headers: { 'Content-Type': 'application/json', 'X-DB-Admin-Password': dbAdminPw() },
                     body: JSON.stringify({ query: sql })
                 });
                 const d = await r.json().catch(() => ({ error: 'bad json' }));
