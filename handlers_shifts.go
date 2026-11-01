@@ -283,7 +283,7 @@ func handleAdminShifts(w http.ResponseWriter, r *http.Request) {
 
 	case http.MethodPut:
 		var body struct {
-			Actor string `json:"actor"`
+			Actor string `json:"actor"` // ігнорується: actor береться із сесії
 			Days  []struct {
 				Date    string `json:"date"`
 				Primary string `json:"primary"`
@@ -322,12 +322,12 @@ func handleAdminShifts(w http.ResponseWriter, r *http.Request) {
 			}
 			n++
 		}
-		logAudit(body.Actor, "SHIFTS_BULK_EDIT", clientIP(r), fmt.Sprintf("%d days", n))
+		logAudit(sessionActor(r), "SHIFTS_BULK_EDIT", clientIP(r), fmt.Sprintf("%d days", n))
 		json.NewEncoder(w).Encode(map[string]interface{}{"status": "ok", "updated": n})
 
 	case http.MethodPost:
 		var body struct {
-			Actor           string `json:"actor"`
+			Actor           string `json:"actor"` // ігнорується: actor береться із сесії
 			FromDate        string `json:"from_date"`
 			UntilDate       string `json:"until_date"`
 			CurrentPrimary  string `json:"current_primary"`
@@ -349,7 +349,7 @@ func handleAdminShifts(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), 400)
 			return
 		}
-		logAudit(body.Actor, "SHIFTS_RECALC_FORWARD", clientIP(r),
+		logAudit(sessionActor(r), "SHIFTS_RECALC_FORWARD", clientIP(r),
 			fmt.Sprintf("from=%s n=%d curr=%s/%s prev=%s/%s",
 				body.FromDate, n, body.CurrentPrimary, body.CurrentBackup, body.PreviousPrimary, body.PreviousBackup))
 		json.NewEncoder(w).Encode(map[string]interface{}{"status": "ok", "updated": n, "from": body.FromDate})

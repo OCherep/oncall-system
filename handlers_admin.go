@@ -45,11 +45,11 @@ func handleDBUnlock(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.Password != dbAdminPassword() {
-		logAudit("admin", "DB_UNLOCK_FAILED", clientIP(r), "wrong password")
+		logAudit(sessionActor(r), "DB_UNLOCK_FAILED", clientIP(r), "wrong password")
 		http.Error(w, "Невірний пароль доступу до бази", 403)
 		return
 	}
-	logAudit("admin", "DB_UNLOCK_OK", clientIP(r), "db tools unlocked")
+	logAudit(sessionActor(r), "DB_UNLOCK_OK", clientIP(r), "db tools unlocked")
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
 
@@ -131,7 +131,7 @@ func handleAdminUsers(w http.ResponseWriter, r *http.Request) {
 		id, _ := res.LastInsertId()
 		u.ID = int(id)
 		regenIfRosterChanged(rosterBefore, "user created")
-		logAudit("admin", "CREATE_USER", clientIP(r), u.Username)
+		logAudit(sessionActor(r), "CREATE_USER", clientIP(r), u.Username)
 		w.WriteHeader(201)
 		json.NewEncoder(w).Encode(u)
 	case http.MethodPut:
@@ -155,6 +155,9 @@ func handleAdminUsers(w http.ResponseWriter, r *http.Request) {
 		if u.BrbSlackStatus {
 			brbSt = 1
 		}
+		// CUT-04 AC2: фіксуємо стару роль, щоб аудит мав old→new
+		var oldRole string
+		_ = db.QueryRow(`SELECT COALESCE(role,'') FROM users WHERE id=?`, u.ID).Scan(&oldRole)
 		if u.Password != "" {
 			db.Exec(`UPDATE users SET username=?, password=?, name=?, role=?, team_role_id=?, is_oncall=?, slack_id=?, email=?, phone=?, show_in_roster=?, team_id=?, brb_slack_status=? WHERE id=?`,
 				u.Username, u.Password, u.Name, u.Role, u.TeamRoleID, on, u.SlackID, u.Email, u.Phone, show, u.TeamID, brbSt, u.ID)
@@ -163,12 +166,16 @@ func handleAdminUsers(w http.ResponseWriter, r *http.Request) {
 				u.Username, u.Name, u.Role, u.TeamRoleID, on, u.SlackID, u.Email, u.Phone, show, u.TeamID, brbSt, u.ID)
 		}
 		regenIfRosterChanged(rosterBefore, "user updated")
-		logAudit("admin", "UPDATE_USER", clientIP(r), fmt.Sprintf("id=%d slack_id=%s", u.ID, u.SlackID))
+		logAudit(sessionActor(r), "UPDATE_USER", clientIP(r), fmt.Sprintf("id=%d slack_id=%s", u.ID, u.SlackID))
+		if oldRole != u.Role {
+			logAudit(sessionActor(r), "ROLE_CHANGE", clientIP(r), fmt.Sprintf("id=%d user=%s role: %s→%s", u.ID, u.Username, oldRole, u.Role))
+		}
 		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 	case http.MethodDelete:
 		id := r.URL.Query().Get("id")
 		db.Exec("DELETE FROM users WHERE id=?", id)
 		regenIfRosterChanged(rosterBefore, "user deleted")
+		logAudit(sessionActor(r), "DELETE_USER", clientIP(r), "id="+id)
 		json.NewEncoder(w).Encode(map[string]string{"status": "deleted"})
 	default:
 		http.Error(w, "Method not allowed", 405)
@@ -357,7 +364,7 @@ func handleAdminRequests(w http.ResponseWriter, r *http.Request) {
 					}
 					db.Exec(`UPDATE absences SET status='Rejected' WHERE id=?`, oid)
 					go notifyAbsenceDecision(AbsenceRequest{ID: oid, UserName: cur.UserName, Type: otype, StartDate: os, EndDate: oe, Status: "Rejected"}, "Rejected", "auto")
-					logAudit("admin", "AUTO_REJECT_ABSENCE", clientIP(r),
+					logAudit(sessionActor(r), "AUTO_REJECT_ABSENCE", clientIP(r),
 						fmt.Sprintf("id=%d type=%s rejected due to higher %s id=%d", oid, otype, cur.Type, cur.ID))
 					rejected++
 				}
@@ -369,7 +376,7 @@ func handleAdminRequests(w http.ResponseWriter, r *http.Request) {
 				log.Printf("shifts regen after absence %d: %v", req.ID, err)
 			}
 		}
-		logAudit("admin", "UPDATE_REQUEST", clientIP(r), fmt.Sprintf("id=%d status=%s auto_rejected=%d", req.ID, req.Status, rejected))
+		logAudit(sessionActor(r), "UPDATE_REQUEST", clientIP(r), fmt.Sprintf("id=%d status=%s auto_rejected=%d", req.ID, req.Status, rejected))
 		json.NewEncoder(w).Encode(map[string]interface{}{"status": "ok", "auto_rejected": rejected})
 	default:
 		http.Error(w, "Method not allowed", 405)
@@ -950,7 +957,7 @@ func handleAdminAllowedIPs(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		id, _ := res.LastInsertId()
-		logAudit("admin", "ALLOWED_IP_ADD", clientIP(r), req.CIDR)
+		logAudit(sessionActor(r), "ALLOWED_IP_ADD", clientIP(r), req.CIDR)
 		json.NewEncoder(w).Encode(map[string]interface{}{"id": id, "cidr": req.CIDR})
 	case http.MethodPut:
 		var req struct {
@@ -977,7 +984,7 @@ func handleAdminAllowedIPs(w http.ResponseWriter, r *http.Request) {
 			}
 			db.Exec(`UPDATE allowed_ips SET enabled=? WHERE id=?`, en, req.ID)
 		}
-		logAudit("admin", "ALLOWED_IP_UPDATE", clientIP(r), fmt.Sprintf("id=%d", req.ID))
+		logAudit(sessionActor(r), "ALLOWED_IP_UPDATE", clientIP(r), fmt.Sprintf("id=%d", req.ID))
 		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 	case http.MethodDelete:
 		id := r.URL.Query().Get("id")
@@ -986,7 +993,7 @@ func handleAdminAllowedIPs(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		db.Exec(`DELETE FROM allowed_ips WHERE id=?`, id)
-		logAudit("admin", "ALLOWED_IP_DELETE", clientIP(r), "id="+id)
+		logAudit(sessionActor(r), "ALLOWED_IP_DELETE", clientIP(r), "id="+id)
 		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 	default:
 		http.Error(w, "method not allowed", 405)

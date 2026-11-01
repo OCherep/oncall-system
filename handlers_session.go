@@ -200,10 +200,7 @@ func requireAuth(needAdmin bool, next http.HandlerFunc) http.HandlerFunc {
 							http.Error(w, `{"error":"admin required"}`, http.StatusForbidden)
 							return
 						}
-						r.Header.Set("X-Auth-Username", u)
-						r.Header.Set("X-Auth-Role", role)
-						r.Header.Set("X-Auth-Name", name)
-						next(w, r)
+						next(w, withAuthContext(r, &sessionInfo{UserID: id, Username: u, Role: role, Name: name}))
 						return
 					}
 				}
@@ -213,13 +210,11 @@ func requireAuth(needAdmin bool, next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 		if needAdmin && s.Role != "admin" {
+			logAudit(s.Username, "ADMIN_DENIED", clientIP(r), r.Method+" "+r.URL.Path)
 			http.Error(w, `{"error":"admin required"}`, http.StatusForbidden)
 			return
 		}
-		r.Header.Set("X-Auth-Username", s.Username)
-		r.Header.Set("X-Auth-Role", s.Role)
-		r.Header.Set("X-Auth-Name", s.Name)
-		next(w, r)
+		next(w, withAuthContext(r, s))
 	}
 }
 

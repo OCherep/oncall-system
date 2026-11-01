@@ -678,16 +678,17 @@ func handleRequestAbsence(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "required fields", http.StatusBadRequest)
 		return
 	}
-	actor := strings.TrimSpace(req.Actor)
+	// actor/role — лише із сесії; req.Actor / req.ActorRole з тіла ігноруються
+	actor := sessionActor(r)
 	status := "Pending"
 	// manager may add for others and optionally approve immediately
-	if canManageTeamAbsences(actor, req.ActorRole) {
+	if canManageTeamAbsences(actor, sessionRole(r)) {
 		if req.AutoApprove || strings.EqualFold(req.Status, "Approved") {
 			status = "Approved"
 		} else if req.Status != "" {
 			status = req.Status
 		}
-	} else if actor != "" && actor != req.UserName {
+	} else if actor != req.UserName {
 		// звичайний user може подавати лише на себе
 		http.Error(w, "немає права створювати відсутність для іншого", http.StatusForbidden)
 		return
@@ -1005,8 +1006,16 @@ func handleIncidents(w http.ResponseWriter, r *http.Request) {
 		if inc.Priority == "" {
 			inc.Priority = "Звичайний"
 		}
-		role := inc.Role
-		guest := role == "" || role == "guest"
+		// роль/автор — із сесії; без сесії це гостьове звернення (inc.role/created_by з тіла ігноруються)
+		role := sessionRole(r)
+		if role == "" {
+			role = "guest"
+			inc.CreatedBy = ""
+		} else {
+			inc.CreatedBy = sessionActor(r)
+		}
+		inc.Role = role
+		guest := role == "guest"
 		if guest && inc.Source == "" {
 			inc.Source = "guest"
 		}
@@ -1170,14 +1179,12 @@ func handleIncidents(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "id required", http.StatusBadRequest)
 			return
 		}
+		// role/actor — лише із сесії (поля "role"/"actor" з тіла ігноруються)
 		roleHint := "user"
-		if v, ok := raw["role"].(string); ok && v != "" {
-			roleHint = v
+		if sessionIsAdmin(r) {
+			roleHint = "admin"
 		}
-		actor := ""
-		if v, ok := raw["actor"].(string); ok {
-			actor = v
-		}
+		actor := sessionActor(r)
 		newStatus, _ := raw["status"].(string)
 		convert, _ := raw["convert_to_task"].(bool)
 
@@ -1316,7 +1323,10 @@ func handleIncidents(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "id required", http.StatusBadRequest)
 			return
 		}
-		// optional role guard via query/header is weak; allow delete (UI only for admin)
+		if !sessionIsAdmin(r) {
+			http.Error(w, "admin required", http.StatusForbidden)
+			return
+		}
 		res, err := db.Exec(`DELETE FROM incidents WHERE id=?`, idStr)
 		if err != nil {
 			http.Error(w, err.Error(), 500)
@@ -1328,7 +1338,7 @@ func handleIncidents(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		db.Exec(`DELETE FROM comments WHERE entity_type='incident' AND entity_id=?`, idStr)
-		logAudit("admin", "DELETE_INCIDENT", clientIP(r), "id="+idStr)
+		logAudit(sessionActor(r), "DELETE_INCIDENT", clientIP(r), "id="+idStr)
 		json.NewEncoder(w).Encode(map[string]string{"status": "deleted"})
 
 	default:
@@ -1361,6 +1371,8 @@ func handleDailyTasks(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
+		// автор — лише із сесії (created_by з тіла ігнорується)
+		t.CreatedBy = sessionActor(r)
 		if t.Date == "" || t.TaskDescription == "" {
 			http.Error(w, "Потрібні date, task_description", http.StatusBadRequest)
 			return
@@ -1415,14 +1427,12 @@ func handleDailyTasks(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "id required", http.StatusBadRequest)
 			return
 		}
+		// role/actor — лише із сесії (поля "role"/"actor" з тіла ігноруються)
 		roleHint := "user"
-		if v, ok := raw["role"].(string); ok && v != "" {
-			roleHint = v
+		if sessionIsAdmin(r) {
+			roleHint = "admin"
 		}
-		actor := ""
-		if v, ok := raw["actor"].(string); ok {
-			actor = v
-		}
+		actor := sessionActor(r)
 		var cur DailyTask
 		var ws, ca, visN, dueN, respN sql.NullString
 		err := db.QueryRow(`SELECT id, user_name, date, task_description, COALESCE(status,'Нова'), COALESCE(priority,'Базова'),
@@ -1619,9 +1629,11 @@ func handleComments(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "entity_type must be task or incident", 400)
 			return
 		}
-		author := strings.TrimSpace(c.AuthorName)
+		// автор — лише із сесії (author_name з тіла ігнорується)
+		author := sessionActor(r)
 		if author == "" {
-			author = "гість"
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
 		}
 		res, err := db.Exec(`INSERT INTO comments (entity_type, entity_id, author_name, body, is_system) VALUES (?,?,?,?,0)`,
 			c.EntityType, c.EntityID, author, strings.TrimSpace(c.Body))
