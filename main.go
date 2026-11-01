@@ -559,9 +559,14 @@ db.Exec("CREATE INDEX IF NOT EXISTS idx_comments_entity ON comments(entity_type,
 	var cnt int
 	db.QueryRow("SELECT COUNT(*) FROM users").Scan(&cnt)
 	if cnt == 0 {
-		db.Exec(`INSERT INTO users (username, password, name, role, is_oncall) VALUES ('admin', 'admin', 'Admin', 'admin', 0)`)
+		// Без дефолтного admin/admin: перший admin створюється лише з ONCALL_BOOTSTRAP_ADMIN_PASSWORD.
+		if bp := strings.TrimSpace(os.Getenv("ONCALL_BOOTSTRAP_ADMIN_PASSWORD")); !isPlaceholderSecret(bp) && len(bp) >= 12 {
+			db.Exec(`INSERT INTO users (username, password, name, role, is_oncall) VALUES ('admin', ?, 'Admin', 'admin', 0)`, bp)
+			log.Println("seeded bootstrap admin (password from ONCALL_BOOTSTRAP_ADMIN_PASSWORD)")
+		} else {
+			log.Println("SECURITY: порожня БД і ONCALL_BOOTSTRAP_ADMIN_PASSWORD не задано (>=12 символів) — admin НЕ створено; див. docs/security/admin-auth.md (break-glass)")
+		}
 		db.Exec(`INSERT INTO absence_types (name, code) VALUES ('Відпустка', 'vacation'), ('Лікарняний', 'sick'), ('Вихідний', 'dayoff')`)
-		log.Println("seeded default admin / admin")
 	}
 }
 
@@ -571,6 +576,7 @@ func main() {
 	go shiftHorizonLoop()
 
 	warnLegacySoftAuth()
+	warnDisabledSecrets()
 	registerRoutes()
 
 	port := os.Getenv("PORT")
