@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Чергові — поточний місяць</title>
+<style>
+  :root {
+    --bg:#f8fafc; --fg:#0f172a; --muted:#64748b; --card:#fff; --line:#e2e8f0;
+    --today:#dbeafe; --today-line:#2563eb; --we:#f1f5f9; --pri:#1e40af; --bak:#475569;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg:#0b1220; --fg:#e5e7eb; --muted:#94a3b8; --card:#111827; --line:#1f2937;
+      --today:#1e3a5f; --today-line:#60a5fa; --we:#0f172a; --pri:#93c5fd; --bak:#cbd5e1;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; font:14px/1.35 system-ui, -apple-system, Segoe UI, sans-serif; background:var(--bg); color:var(--fg); }
+  header { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:16px 20px 8px; }
+  h1 { margin:0; font-size:20px; font-weight:650; }
+  .nav { display:flex; gap:6px; }
+  button { border:1px solid var(--line); background:var(--card); color:var(--fg); border-radius:8px; padding:6px 10px; cursor:pointer; }
+  button:hover { border-color:var(--today-line); }
+  main { padding:8px 16px 24px; }
+  .err { color:#b91c1c; padding:8px 4px; }
+  #cal { display:grid; grid-template-columns:repeat(7, minmax(0,1fr)); gap:6px; }
+  .dh { text-align:center; font-weight:600; font-size:12px; color:var(--muted); padding:4px; }
+  .dh.we { opacity:.7; }
+  .dc { background:var(--card); border:1px solid var(--line); border-radius:10px; min-height:92px; padding:6px 6px 8px; overflow:hidden; }
+  .dc.weekend { background:var(--we); }
+  .dc.today { border:2px solid var(--today-line); background:var(--today); }
+  .dc.empty { background:transparent; border-color:transparent; }
+  .dn { font-weight:700; margin-bottom:4px; }
+  .who { font-size:12px; line-height:1.3; }
+  .who b { font-weight:650; }
+  .pri { color:var(--pri); }
+  .bak { color:var(--bak); }
+  .none { color:var(--muted); font-size:12px; }
+  footer { padding:0 20px 16px; color:var(--muted); font-size:12px; }
+  footer a { color:inherit; }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title">Чергові</h1>
+  <div class="nav">
+    <button type="button" id="prev" aria-label="Попередній місяць">‹</button>
+    <button type="button" id="now">Сьогодні</button>
+    <button type="button" id="next" aria-label="Наступний місяць">›</button>
+  </div>
+</header>
+<main>
+  <div id="err" class="err" hidden></div>
+  <div id="cal"></div>
+</main>
+<footer>Лише чергові. Повний календар — <a href="/">OnCall</a>.</footer>
+<script>
+const MN = ['Січень','Лютий','Березень','Квітень','Травень','Червень','Липень','Серпень','Вересень','Жовтень','Листопад','Грудень'];
+const DH = ['Пн','Вт','Ср','Чт','Пт','Сб','Нд'];
+const now = new Date();
+let Y = now.getFullYear(), M = now.getMonth() + 1;
+
+function pad(n){ return String(n).padStart(2,'0'); }
+function today(){ const d=new Date(); return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate()); }
+function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g, c => ({'&':'&','<':'<','>':'>','"':'"'}[c])); }
+function firstName(s){ return String(s||'').trim().split(/\s+/)[0] || ''; }
+
+function paint(shifts){
+  document.getElementById('title').textContent = MN[M-1] + ' ' + Y;
+  const g = document.getElementById('cal');
+  g.innerHTML = '';
+  DH.forEach((d,i) => {
+    const e = document.createElement('div');
+    e.className = 'dh' + (i>=5?' we':'');
+    e.textContent = d;
+    g.appendChild(e);
+  });
+  const fd = new Date(Y, M-1, 1).getDay();
+  const dim = new Date(Y, M, 0).getDate();
+  const off = fd === 0 ? 6 : fd - 1;
+  const td = today();
+  for (let i=0;i<off;i++){
+    const e = document.createElement('div');
+    e.className = 'dc empty';
+    g.appendChild(e);
+  }
+  for (let d=1; d<=dim; d++){
+    const ds = Y+'-'+pad(M)+'-'+pad(d);
+    const dow = new Date(Y, M-1, d).getDay();
+    const c = document.createElement('div');
+    c.className = 'dc' + (dow===0||dow===6?' weekend':'') + (ds===td?' today':'');
+    const sh = shifts[ds] || {};
+    const pri = firstName(sh.primary_user);
+    const bak = firstName(sh.backup_user);
+    let who = '<div class="none">—</div>';
+    if (pri){
+      who = '<div class="who pri"><b>Осн:</b> '+esc(pri)+'</div>';
+      if (bak && bak !== pri) who += '<div class="who bak"><b>Дубл:</b> '+esc(bak)+'</div>';
+    }
+    c.innerHTML = '<div class="dn">'+d+'</div>'+who;
+    g.appendChild(c);
+  }
+}
+
+async function load(){
+  const err = document.getElementById('err');
+  err.hidden = true;
+  try {
+    const r = await fetch('/api/data?year='+Y+'&month='+M);
+    if (!r.ok) throw new Error('HTTP '+r.status);
+    const D = await r.json();
+    paint(D.shifts || {});
+  } catch (e) {
+    err.hidden = false;
+    err.textContent = 'Не вдалося завантажити графік: ' + e.message;
+  }
+}
+
+function shift(delta){
+  const d = new Date(Y, M-1+delta, 1);
+  Y = d.getFullYear(); M = d.getMonth()+1;
+  load();
+}
+
+document.getElementById('prev').onclick = () => shift(-1);
+document.getElementById('next').onclick = () => shift(1);
+document.getElementById('now').onclick = () => { const d=new Date(); Y=d.getFullYear(); M=d.getMonth()+1; load(); };
+load();
+</script>
+</body>
+</html>
