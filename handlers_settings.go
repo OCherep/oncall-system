@@ -135,6 +135,9 @@ func handleAppSettings(w http.ResponseWriter, r *http.Request) {
 			"on_grid_start": true, "on_grid_end": true, "on_grid_timezone": true, "on_grid_weekdays": true,
 			"session_ttl_hours": true, "login_max_attempts": true, "login_lockout_minutes": true,
 			"session_secure": true, "dispatchers": true, "holidays": true, "jira_jql": true, "jira_import_max": true,
+			"morning_duty_notify": true, "morning_duty_time": true,
+			"duty_announce_enabled": true, "duty_announce_time": true,
+			"duty_announce_channels": true, "duty_announce_template": true,
 		}
 		for k, v := range body {
 			if allowed[k] {
