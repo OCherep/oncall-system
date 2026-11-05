@@ -507,6 +507,7 @@ function themeToggleHTML(){
                         </div>
                         <div class="dropdown-menu open" id="sys-dropdown">
                             <div class="sidebar-item ${currentSubPage==='dictionaries'?'active':''}" onclick="loadSubPage('dictionaries')">Довідники</div>
+                            <div class="sidebar-item ${currentSubPage==='notifications'?'active':''}" onclick="loadSubPage('notifications')">Сповіщення</div>
                             <div class="sidebar-item ${currentSubPage==='security'?'active':''}" onclick="loadSubPage('security')">Безпека</div>
                         </div>
                     </div>
@@ -1283,7 +1284,53 @@ function isAdminUser() {
                   </div>
                   <div id="requests-tables"><p style="opacity:.7">Завантаження…</p></div>`;
                 loadRequestsData();
-            } else if (sub === 'security') {
+            } else if (sub === 'notifications') {
+                breadcrumbs.innerHTML = `Головна / Адміністрування / Налаштування / Система / <b>Сповіщення</b>`;
+                container.innerHTML = `
+                  <h2 style="margin:0 0 16px">Сповіщення про чергових</h2>
+                  <div class="card" style="padding:16px;max-width:760px;margin-bottom:16px">
+                    <h3 style="margin:0 0 8px;font-size:16px">Особисте нагадування черговим</h3>
+                    <p style="font-size:13px;opacity:.8;margin:0 0 12px">Зранку кожен черговий отримує DM у Slack зі своїм статусом (основний / дублюючий) і кількістю відкритих звернень.</p>
+                    <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+                      <input type="checkbox" id="dn-dm-on"> Увімкнено
+                    </label>
+                    <div class="form-group" style="margin-top:12px">
+                      <label>Час відправки (Київ)</label>
+                      <input type="time" id="dn-dm-time" value="08:00" style="width:140px;padding:6px 10px">
+                    </div>
+                  </div>
+                  <div class="card" style="padding:16px;max-width:760px">
+                    <h3 style="margin:0 0 8px;font-size:16px">Канали Slack</h3>
+                    <p style="font-size:13px;opacity:.8;margin:0 0 12px">Щодня після вказаного часу в ці канали йде повідомлення, хто сьогодні черговий. Канал — ID <code>C…</code> або <code>#name</code>.</p>
+                    <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+                      <input type="checkbox" id="dn-ch-on"> Увімкнено
+                    </label>
+                    <div class="form-group" style="margin-top:12px">
+                      <label>Час відправки (Київ)</label>
+                      <input type="time" id="dn-ch-time" value="09:00" style="width:140px;padding:6px 10px">
+                    </div>
+                    <div class="form-group" style="margin-top:12px">
+                      <label>Канали</label>
+                      <div style="display:flex;gap:8px;margin-bottom:8px">
+                        <input type="text" id="dn-ch-new" placeholder="#devops_team або C0123" style="flex:1;padding:6px 10px">
+                        <button class="btn" type="button" onclick="dnAddChannel()">Додати</button>
+                      </div>
+                      <div id="dn-ch-list" style="display:flex;flex-direction:column;gap:6px"></div>
+                    </div>
+                    <div class="form-group" style="margin-top:12px">
+                      <label>Вигляд повідомлення</label>
+                      <textarea id="dn-tpl" rows="7" style="width:100%;padding:8px 10px;font-family:ui-monospace,monospace;font-size:12px" placeholder="Порожньо — стандартний вигляд"></textarea>
+                      <div style="font-size:12px;opacity:.7;margin-top:4px">Плейсхолдери: <code>{date}</code> <code>{weekday}</code> <code>{primary}</code> <code>{backup}</code> <code>{primary_mention}</code> <code>{backup_mention}</code>. Порожнє поле — стандартний текст.</div>
+                    </div>
+                    <div style="margin-top:14px;display:flex;gap:8px;align-items:center">
+                      <button class="btn btn-primary" type="button" onclick="saveDutyNotifySettings()">Зберегти</button>
+                      <span id="dn-status" style="font-size:13px"></span>
+                    </div>
+                  </div>`;
+                loadDutyNotifySettings();
+                return;
+            }
+            if (sub === 'security') {
                 breadcrumbs.innerHTML = `Головна / Адміністрування / Налаштування / Система / <b>Безпека</b>`;
                 container.innerHTML = `
                   <h2 style="margin:0 0 16px">Безпека</h2>
@@ -1647,7 +1694,69 @@ function isAdminUser() {
         window.slackImportSelectAll = slackImportSelectAll;
 
         
-        async function loadSecuritySettings() {
+        async 
+        function dnChannels() { return window._dnChannels || []; }
+        function dnRenderChannels() {
+            const box = document.getElementById('dn-ch-list');
+            if (!box) return;
+            const list = dnChannels();
+            if (!list.length) { box.innerHTML = '<div style="font-size:12px;opacity:.7">Каналів немає</div>'; return; }
+            box.innerHTML = list.map((c, i) => `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 8px;border:1px solid var(--line,#e2e8f0);border-radius:8px">
+              <code>${c.replace(/[&<>]/g, m => ({'&':'&','<':'<','>':'>'}[m]))}</code>
+              <button class="btn" type="button" onclick="dnRemoveChannel(${i})">Видалити</button>
+            </div>`).join('');
+        }
+        function dnAddChannel() {
+            const inp = document.getElementById('dn-ch-new');
+            const v = (inp && inp.value || '').trim();
+            if (!v) return;
+            window._dnChannels = dnChannels();
+            if (!window._dnChannels.includes(v)) window._dnChannels.push(v);
+            if (inp) inp.value = '';
+            dnRenderChannels();
+        }
+        function dnRemoveChannel(i) {
+            window._dnChannels = dnChannels().filter((_, idx) => idx !== i);
+            dnRenderChannels();
+        }
+        async function loadDutyNotifySettings() {
+            try {
+                const r = await fetch('/api/admin/settings', { credentials: 'same-origin' });
+                const d = await r.json();
+                const s = d.settings || d;
+                const dm = document.getElementById('dn-dm-on');
+                if (dm) dm.checked = (s.morning_duty_notify || '1') !== '0';
+                const dmt = document.getElementById('dn-dm-time');
+                if (dmt) dmt.value = (s.morning_duty_time || '08:00').slice(0,5);
+                const ch = document.getElementById('dn-ch-on');
+                if (ch) ch.checked = (s.duty_announce_enabled || '1') !== '0';
+                const cht = document.getElementById('dn-ch-time');
+                if (cht) cht.value = (s.duty_announce_time || '09:00').slice(0,5);
+                window._dnChannels = String(s.duty_announce_channels || '#devops-pm-direct,#devops_team').split(',').map(x => x.trim()).filter(Boolean);
+                dnRenderChannels();
+                const tpl = document.getElementById('dn-tpl');
+                if (tpl) tpl.value = s.duty_announce_template || '';
+            } catch (e) { console.error(e); }
+        }
+        async function saveDutyNotifySettings() {
+            const body = {
+                morning_duty_notify: (document.getElementById('dn-dm-on')||{}).checked ? '1' : '0',
+                morning_duty_time: String((document.getElementById('dn-dm-time')||{}).value || '08:00'),
+                duty_announce_enabled: (document.getElementById('dn-ch-on')||{}).checked ? '1' : '0',
+                duty_announce_time: String((document.getElementById('dn-ch-time')||{}).value || '09:00'),
+                duty_announce_channels: dnChannels().join(','),
+                duty_announce_template: String((document.getElementById('dn-tpl')||{}).value || '')
+            };
+            const r = await fetch('/api/admin/settings', {
+                method: 'PUT', credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            });
+            const st = document.getElementById('dn-status');
+            if (st) st.textContent = r.ok ? 'Збережено' : 'Помилка збереження';
+        }
+
+        function loadSecuritySettings() {
             try {
                 const r = await fetch('/api/admin/settings', { credentials: 'same-origin' });
                 const d = await r.json();
