@@ -65,11 +65,17 @@ func ensureDutyAnnounceTable() {
 
 func dutyAnnounceEnabled() bool {
 	v := strings.ToLower(strings.TrimSpace(os.Getenv("DUTY_ANNOUNCE_ENABLED")))
-	return !(v == "0" || v == "false" || v == "no" || v == "off")
+	if v == "0" || v == "false" || v == "no" || v == "off" {
+		return false
+	}
+	return settingOn("duty_announce_enabled", "1")
 }
 
 func dutyAnnounceChannels() []string {
-	raw := strings.TrimSpace(os.Getenv("DUTY_ANNOUNCE_CHANNELS"))
+	raw := strings.TrimSpace(getSetting("duty_announce_channels", ""))
+	if raw == "" {
+		raw = strings.TrimSpace(os.Getenv("DUTY_ANNOUNCE_CHANNELS"))
+	}
 	if raw == "" {
 		raw = defaultDutyAnnounceChannels
 	}
@@ -86,7 +92,10 @@ func dutyAnnounceChannels() []string {
 }
 
 func dutyAnnounceTime() (h, m int) {
-	v := strings.TrimSpace(os.Getenv("DUTY_ANNOUNCE_TIME"))
+	v := strings.TrimSpace(getSetting("duty_announce_time", ""))
+	if v == "" {
+		v = strings.TrimSpace(os.Getenv("DUTY_ANNOUNCE_TIME"))
+	}
 	if v == "" {
 		v = defaultDutyAnnounceTime
 	}
@@ -120,18 +129,29 @@ var ukWeekdays = [...]string{"неділя", "понеділок", "вівтор
 
 func dutyAnnounceText(kyivDay time.Time, primary, backup string) string {
 	day := kyivDay.Format("2006-01-02")
-	var b strings.Builder
-	fmt.Fprintf(&b, "🛡️ Чергові на сьогодні, %s (%s, Київ):\n", day, ukWeekdays[kyivDay.Weekday()])
-	if primary == "" {
-		b.WriteString("• Основний: ⚠️ не призначено\n")
-	} else {
-		fmt.Fprintf(&b, "• Основний: %s\n", slackMention(primary))
+	weekday := ukWeekdays[kyivDay.Weekday()]
+	priMention := "⚠️ не призначено"
+	if primary != "" {
+		priMention = slackMention(primary)
 	}
+	bakMention := "—"
 	if backup != "" && backup != primary {
-		fmt.Fprintf(&b, "• Дублюючий: %s\n", slackMention(backup))
-	} else {
-		b.WriteString("• Дублюючий: —\n")
+		bakMention = slackMention(backup)
 	}
+	if tpl := strings.TrimSpace(getSetting("duty_announce_template", "")); tpl != "" {
+		return strings.NewReplacer(
+			"{date}", day,
+			"{weekday}", weekday,
+			"{primary}", nz(primary, "не призначено"),
+			"{backup}", nz(backup, "—"),
+			"{primary_mention}", priMention,
+			"{backup_mention}", bakMention,
+		).Replace(tpl)
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "🛡️ Чергові на сьогодні, %s (%s, Київ):\n", day, weekday)
+	fmt.Fprintf(&b, "• Основний: %s\n", priMention)
+	fmt.Fprintf(&b, "• Дублюючий: %s\n", bakMention)
 	if wd := kyivDay.Weekday(); wd == time.Saturday || wd == time.Sunday {
 		b.WriteString("📅 Сьогодні вихідний — чергові на звʼязку за викликом.\n")
 	}
