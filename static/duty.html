@@ -8,11 +8,13 @@
   :root {
     --bg:#f8fafc; --fg:#0f172a; --muted:#64748b; --card:#fff; --line:#e2e8f0;
     --today:#dbeafe; --today-line:#2563eb; --we:#f1f5f9; --pri:#1e40af; --bak:#475569;
+    --note-bg:#eff6ff; --note-line:#bfdbfe; --note-fg:#1e3a8a;
   }
   @media (prefers-color-scheme: dark) {
     :root {
       --bg:#0b1220; --fg:#e5e7eb; --muted:#94a3b8; --card:#111827; --line:#1f2937;
       --today:#1e3a5f; --today-line:#60a5fa; --we:#0f172a; --pri:#93c5fd; --bak:#cbd5e1;
+      --note-bg:#172554; --note-line:#1e3a8a; --note-fg:#dbeafe;
     }
   }
   * { box-sizing: border-box; }
@@ -22,6 +24,11 @@
   .nav { display:flex; gap:6px; }
   button { border:1px solid var(--line); background:var(--card); color:var(--fg); border-radius:8px; padding:6px 10px; cursor:pointer; }
   button:hover { border-color:var(--today-line); }
+  .note {
+    margin:0 16px 10px; padding:10px 12px; border:1px solid var(--note-line);
+    background:var(--note-bg); color:var(--note-fg); border-radius:10px; font-size:13px;
+  }
+  .note code { font-weight:700; }
   main { padding:8px 16px 24px; }
   .err { color:#b91c1c; padding:8px 4px; }
   #cal { display:grid; grid-template-columns:repeat(7, minmax(0,1fr)); gap:6px; }
@@ -48,6 +55,7 @@
     <button type="button" id="next" aria-label="Наступний місяць">›</button>
   </div>
 </header>
+<p class="note">У разі потреби вирішення поточної швидкої проблеми звертайтесь до чергових через тег <code>@oncall</code>.</p>
 <main>
   <div id="err" class="err" hidden></div>
   <div id="cal"></div>
