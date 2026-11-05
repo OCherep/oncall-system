@@ -87,16 +87,24 @@ NOTIFY_ON_INCIDENT=1
 ```bash
 SLACK_ONCALL_GROUP_SYNC=1
 SLACK_ONCALL_HANDLE=oncall
+# обов'язково, якщо workspace дозволяє змінювати групи лише адмінам:
+SLACK_USER_TOKEN=xoxp-…
 # опційно, якщо handle нестандартний:
 # SLACK_ONCALL_USERGROUP=S0123456789
 ```
 
 Вимоги:
 
-- У бота scopes `usergroups:read` і `usergroups:write`.
 - Група `@oncall` уже існує у workspace.
 - У картках членів команди заповнений `slack_id` (`U…`). Без нього людину в групу не додасть.
 - Якщо на сьогодні немає жодного чергового з `slack_id`, склад не очищується.
+
+`permission_denied` — це не баг коду. Slack не дає bot-токену змінювати user groups,
+якщо у workspace «Create and edit user groups» виставлено на admins/owners.
+Два варіанти:
+
+1. Додати `SLACK_USER_TOKEN=xoxp-…` адміна з scope `usergroups:write` (рекомендовано).
+2. Або в Slack: Tools & settings → Workspace settings → Permissions → User Groups → everyone.
 
 Вимкнути без редеплою: `SLACK_ONCALL_GROUP_SYNC=0` або в `app_settings` ключ `slack_oncall_group_sync=0`.
 
