@@ -79,7 +79,30 @@ NOTIFY_ON_INCIDENT=1
 
 ---
 
-## 3. Telegram-дзеркало
+## 3. Slack: щоденний склад @oncall
+
+Щодня (і при заміні чергового того самого дня) система перезаписує user group `@oncall`
+так, щоб у ній були **лише** сьогоднішні основний і дублюючий.
+
+```bash
+SLACK_ONCALL_GROUP_SYNC=1
+SLACK_ONCALL_HANDLE=oncall
+# опційно, якщо handle нестандартний:
+# SLACK_ONCALL_USERGROUP=S0123456789
+```
+
+Вимоги:
+
+- У бота scopes `usergroups:read` і `usergroups:write`.
+- Група `@oncall` уже існує у workspace.
+- У картках членів команди заповнений `slack_id` (`U…`). Без нього людину в групу не додасть.
+- Якщо на сьогодні немає жодного чергового з `slack_id`, склад не очищується.
+
+Вимкнути без редеплою: `SLACK_ONCALL_GROUP_SYNC=0` або в `app_settings` ключ `slack_oncall_group_sync=0`.
+
+---
+
+## 4. Telegram-дзеркало
 
 ```bash
 TELEGRAM_BOT_TOKEN=123456:ABC...
@@ -88,7 +111,7 @@ TELEGRAM_CHAT_ID=-1001234567890
 
 ---
 
-## 4. Jira outbound (статус → тікет)
+## 5. Jira outbound (статус → тікет)
 
 ```bash
 JIRA_ENABLED=1
@@ -101,7 +124,7 @@ JIRA_API_TOKEN=...
 
 ---
 
-## 5. Деплой
+## 6. Деплой
 
 ```bash
 git pull origin grok
