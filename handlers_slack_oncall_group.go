@@ -6,10 +6,14 @@ package main
 // (новий день або заміна чергового).
 //
 // Env:
-//   SLACK_BOT_TOKEN          — той самий bot token (потрібні usergroups:read + usergroups:write)
+//   SLACK_BOT_TOKEN          — для пошуку групи (usergroups:read)
+//   SLACK_USER_TOKEN         — xoxp-… адміна/овнера з usergroups:write.
+//                            Slack дозволяє bot-токену змінювати групи лише якщо
+//                            у workspace «User Groups» виставлено на everyone. Інакше —
+//                            usergroups.users.update повертає permission_denied.
 //   SLACK_ONCALL_GROUP_SYNC  — 0/false вимикає (за замовчуванням увімкнено)
 //   SLACK_ONCALL_HANDLE      — handle групи без @ (за замовчуванням oncall)
-//   SLACK_ONCALL_USERGROUP   — опційно ID групи (S…), щоб не шукати за handle
+//   SLACK_ONCALL_USERGROUP   — опційно ID групи (S…)
 //
 // Вимикач без редеплою: app_settings slack_oncall_group_sync=0.
 
@@ -61,12 +65,22 @@ func oncallGroupHandle() string {
 	return h
 }
 
+// slackOncallWriteToken — токен, яким дозволено змінювати склад групи.
+// User-токен адміна працює завжди; bot-токен — лише якщо workspace дозволяє всім.
+func slackOncallWriteToken() string {
+	if t := strings.TrimSpace(os.Getenv("SLACK_USER_TOKEN")); t != "" {
+		return t
+	}
+	return slackBotToken()
+}
+
 func maybeSyncSlackOncallGroup() {
 	if db == nil || !slackOncallGroupEnabled() {
 		return
 	}
-	token := slackBotToken()
-	if token == "" {
+	bot := slackBotToken()
+	write := slackOncallWriteToken()
+	if bot == "" && write == "" {
 		return
 	}
 	day := kyivToday()
@@ -110,16 +124,27 @@ func maybeSyncSlackOncallGroup() {
 	if gid == "" {
 		gid = getSetting("slack_oncall_usergroup_id", "")
 	}
+	lookup := bot
+	if lookup == "" {
+		lookup = write
+	}
 	if gid == "" {
 		var err error
-		gid, err = slackFindUsergroup(token, handle)
+		gid, err = slackFindUsergroup(lookup, handle)
 		if err != nil {
 			log.Printf("slack @%s: не знайдено групу: %v", handle, err)
 			return
 		}
 		setSetting("slack_oncall_usergroup_id", gid)
 	}
-	if err := slackSetUsergroupUsers(token, gid, ids); err != nil {
+	if err := slackSetUsergroupUsers(write, gid, ids); err != nil {
+		if strings.Contains(err.Error(), "permission_denied") {
+			if getSetting("slack_oncall_group_denied", "") != day {
+				setSetting("slack_oncall_group_denied", day)
+				log.Printf("slack @%s (%s): permission_denied. Workspace дозволяє змінювати групи лише адмінам. Додайте SLACK_USER_TOKEN=xoxp-… адміна з usergroups:write, або в Slack: Tools & settings → Workspace settings → Permissions → User Groups → everyone", handle, gid)
+			}
+			return
+		}
 		log.Printf("slack @%s (%s): не оновлено: %v", handle, gid, err)
 		if strings.Contains(err.Error(), "subteam_not_found") || strings.Contains(err.Error(), "no_such_subteam") {
 			setSetting("slack_oncall_usergroup_id", "")
@@ -147,8 +172,8 @@ func slackFindUsergroup(token, handle string) (string, error) {
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(resp.Body)
 	var out struct {
-		OK        bool   `json:"ok"`
-		Error     string `json:"error"`
+		OK         bool   `json:"ok"`
+		Error      string `json:"error"`
 		Usergroups []struct {
 			ID     string `json:"id"`
 			Handle string `json:"handle"`
