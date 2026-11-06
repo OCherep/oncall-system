@@ -217,6 +217,7 @@ func jiraJQLUsable(jql string) bool {
 
 func handleJiraImport(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
+	jiraLastSearchRaw = ""
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST only", 405)
 		return
@@ -235,11 +236,14 @@ func handleJiraImport(w http.ResponseWriter, r *http.Request) {
 	}
 
 	source := "board"
+	jqlOrigin := "request"
 	jql := strings.TrimSpace(req.JQL)
 	if !jiraJQLUsable(jql) {
+		jqlOrigin = "setting"
 		jql = strings.TrimSpace(getSetting("jira_jql", ""))
 	}
 	if !jiraJQLUsable(jql) {
+		jqlOrigin = "env"
 		jql = strings.TrimSpace(os.Getenv("JIRA_JQL_FILTER"))
 	}
 
@@ -256,6 +260,7 @@ func handleJiraImport(w http.ResponseWriter, r *http.Request) {
 			boardErr = err.Error()
 			log.Printf("jira board %s: %v; fallback jql", jiraBoardID(), err)
 			source = "jql-fallback"
+			jqlOrigin = "fallback"
 			jql = `project in (Vidmind) AND (component = DevOps OR labels = DevOps) AND updated >= -60d ORDER BY updated DESC`
 			issues, err = jiraSearchIssues(jql, req.Max)
 		}
@@ -329,16 +334,21 @@ func handleJiraImport(w http.ResponseWriter, r *http.Request) {
 
 	msg := fmt.Sprintf("Знайдено %d, створено %d, оновлено %d, пропущено %d (%s)", len(issues), created, updated, skipped, source)
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"status":      "ok",
-		"source":      source,
-		"board":       jiraBoardID(),
-		"board_error": boardErr,
-		"jql":         jql,
-		"found":       len(issues),
-		"created":     created,
-		"updated":     updated,
-		"skipped":     skipped,
-		"message":     msg,
+		"status":         "ok",
+		"source":         source,
+		"jql_origin":     jqlOrigin,
+		"board":          jiraBoardID(),
+		"board_error":    boardErr,
+		"jql":            jql,
+		"found":          len(issues),
+		"created":        created,
+		"updated":        updated,
+		"skipped":        skipped,
+		"message":        msg,
+		"jira_base":      jiraBaseURL(),
+		"jira_email_set": jiraEmail() != "",
+		"jira_token_set": jiraAPIToken() != "",
+		"search_raw":     jiraLastSearchRaw,
 	})
 }
 
@@ -360,6 +370,8 @@ type jiraSearchIssue struct {
 		Updated string `json:"updated"`
 	} `json:"fields"`
 }
+
+var jiraLastSearchRaw string
 
 func jiraSearchIssues(jql string, max int) ([]jiraSearchIssue, error) {
 	if max <= 0 {
@@ -405,7 +417,10 @@ func jiraSearchIssues(jql string, max int) ([]jiraSearchIssue, error) {
 			IsLast        bool              `json:"isLast"`
 		}
 		if err := json.Unmarshal(raw, &out); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("jira search parse: %v; body: %s", err, truncateStr(string(raw), 300))
+		}
+		if len(out.Issues) == 0 && jiraLastSearchRaw == "" {
+			jiraLastSearchRaw = truncateStr(string(raw), 400)
 		}
 		all = append(all, out.Issues...)
 		if out.IsLast || out.NextPageToken == "" || len(out.Issues) == 0 {
