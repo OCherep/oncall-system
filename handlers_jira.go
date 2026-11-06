@@ -209,17 +209,10 @@ func jiraDo(method, url string, body []byte) error {
 	return nil
 }
 
-// jiraJQLUsable — старий фільтр component=DevOps не збігається з картками борду VID/10.
+// jiraJQLUsable — порожній JQL не використовуємо. Будь-який непорожній JQL
+// (включно з project in (Vidmind) AND component = DevOps) вважається валідним.
 func jiraJQLUsable(jql string) bool {
-	jql = strings.TrimSpace(jql)
-	if jql == "" {
-		return false
-	}
-	low := strings.ToLower(jql)
-	if strings.Contains(low, "component = devops") && !strings.Contains(low, "project = vid") && !strings.Contains(low, "project in (vid)") {
-		return false
-	}
-	return true
+	return strings.TrimSpace(jql) != ""
 }
 
 func handleJiraImport(w http.ResponseWriter, r *http.Request) {
@@ -261,7 +254,7 @@ func handleJiraImport(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			log.Printf("jira board %s: %v; fallback jql", jiraBoardID(), err)
 			source = "jql-fallback"
-			jql = `project = VID AND statusCategory != Done ORDER BY updated DESC`
+			jql = `project in (Vidmind) AND (component = DevOps OR labels = DevOps) AND updated >= -60d ORDER BY updated DESC`
 			issues, err = jiraSearchIssues(jql, req.Max)
 		}
 	}
