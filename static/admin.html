@@ -927,8 +927,20 @@ function isAdminUser() {
 
         
         
+        async function saveDailyJql() {
+            const jql = ((document.getElementById('daily-jql')||{}).value || '').trim();
+            const st = document.getElementById('daily-jira-st');
+            try {
+                const r = await fetch('/api/admin/settings', {
+                    method: 'PUT', credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ jira_jql: jql })
+                });
+                if (st) st.textContent = r.ok ? 'JQL збережено' : 'Помилка збереження';
+            } catch (e) { if (st) st.textContent = String(e); }
+        }
         async function runJiraImport() {
-            const jql = ((document.getElementById('jira-jql')||{}).value || '').trim();
+            const jql = ((document.getElementById('daily-jql')||document.getElementById('jira-jql')||{}).value || '').trim();
             const out = document.getElementById('jira-import-result');
             if (out) { out.style.display = 'block'; out.textContent = 'Запит…'; }
             try {
