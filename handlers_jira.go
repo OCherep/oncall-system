@@ -245,6 +245,7 @@ func handleJiraImport(w http.ResponseWriter, r *http.Request) {
 
 	var issues []jiraSearchIssue
 	var err error
+	boardErr := ""
 	if jiraJQLUsable(jql) {
 		source = "jql"
 		issues, err = jiraSearchIssues(jql, req.Max)
@@ -252,6 +253,7 @@ func handleJiraImport(w http.ResponseWriter, r *http.Request) {
 		jql = ""
 		issues, err = jiraBoardIssues(jiraBoardID(), req.Max)
 		if err != nil {
+			boardErr = err.Error()
 			log.Printf("jira board %s: %v; fallback jql", jiraBoardID(), err)
 			source = "jql-fallback"
 			jql = `project in (Vidmind) AND (component = DevOps OR labels = DevOps) AND updated >= -60d ORDER BY updated DESC`
@@ -260,7 +262,7 @@ func handleJiraImport(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		log.Printf("jira import search: %v", err)
-		http.Error(w, fmt.Sprintf(`{"error":%q}`, err.Error()), 502)
+		http.Error(w, fmt.Sprintf(`{"error":%q,"board_error":%q,"jql":%q}`, err.Error(), boardErr, jql), 502)
 		return
 	}
 
@@ -327,15 +329,16 @@ func handleJiraImport(w http.ResponseWriter, r *http.Request) {
 
 	msg := fmt.Sprintf("Знайдено %d, створено %d, оновлено %d, пропущено %d (%s)", len(issues), created, updated, skipped, source)
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"status":  "ok",
-		"source":  source,
-		"board":   jiraBoardID(),
-		"jql":     jql,
-		"found":   len(issues),
-		"created": created,
-		"updated": updated,
-		"skipped": skipped,
-		"message": msg,
+		"status":      "ok",
+		"source":      source,
+		"board":       jiraBoardID(),
+		"board_error": boardErr,
+		"jql":         jql,
+		"found":       len(issues),
+		"created":     created,
+		"updated":     updated,
+		"skipped":     skipped,
+		"message":     msg,
 	})
 }
 
